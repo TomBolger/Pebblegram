@@ -52,6 +52,14 @@ typedef enum {
   ActionMenuFullText
 } ActionMenuMode;
 
+typedef enum {
+  ActionItemCompose,
+  ActionItemCanned,
+  ActionItemDelete,
+  ActionItemFullText,
+  ActionItemRefresh
+} ActionItem;
+
 typedef struct {
   char id[MAX_ID];
   char title[48];
@@ -144,7 +152,10 @@ static void click_config_provider(void *context);
 static void copy_cstr(char *dest, size_t dest_size, const char *src);
 static void action_click_config_provider(void *context);
 static void action_window_unload(Window *window);
+static bool selected_message_is_truncated(void);
+static bool has_selected_message(void);
 static void recalc_message_layout(void);
+static void set_chat_scroll_offset(int target, bool animated);
 static void scroll_selected_message_into_view(bool animated);
 static void select_message_with_alignment(int index, bool align_bottom, bool animated);
 static void chat_scroll_timer_callback(void *data);
@@ -465,6 +476,13 @@ static void recalc_message_layout(void) {
   s_chat_scroll_offset = clamp_scroll_offset(s_chat_scroll_offset);
 }
 
+static void scroll_to_bottom(bool animated) {
+  recalc_message_layout();
+  s_selected_message = -1;
+  set_chat_scroll_offset(s_chat_content_height, animated);
+  destroy_unselected_message_images();
+}
+
 static void chat_scroll_timer_callback(void *data) {
   s_chat_scroll_timer = NULL;
   s_chat_scroll_step++;
@@ -559,13 +577,12 @@ static void render_messages(void) {
   if (!s_messages_root) {
     return;
   }
-
-  if (s_message_count > 0) {
-    if (s_selected_message < 0) {
-      s_selected_message = s_message_count - 1;
-    }
+  recalc_message_layout();
+  if (s_selected_message >= 0 && s_selected_message < s_message_count) {
+    scroll_selected_message_into_view(false);
+  } else {
+    scroll_to_bottom(false);
   }
-  scroll_selected_message_into_view(false);
 }
 
 static void messages_root_update_proc(Layer *layer, GContext *ctx) {
@@ -579,10 +596,6 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
                        GRect(8, 40, bounds.size.w - 16, 80), GTextOverflowModeWordWrap,
                        GTextAlignmentCenter, NULL);
     return;
-  }
-
-  if (s_selected_message < 0) {
-    s_selected_message = s_message_count - 1;
   }
 
   recalc_message_layout();
@@ -809,6 +822,9 @@ static void request_older_messages(void) {
     show_status("No older messages");
     return;
   }
+  if (s_loading_older_messages) {
+    return;
+  }
   destroy_message_images();
   s_loading_older_messages = true;
   show_status("Loading older...");
@@ -842,6 +858,15 @@ static void send_text_message(const char *text, bool as_reply) {
   }
   show_status("Sending...");
   send_command("send_message", s_current_chat_id, text, reply_to, NULL);
+}
+
+static bool has_selected_message(void) {
+  return s_selected_message >= 0 && s_selected_message < s_message_count;
+}
+
+static bool selected_message_is_truncated(void) {
+  return has_selected_message() &&
+         (int)strlen(s_messages[s_selected_message].text) > MESSAGE_PREVIEW_TEXT;
 }
 
 static void delete_selected_message(void) {
@@ -921,6 +946,8 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     int preserved_index = find_message_index_by_id(selected_id);
     if (preserved_index >= 0) {
       s_selected_message = preserved_index;
+    } else if (!s_user_scrolled_messages && !s_loading_older_messages) {
+      s_selected_message = -1;
     } else {
       s_selected_message = s_message_count > 0 ? (s_loading_older_messages ? 0 : s_message_count - 1) : -1;
     }
@@ -931,7 +958,11 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
       app_timer_register(1, show_chat_view_timer, NULL);
     } else if (s_view_state == ViewStateChat && s_messages_root) {
       recalc_message_layout();
-      scroll_selected_message_into_view(false);
+      if (s_selected_message >= 0) {
+        scroll_selected_message_into_view(false);
+      } else {
+        scroll_to_bottom(false);
+      }
       layer_mark_dirty(s_messages_root);
     }
     return;
@@ -976,15 +1007,12 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
       s_message_count = index + 1;
     }
     if (s_view_state == ViewStateChat && s_messages_root) {
-      if (s_selected_message < 0 || s_selected_message >= s_message_count) {
-        s_selected_message = s_message_count - 1;
-      }
       render_messages();
       layer_mark_dirty(s_messages_root);
     }
     if (s_message_count >= s_expected_rows) {
       if (!s_user_scrolled_messages) {
-        s_selected_message = s_message_count > 0 ? (s_loading_older_messages ? 0 : s_message_count - 1) : -1;
+        s_selected_message = s_loading_older_messages && s_message_count > 0 ? 0 : -1;
       } else if (s_selected_message < 0 || s_selected_message >= s_message_count) {
         s_selected_message = s_message_count > 0 ? s_message_count - 1 : -1;
       }
@@ -993,7 +1021,9 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
         s_chat_view_pending = true;
         app_timer_register(1, show_chat_view_timer, NULL);
       }
-      request_next_image();
+      if (s_selected_message >= 0) {
+        request_next_image();
+      }
     }
     return;
   }
@@ -1094,7 +1124,10 @@ static void close_action_window(void) {
 static int action_item_count(void) {
   switch (s_action_mode) {
     case ActionMenuMain:
-      return 6;
+      if (!has_selected_message()) {
+        return 3;
+      }
+      return selected_message_is_truncated() ? 5 : 4;
     case ActionMenuCanned:
       return MAX_CANNED;
     case ActionMenuConfirm:
@@ -1105,22 +1138,49 @@ static int action_item_count(void) {
   return 0;
 }
 
-static const char *action_item_title(int index) {
-  static const char *main_items[] = {
-    "Dictate Reply",
-    "Canned Reply",
-    "Delete Message",
-    "View Full Text",
-    "Load Older",
-    "Refresh"
+static ActionItem action_item_at(int index) {
+  if (!has_selected_message()) {
+    static const ActionItem compose_items[] = {
+      ActionItemCompose,
+      ActionItemCanned,
+      ActionItemRefresh
+    };
+    return compose_items[index];
+  }
+
+  static const ActionItem selected_items[] = {
+    ActionItemCompose,
+    ActionItemCanned,
+    ActionItemDelete,
+    ActionItemFullText,
+    ActionItemRefresh
   };
+  if (!selected_message_is_truncated() && index >= 3) {
+    index++;
+  }
+  return selected_items[index];
+}
+
+static const char *action_item_title(int index) {
   static const char *confirm_items[] = {
     "Send",
     "Cancel"
   };
 
   if (s_action_mode == ActionMenuMain) {
-    return main_items[index];
+    ActionItem item = action_item_at(index);
+    switch (item) {
+      case ActionItemCompose:
+        return has_selected_message() ? "Dictate Reply" : "New Message";
+      case ActionItemCanned:
+        return has_selected_message() ? "Canned Reply" : "Canned Message";
+      case ActionItemDelete:
+        return "Delete Message";
+      case ActionItemFullText:
+        return "View Full Message";
+      case ActionItemRefresh:
+        return "Refresh";
+    }
   }
   if (s_action_mode == ActionMenuCanned) {
     return s_canned[index];
@@ -1135,20 +1195,26 @@ static void action_layer_update_proc(Layer *layer, GContext *ctx) {
   graphics_context_set_fill_color(ctx, ACTION_BG);
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
 
-  int rail_w = 12;
+  int rail_w = ROUND_UI ? 0 : 12;
+  int content_x = ROUND_UI ? 28 : rail_w;
+  int content_w = bounds.size.w - content_x - (ROUND_UI ? 24 : 0);
   graphics_context_set_fill_color(ctx, APP_COLOR);
-  graphics_fill_rect(ctx, GRect(0, 0, rail_w, bounds.size.h), 0, GCornerNone);
-  graphics_context_set_fill_color(ctx, GColorWhite);
-  graphics_fill_circle(ctx, GPoint(rail_w / 2, 8), 2);
+  if (ROUND_UI) {
+    graphics_fill_rect(ctx, GRect(0, 0, 12, bounds.size.h), 0, GCornerNone);
+  } else {
+    graphics_fill_rect(ctx, GRect(0, 0, rail_w, bounds.size.h), 0, GCornerNone);
+    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_fill_circle(ctx, GPoint(rail_w / 2, 8), 2);
+  }
 
   int count = action_item_count();
-  int row_h = 32;
+  int row_h = ROUND_UI ? 30 : 32;
   int top = PG_MAX(0, (bounds.size.h - (count * row_h)) / 2);
 
   if (s_action_mode == ActionMenuConfirm) {
     graphics_context_set_text_color(ctx, ACTION_TEXT);
     graphics_draw_text(ctx, s_pending_text, fonts_get_system_font(FONT_KEY_GOTHIC_18),
-                       GRect(18, 10, bounds.size.w - 28, 70),
+                       GRect(content_x + 6, 10, content_w - 12, 70),
                        GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
     top = bounds.size.h - (count * row_h) - 8;
   }
@@ -1159,7 +1225,7 @@ static void action_layer_update_proc(Layer *layer, GContext *ctx) {
       text = s_messages[s_selected_message].text;
     }
     GFont full_font = fonts_get_system_font(FONT_KEY_GOTHIC_18);
-    int text_w = bounds.size.w - 28;
+    int text_w = content_w - 12;
     GSize text_size = graphics_text_layout_get_content_size(
       text, full_font, GRect(0, 0, text_w, 2000),
       GTextOverflowModeWordWrap, GTextAlignmentLeft
@@ -1170,18 +1236,18 @@ static void action_layer_update_proc(Layer *layer, GContext *ctx) {
 
     graphics_context_set_text_color(ctx, ACTION_TEXT_SELECTED);
     graphics_draw_text(ctx, text, full_font,
-                       GRect(18, 8 - s_full_text_scroll_offset, text_w, s_full_text_height),
+                       GRect(content_x + 6, 8 - s_full_text_scroll_offset, text_w, s_full_text_height),
                        GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
     return;
   }
 
   for (int i = 0; i < count; i++) {
-    GRect row = GRect(rail_w, top + (i * row_h), bounds.size.w - rail_w, row_h);
+    GRect row = GRect(content_x, top + (i * row_h), content_w, row_h);
     bool selected = i == s_action_selected;
 
     graphics_context_set_text_color(ctx, selected ? ACTION_TEXT_SELECTED : ACTION_TEXT);
     graphics_draw_text(ctx, action_item_title(i), fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
-                       GRect(row.origin.x + 8, row.origin.y + 5, row.size.w - 14, row.size.h - 6),
+                       GRect(row.origin.x + 4, row.origin.y + 4, row.size.w - 8, row.size.h - 5),
                        GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
   }
 }
@@ -1237,26 +1303,30 @@ static void action_select_click_handler(ClickRecognizerRef recognizer, void *con
   int selected = s_action_selected;
 
   if (s_action_mode == ActionMenuMain) {
-    if (selected == 0) {
-      close_action_window();
-      start_dictation();
-    } else if (selected == 1) {
-      s_action_mode = ActionMenuCanned;
-      s_action_selected = 0;
-      layer_mark_dirty(s_action_layer);
-    } else if (selected == 2) {
-      close_action_window();
-      delete_selected_message();
-    } else if (selected == 3) {
-      s_action_mode = ActionMenuFullText;
-      s_full_text_scroll_offset = 0;
-      layer_mark_dirty(s_action_layer);
-    } else if (selected == 4) {
-      close_action_window();
-      request_older_messages();
-    } else if (selected == 5) {
-      close_action_window();
-      request_messages(s_current_chat_id);
+    ActionItem item = action_item_at(selected);
+    switch (item) {
+      case ActionItemCompose:
+        close_action_window();
+        start_dictation();
+        break;
+      case ActionItemCanned:
+        s_action_mode = ActionMenuCanned;
+        s_action_selected = 0;
+        layer_mark_dirty(s_action_layer);
+        break;
+      case ActionItemDelete:
+        close_action_window();
+        delete_selected_message();
+        break;
+      case ActionItemFullText:
+        s_action_mode = ActionMenuFullText;
+        s_full_text_scroll_offset = 0;
+        layer_mark_dirty(s_action_layer);
+        break;
+      case ActionItemRefresh:
+        close_action_window();
+        request_messages(s_current_chat_id);
+        break;
     }
     return;
   }
@@ -1272,7 +1342,7 @@ static void action_select_click_handler(ClickRecognizerRef recognizer, void *con
   if (s_action_mode == ActionMenuConfirm) {
     close_action_window();
     if (selected == 0) {
-      send_text_message(s_pending_text, true);
+      send_text_message(s_pending_text, has_selected_message());
     }
   }
 }
@@ -1342,6 +1412,12 @@ static void main_up_click_handler(ClickRecognizerRef recognizer, void *context) 
   }
   s_user_scrolled_messages = true;
   recalc_message_layout();
+
+  if (s_selected_message < 0) {
+    select_message_with_alignment(s_message_count - 1, true, true);
+    return;
+  }
+
   GRect bounds = layer_get_bounds(s_messages_root);
   int margin = 6;
   int top = s_message_y[s_selected_message] - margin;
@@ -1352,6 +1428,8 @@ static void main_up_click_handler(ClickRecognizerRef recognizer, void *context) 
   }
   if (s_selected_message > 0) {
     select_message_with_alignment(s_selected_message - 1, true, true);
+  } else {
+    request_older_messages();
   }
 }
 
@@ -1365,6 +1443,12 @@ static void main_down_click_handler(ClickRecognizerRef recognizer, void *context
   }
   s_user_scrolled_messages = true;
   recalc_message_layout();
+
+  if (s_selected_message < 0) {
+    scroll_to_bottom(true);
+    return;
+  }
+
   GRect bounds = layer_get_bounds(s_messages_root);
   int margin = 6;
   int bottom = s_message_y[s_selected_message] + s_message_h[s_selected_message] + margin;
@@ -1375,6 +1459,8 @@ static void main_down_click_handler(ClickRecognizerRef recognizer, void *context
   }
   if (s_selected_message < s_message_count - 1) {
     select_message_with_alignment(s_selected_message + 1, false, true);
+  } else {
+    scroll_to_bottom(true);
   }
 }
 
@@ -1441,7 +1527,7 @@ static void main_window_unload(Window *window) {
 
 static void init(void) {
   s_view_state = ViewStateLoading;
-  s_selected_message = 0;
+  s_selected_message = -1;
 
   app_message_register_inbox_received(inbox_received_callback);
   app_message_register_inbox_dropped(inbox_dropped_callback);

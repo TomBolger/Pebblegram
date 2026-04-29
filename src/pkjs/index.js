@@ -31,6 +31,33 @@ function cannedReplies() {
   return getSetting('cannedReplies', 'Yes|No|On my way|Call you later|Thanks');
 }
 
+function normalizeBridgeUrl(value) {
+  value = String(value || '').trim();
+  if (!value) {
+    return '';
+  }
+  var configIndex = value.search(/\/config\.html(?:$|[?#])/);
+  if (configIndex >= 0) {
+    value = value.substring(0, configIndex);
+  }
+  value = value.replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(value) || /^pebblejs:/i.test(value)) {
+    return '';
+  }
+  return value;
+}
+
+function settingsPageUrl() {
+  var html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>Pebblegram Settings</title><style>body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f3f4f6;color:#111827}main{max-width:560px;margin:0 auto;padding:18px}h1{margin:0 0 16px;font-size:24px}label{display:block;margin:16px 0 6px;font-weight:700}input,textarea{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:6px;padding:11px;font:inherit;background:#fff}textarea{min-height:92px}.hint,.status{margin-top:6px;color:#64748b;font-size:13px;line-height:1.4}.status{color:#0f766e;min-height:18px}.row{display:flex;gap:10px;margin-top:14px}button{flex:1;border:0;border-radius:6px;background:#1683d8;color:#fff;padding:13px;font:inherit;font-weight:700}.secondary{background:#e2e8f0;color:#0f172a}</style></head>' +
+    '<body><main><h1>Pebblegram</h1><label for="bridgeUrl">Bridge URL</label><input id="bridgeUrl" type="url" placeholder="http://192.168.1.10:8765"><div class="hint">Use your bridge computer LAN, VPN, or hosted URL. The emulator can use http://127.0.0.1:8765.</div><label for="bridgeToken">Bridge token</label><input id="bridgeToken" type="password" placeholder="Optional, but recommended for hosted bridges"><label for="cannedReplies">Canned replies</label><textarea id="cannedReplies" placeholder="Yes|No|On my way|Call you later|Thanks"></textarea><div class="row"><button id="check" class="secondary" type="button">Check bridge</button><button id="save" type="button">Save</button></div><div id="status" class="status"></div></main>' +
+    '<script>function p(){var r={};function read(x){x.split("&").forEach(function(part){if(!part)return;var i=part.indexOf("="),k=i<0?part:part.substring(0,i),v=i<0?"":part.substring(i+1);r[decodeURIComponent(k)]=decodeURIComponent(v.replace(/\\+/g," "))})}if(location.search)read(location.search.substring(1));if(location.hash)read(location.hash.substring(1));return r}var q=p(),u=document.getElementById("bridgeUrl"),t=document.getElementById("bridgeToken"),c=document.getElementById("cannedReplies"),s=document.getElementById("status");u.value=q.bridgeUrl||"http://127.0.0.1:8765";t.value=q.bridgeToken||"";c.value=q.cannedReplies||"Yes|No|On my way|Call you later|Thanks";function st(x){s.textContent=x}function check(){var h={"ngrok-skip-browser-warning":"true"},url=u.value.replace(/\\/+$/,"")+"/v1/chats?limit=1";if(t.value.trim())h.Authorization="Bearer "+t.value.trim();fetch(url,{headers:h}).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}).then(function(d){st(d&&d.chats?"Bridge is reachable.":"Bridge responded, but not cleanly.")}).catch(function(e){st("Bridge check failed: "+e.message)})}document.getElementById("check").onclick=function(){st("Checking...");setTimeout(check,0)};document.getElementById("save").onclick=function(){var d={bridgeUrl:u.value.trim(),bridgeToken:t.value.trim(),cannedReplies:c.value.trim()};location.href="pebblejs://close#"+encodeURIComponent(JSON.stringify(d))};<\/script></body></html>';
+  return 'data:text/html;charset=utf-8,' + encodeURIComponent(html) +
+    '#bridgeUrl=' + encodeURIComponent(bridgeUrl()) +
+    '&bridgeToken=' + encodeURIComponent(bridgeToken()) +
+    '&cannedReplies=' + encodeURIComponent(cannedReplies());
+}
+
 function configureForPlatform() {
   var info = null;
   try {
@@ -352,7 +379,8 @@ function getOlderMessages(chatId, beforeId) {
           merged.push(message);
         }
       });
-      rememberMessages(chatId, merged);
+      messageCache[chatId] = merged.slice(0, MAX_MESSAGE_ROWS);
+      writeJsonCache('messages:' + chatId, messageCache[chatId]);
       sendMessageRows(messageCache[chatId]);
       done('messages_done', Math.min(messageCache[chatId].length, MAX_MESSAGE_ROWS));
     });
@@ -460,10 +488,7 @@ Pebble.addEventListener('appmessage', function(event) {
 });
 
 Pebble.addEventListener('showConfiguration', function() {
-  var url = bridgeUrl() + '/config.html#bridgeUrl=' + encodeURIComponent(bridgeUrl()) +
-    '&bridgeToken=' + encodeURIComponent(bridgeToken()) +
-    '&cannedReplies=' + encodeURIComponent(cannedReplies());
-  Pebble.openURL(url);
+  Pebble.openURL(settingsPageUrl());
 });
 
 Pebble.addEventListener('webviewclosed', function(event) {
@@ -478,8 +503,9 @@ Pebble.addEventListener('webviewclosed', function(event) {
     return;
   }
 
-  if (data.bridgeUrl) {
-    localStorage.setItem('bridgeUrl', data.bridgeUrl);
+  var nextBridgeUrl = normalizeBridgeUrl(data.bridgeUrl);
+  if (nextBridgeUrl) {
+    localStorage.setItem('bridgeUrl', nextBridgeUrl);
   }
   localStorage.setItem('bridgeToken', data.bridgeToken || '');
   if (data.cannedReplies) {
