@@ -1,8 +1,10 @@
 {
   "name": "Pebblegram",
   "author": "Bolger Innovations",
-  "version": "1.0.0",
-  "keywords": ["pebble-app"],
+  "version": "1.1.0",
+  "keywords": [
+    "pebble-app"
+  ],
   "dependencies": {},
   "pebble": {
     "displayName": "Pebblegram",
