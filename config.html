@@ -1,0 +1,228 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pebblegram Settings</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f3f4f6;
+      color: #111827;
+    }
+    main {
+      max-width: 560px;
+      margin: 0 auto;
+      padding: 18px;
+    }
+    h1 {
+      margin: 0 0 16px;
+      font-size: 24px;
+      font-weight: 700;
+    }
+    label {
+      display: block;
+      margin: 16px 0 6px;
+      font-weight: 600;
+    }
+    input, textarea {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 11px;
+      font: inherit;
+      background: #fff;
+    }
+    textarea {
+      min-height: 92px;
+      resize: vertical;
+    }
+    .hint {
+      margin-top: 6px;
+      color: #64748b;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #0f766e;
+      min-height: 18px;
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    button {
+      flex: 1;
+      border: 0;
+      border-radius: 6px;
+      background: #1683d8;
+      color: #fff;
+      padding: 13px;
+      font: inherit;
+      font-weight: 700;
+    }
+    button.secondary {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Pebblegram</h1>
+
+    <label for="bridgeUrl">Bridge URL</label>
+    <input id="bridgeUrl" type="url" placeholder="http://192.168.1.10:8765">
+    <div class="hint">Use your bridge computer's LAN, VPN, or hosted URL. The emulator can use http://127.0.0.1:8765. On Android, point this at a host the phone can reach, such as your LAN IP or a Docker host address.</div>
+
+    <label for="bridgeToken">Bridge token</label>
+    <input id="bridgeToken" type="password" placeholder="Optional, but recommended for hosted bridges">
+    <div class="hint">Set this to the same value as PEBBLEGRAM_TOKEN on the bridge. Leave it blank only for local trusted testing.</div>
+
+    <label for="cannedReplies">Canned replies</label>
+    <textarea id="cannedReplies" placeholder="Yes|No|On my way|Call you later|Thanks"></textarea>
+    <div class="hint">Separate replies with a vertical bar. The phase-1 watch app uses the default five replies; editable watch sync is reserved for the next pass.</div>
+
+    <div class="row">
+      <button id="check" class="secondary" type="button">Check bridge</button>
+      <button id="save" type="button">Save</button>
+    </div>
+    <div id="status" class="status"></div>
+  </main>
+
+  <script>
+    function params() {
+      var result = {};
+      function read(raw) {
+        raw.split('&').forEach(function(part) {
+          if (!part) return;
+          var separator = part.indexOf('=');
+          var key = separator === -1 ? part : part.substring(0, separator);
+          var value = separator === -1 ? '' : part.substring(separator + 1);
+          result[decodeURIComponent(key)] = decodeURIComponent(value.replace(/\+/g, ' '));
+        });
+      }
+      if (window.location.search) {
+        read(window.location.search.substring(1));
+      }
+      if (window.location.hash) {
+        read(window.location.hash.substring(1));
+      }
+      return result;
+    }
+
+    function normalizeBridgeUrl(value) {
+      value = String(value || '').trim();
+      if (!value) {
+        return '';
+      }
+      var configIndex = value.search(/\/config\.html(?:$|[?#])/);
+      if (configIndex >= 0) {
+        value = value.substring(0, configIndex);
+      }
+      value = value.replace(/\/+$/, '');
+      if (!/^https?:\/\//i.test(value) || /^pebblejs:/i.test(value)) {
+        return '';
+      }
+      return value;
+    }
+
+    var query = params();
+    var bridgeUrl = document.getElementById('bridgeUrl');
+    var bridgeToken = document.getElementById('bridgeToken');
+    var cannedReplies = document.getElementById('cannedReplies');
+    var status = document.getElementById('status');
+    bridgeUrl.value = normalizeBridgeUrl(query.bridgeUrl) || 'http://127.0.0.1:8765';
+    bridgeToken.value = query.bridgeToken || '';
+    cannedReplies.value = query.cannedReplies || 'Yes|No|On my way|Call you later|Thanks';
+
+    function setStatus(text) {
+      status.textContent = text;
+    }
+
+    function checkBridge() {
+      var headers = {'ngrok-skip-browser-warning': 'true'};
+      var baseUrl = normalizeBridgeUrl(bridgeUrl.value);
+      if (!baseUrl) {
+        setStatus('Bridge check failed: enter an http or https URL');
+        return;
+      }
+      var url = baseUrl + '/v1/chats?limit=1';
+      if (bridgeToken.value.trim()) {
+        headers.Authorization = 'Bearer ' + bridgeToken.value.trim();
+      }
+
+      if (window.fetch) {
+        fetch(url, {headers: headers})
+          .then(function(resp) {
+            if (!resp.ok) {
+              throw new Error('HTTP ' + resp.status);
+            }
+            return resp.json();
+          })
+          .then(function(data) {
+            setStatus(data && data.chats ? 'Bridge is reachable.' : 'Bridge responded, but not cleanly.');
+          })
+          .catch(function(err) {
+            setStatus('Bridge check failed: ' + err.message);
+          });
+        return;
+      }
+
+      var req = new XMLHttpRequest();
+      req.open('GET', url, true);
+      req.timeout = 15000;
+      Object.keys(headers).forEach(function(name) {
+        req.setRequestHeader(name, headers[name]);
+      });
+      req.onreadystatechange = function() {
+        if (req.readyState !== 4) {
+          return;
+        }
+        if (req.status < 200 || req.status >= 300) {
+          setStatus('Bridge check failed: HTTP ' + req.status);
+          return;
+        }
+        try {
+          var data = JSON.parse(req.responseText || '{}');
+          setStatus(data && data.chats ? 'Bridge is reachable.' : 'Bridge responded, but not cleanly.');
+        } catch (e) {
+          setStatus('Bridge check failed: bad JSON');
+        }
+      };
+      req.onerror = function() {
+        setStatus('Bridge check failed: network error');
+      };
+      req.ontimeout = function() {
+        setStatus('Bridge check failed: timeout');
+      };
+      req.send();
+    }
+
+    document.getElementById('check').addEventListener('click', function() {
+      setStatus('Checking...');
+      setTimeout(checkBridge, 0);
+    });
+
+    document.getElementById('save').addEventListener('click', function() {
+      var data = {
+        bridgeUrl: normalizeBridgeUrl(bridgeUrl.value),
+        bridgeToken: bridgeToken.value.trim(),
+        cannedReplies: cannedReplies.value.trim()
+      };
+      if (!data.bridgeUrl) {
+        setStatus('Enter an http or https bridge URL.');
+        return;
+      }
+      var returnTo = query.return_to || 'pebblejs://close#';
+      var separator = returnTo.indexOf('#') === -1 ? '#' : '';
+      document.location = returnTo + separator + encodeURIComponent(JSON.stringify(data));
+    });
+  </script>
+</body>
+</html>
