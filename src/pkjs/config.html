@@ -101,8 +101,10 @@
       function read(raw) {
         raw.split('&').forEach(function(part) {
           if (!part) return;
-          var pieces = part.split('=');
-          result[decodeURIComponent(pieces[0])] = decodeURIComponent((pieces[1] || '').replace(/\+/g, ' '));
+          var separator = part.indexOf('=');
+          var key = separator === -1 ? part : part.substring(0, separator);
+          var value = separator === -1 ? '' : part.substring(separator + 1);
+          result[decodeURIComponent(key)] = decodeURIComponent(value.replace(/\+/g, ' '));
         });
       }
       if (window.location.search) {
@@ -114,12 +116,28 @@
       return result;
     }
 
+    function normalizeBridgeUrl(value) {
+      value = String(value || '').trim();
+      if (!value) {
+        return '';
+      }
+      var configIndex = value.search(/\/config\.html(?:$|[?#])/);
+      if (configIndex >= 0) {
+        value = value.substring(0, configIndex);
+      }
+      value = value.replace(/\/+$/, '');
+      if (!/^https?:\/\//i.test(value) || /^pebblejs:/i.test(value)) {
+        return '';
+      }
+      return value;
+    }
+
     var query = params();
     var bridgeUrl = document.getElementById('bridgeUrl');
     var bridgeToken = document.getElementById('bridgeToken');
     var cannedReplies = document.getElementById('cannedReplies');
     var status = document.getElementById('status');
-    bridgeUrl.value = query.bridgeUrl || 'http://127.0.0.1:8765';
+    bridgeUrl.value = normalizeBridgeUrl(query.bridgeUrl) || 'http://127.0.0.1:8765';
     bridgeToken.value = query.bridgeToken || '';
     cannedReplies.value = query.cannedReplies || 'Yes|No|On my way|Call you later|Thanks';
 
@@ -129,7 +147,12 @@
 
     function checkBridge() {
       var headers = {'ngrok-skip-browser-warning': 'true'};
-      var url = bridgeUrl.value.replace(/\/+$/, '') + '/v1/chats?limit=1';
+      var baseUrl = normalizeBridgeUrl(bridgeUrl.value);
+      if (!baseUrl) {
+        setStatus('Bridge check failed: enter an http or https URL');
+        return;
+      }
+      var url = baseUrl + '/v1/chats?limit=1';
       if (bridgeToken.value.trim()) {
         headers.Authorization = 'Bearer ' + bridgeToken.value.trim();
       }
@@ -188,10 +211,14 @@
 
     document.getElementById('save').addEventListener('click', function() {
       var data = {
-        bridgeUrl: bridgeUrl.value.trim(),
+        bridgeUrl: normalizeBridgeUrl(bridgeUrl.value),
         bridgeToken: bridgeToken.value.trim(),
         cannedReplies: cannedReplies.value.trim()
       };
+      if (!data.bridgeUrl) {
+        setStatus('Enter an http or https bridge URL.');
+        return;
+      }
       var returnTo = query.return_to || 'pebblejs://close#';
       var separator = returnTo.indexOf('#') === -1 ? '#' : '';
       document.location = returnTo + separator + encodeURIComponent(JSON.stringify(data));
