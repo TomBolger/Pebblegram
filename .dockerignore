@@ -1,0 +1,7 @@
+.venv
+build
+data
+*.pbw
+*.session
+pebble_screenshot_*.png
+.lock-waf_linux_build

@@ -1,0 +1,3 @@
+{$PEBBLEGRAM_DOMAIN} {
+  reverse_proxy bridge:8765
+}

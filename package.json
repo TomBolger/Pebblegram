@@ -1,0 +1,55 @@
+{
+  "name": "Pebblegram",
+  "author": "Bolger Innovations",
+  "version": "1.0.0",
+  "keywords": ["pebble-app"],
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Pebblegram",
+    "uuid": "2430a9d0-5be9-4850-b259-821030705e46",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "basalt",
+      "diorite",
+      "emery",
+      "gabbro"
+    ],
+    "capabilities": [
+      "configurable"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": [
+      "Command",
+      "Type",
+      "Index",
+      "Count",
+      "ChatId",
+      "MessageId",
+      "ReplyTo",
+      "Sender",
+      "Text",
+      "IsOutgoing",
+      "IsUnread",
+      "BridgeUrl",
+      "CannedReplies",
+      "Status",
+      "Error",
+      "ImageToken",
+      "ImageData",
+      "ImageSize"
+    ],
+    "resources": {
+      "media": [
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MENU_ICON",
+          "file": "images/menu_icon.png",
+          "menuIcon": true
+        }
+      ]
+    }
+  }
+}
