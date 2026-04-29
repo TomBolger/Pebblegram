@@ -1,0 +1,16 @@
+build/
+bin/
+*.pbw
+!release/*.pbw
+*.log
+*.pyc
+__pycache__/
+
+data/*
+!data/.gitkeep
+!data/.env.example
+
+*.session
+*.session-journal
+pebble_screenshot_*.png
+*:Zone.Identifier

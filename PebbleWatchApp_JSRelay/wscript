@@ -1,3 +1,0 @@
-def build(bld):
-    bld.load('pebble_sdk')
-    bld.pbl_program(source='src/main.c')

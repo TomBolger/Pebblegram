@@ -1,0 +1,20 @@
+services:
+  bridge:
+    build: .
+    image: pebblegram-bridge:latest
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+      TELEGRAM_PHONE: ${TELEGRAM_PHONE:-}
+      TELEGRAM_SESSION: /data/pebblegram
+      TELEGRAM_ALLOW_READ_CONTENT: ${TELEGRAM_ALLOW_READ_CONTENT:-1}
+      TELEGRAM_ALLOW_SEND: ${TELEGRAM_ALLOW_SEND:-1}
+      TELEGRAM_ALLOW_DELETE: ${TELEGRAM_ALLOW_DELETE:-0}
+      PEBBLEGRAM_TOKEN: ${PEBBLEGRAM_TOKEN:-}
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./data:/data
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
