@@ -9,8 +9,9 @@ hash, phone number, then generate and print a bridge token.
 docker compose run --rm --service-ports bridge
 ```
 
-The setup is saved to `./data/pebblegram.env`, and the Telegram session is
-stored in `./data`. After the first login succeeds, keep it running with:
+The setup is saved to `${PEBBLEGRAM_DATA_DIR:-./data}/pebblegram.env`, and the
+Telegram session is stored in the same data directory. After the first login
+succeeds, keep it running with:
 
 ```bash
 docker compose up -d
@@ -36,7 +37,10 @@ Pebblegram settings should point to a reachable URL, for example:
 - `http://192.168.1.50:8765` for an Android phone on the same LAN
 - `http://host.docker.internal:8765` when that hostname is available from the phone-side app
 
-The session is stored in `./data` through the compose volume mount.
+The session is stored in `${PEBBLEGRAM_DATA_DIR:-./data}` through the compose
+volume mount. For day-to-day development with live data, set
+`PEBBLEGRAM_DATA_DIR=$HOME/pebblegram-live/data` in `.env` so personal
+sessions, tokens, ngrok config, and logs stay outside the Git checkout.
 
 Sending replies is enabled by default with `TELEGRAM_ALLOW_SEND=1`. Message deletion is disabled by default with `TELEGRAM_ALLOW_DELETE=0`.
 

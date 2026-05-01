@@ -100,6 +100,11 @@ python3 tools/bridge.py --mode telegram --host 0.0.0.0 --port 8765
 
 Docker deployment details are in [docs/docker.md](docs/docker.md).
 
+For a personal live bridge, keep runtime state outside this source checkout.
+Use a directory such as `/srv/pebblegram/data` or `$HOME/pebblegram-live/data`
+for `telegram.env`, `pebblegram.session`, ngrok config, and logs, then point
+`PEBBLEGRAM_DATA_DIR` at it. Code stays in Git; live Telegram state does not.
+
 ## Project Structure
 
 - `src/c/Pebblegram.c`: watch UI, AppMessage handling, scrolling, image decoding, actions, dictation

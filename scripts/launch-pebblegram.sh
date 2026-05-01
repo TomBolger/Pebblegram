@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="${PEBBLEGRAM_DIR:-/home/thomas/pebble/Pebblegram}"
+APP_DIR="${PEBBLEGRAM_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+RUNTIME_DIR="${PEBBLEGRAM_RUNTIME_DIR:-${HOME}/pebblegram-live}"
+DATA_DIR="${PEBBLEGRAM_DATA_DIR:-${RUNTIME_DIR}/data}"
 HOST="${PEBBLEGRAM_HOST:-0.0.0.0}"
 PORT="${PEBBLEGRAM_PORT:-8766}"
 MODE="${PEBBLEGRAM_MODE:-telegram}"
-LOG_DIR="${PEBBLEGRAM_LOG_DIR:-/tmp}"
+LOG_DIR="${PEBBLEGRAM_LOG_DIR:-${RUNTIME_DIR}/logs}"
 BRIDGE_LOG="${LOG_DIR}/pebblegram-bridge.log"
 NGROK_LOG="${LOG_DIR}/pebblegram-ngrok.log"
 
 cd "${APP_DIR}"
+mkdir -p "${DATA_DIR}" "${LOG_DIR}"
 
-if [[ -f data/telegram.env ]]; then
+if [[ -f "${DATA_DIR}/telegram.env" ]]; then
   set -a
-  # shellcheck disable=SC1091
-  source data/telegram.env
+  # shellcheck disable=SC1090
+  source "${DATA_DIR}/telegram.env"
   set +a
 fi
 
@@ -29,7 +32,7 @@ if ! pgrep -f "tools/bridge.py --mode ${MODE} --host ${HOST} --port ${PORT}" >/d
     TELEGRAM_API_ID="${TELEGRAM_API_ID:-}" \
     TELEGRAM_API_HASH="${TELEGRAM_API_HASH:-}" \
     TELEGRAM_PHONE="${TELEGRAM_PHONE:-}" \
-    TELEGRAM_SESSION="${TELEGRAM_SESSION:-pebblegram}" \
+    TELEGRAM_SESSION="${TELEGRAM_SESSION:-${DATA_DIR}/pebblegram}" \
     TELEGRAM_ALLOW_READ_CONTENT="${TELEGRAM_ALLOW_READ_CONTENT:-1}" \
     TELEGRAM_ALLOW_SEND="${TELEGRAM_ALLOW_SEND:-1}" \
     TELEGRAM_ALLOW_DELETE="${TELEGRAM_ALLOW_DELETE:-0}" \
@@ -42,7 +45,7 @@ else
 fi
 
 if ! pgrep -f "bin/ngrok http ${PORT}" >/dev/null; then
-  setsid bin/ngrok http "${PORT}" --config data/ngrok.yml --log=stdout > "${NGROK_LOG}" 2>&1 &
+  setsid bin/ngrok http "${PORT}" --config "${DATA_DIR}/ngrok.yml" --log=stdout > "${NGROK_LOG}" 2>&1 &
   echo "Started ngrok for port ${PORT}; log: ${NGROK_LOG}"
 else
   echo "ngrok already appears to be running; log: ${NGROK_LOG}"

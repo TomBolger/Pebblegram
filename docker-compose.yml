@@ -14,7 +14,7 @@ services:
     ports:
       - "8765:8765"
     volumes:
-      - ./data:/data
+      - ${PEBBLEGRAM_DATA_DIR:-./data}:/data
     stdin_open: true
     tty: true
     restart: unless-stopped

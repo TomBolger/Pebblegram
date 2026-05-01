@@ -1,5 +1,6 @@
 build/
 bin/
+.env
 *.pbw
 !release/*.pbw
 *.log

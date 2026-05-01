@@ -11,9 +11,11 @@ var IMAGE_SIZE = 120;
 var IMAGE_COLORS = 64;
 var IMAGE_CHUNK_SIZE = 500;
 var REQUEST_TIMEOUT_MS = 15000;
+var STALE_REFRESH_MS = 30000;
 var sendQueue = [];
 var sending = false;
 var messageCache = {};
+var refreshTimers = {};
 
 function getSetting(name, fallback) {
   var value = localStorage.getItem(name);
@@ -69,9 +71,18 @@ function configureForPlatform() {
     MAX_MESSAGE_TEXT = 520;
     IMAGE_SIZE = 156;
     IMAGE_CHUNK_SIZE = 500;
+  } else if (info && info.platform === 'gabbro') {
+    INITIAL_MESSAGE_ROWS = 12;
+    OLDER_MESSAGE_ROWS = 8;
+    MAX_MESSAGE_ROWS = 24;
+    MAX_MESSAGE_TEXT = 520;
+    IMAGE_SIZE = 118;
+    IMAGE_CHUNK_SIZE = 500;
   } else if (info && info.platform === 'diorite') {
     IMAGE_SIZE = 96;
     IMAGE_COLORS = 4;
+  } else if (info && info.platform === 'basalt') {
+    IMAGE_SIZE = 120;
   }
 }
 
@@ -124,6 +135,22 @@ function done(kind, count) {
   payload[MessageKeys.Type] = kind;
   payload[MessageKeys.Count] = count;
   sendToWatch(payload);
+}
+
+function beginCachedRefresh(name) {
+  clearCachedRefresh(name);
+  status('Refreshing...');
+  refreshTimers[name] = setTimeout(function() {
+    status('Disconnected');
+    delete refreshTimers[name];
+  }, STALE_REFRESH_MS);
+}
+
+function clearCachedRefresh(name) {
+  if (refreshTimers[name]) {
+    clearTimeout(refreshTimers[name]);
+    delete refreshTimers[name];
+  }
 }
 
 function clampText(value, maxLength) {
@@ -315,6 +342,7 @@ function getChats() {
   if (cached && cached.length) {
     sendChatRows(cached);
     done('chats_done', Math.min(cached.length, MAX_ROWS));
+    beginCachedRefresh('chats');
   } else {
     status('Loading chats...');
   }
@@ -326,6 +354,7 @@ function getChats() {
       }
       return;
     }
+    clearCachedRefresh('chats');
     var chats = data.chats || [];
     writeJsonCache('chats', chats);
     sendChatRows(chats);
@@ -334,7 +363,10 @@ function getChats() {
 }
 
 function getMessages(chatId) {
-  if (!sendCachedMessages(chatId)) {
+  var sentCached = sendCachedMessages(chatId);
+  if (sentCached) {
+    beginCachedRefresh('messages:' + chatId);
+  } else {
     status('Loading messages...');
   }
   xhrJson('GET', bridgeUrl() + '/v1/chats/' + encodeURIComponent(chatId) + '/messages?limit=' + INITIAL_MESSAGE_ROWS, null,
@@ -346,6 +378,7 @@ function getMessages(chatId) {
         }
         return;
       }
+      clearCachedRefresh('messages:' + chatId);
       var messages = data.messages || [];
       rememberMessages(chatId, messages);
       sendMessageRows(messages);

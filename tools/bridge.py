@@ -255,8 +255,13 @@ class TelethonBackend(Backend):
         for message in reversed(messages):
             has_photo = getattr(message, "photo", None) is not None
             text = message.message or ""
-            if has_photo and text.strip().lower() in ("[photo]", "[photo preview placeholder]"):
-                text = ""
+            if has_photo:
+                normalized_text = text.strip().lower()
+                if normalized_text in ("[photo]", "[photo preview placeholder]"):
+                    text = ""
+                else:
+                    text = text.replace("[Photo Preview Placeholder]", "")
+                    text = text.replace("[photo preview placeholder]", "").strip()
             if not text and not has_photo:
                 continue
             rows.append(
