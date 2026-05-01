@@ -690,13 +690,7 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
                               y + bubble_h - IMAGE_THUMB_SIZE - 4,
                               IMAGE_THUMB_SIZE, IMAGE_THUMB_SIZE);
       if (message->image_bitmap) {
-        GRect bitmap_bounds = gbitmap_get_bounds(message->image_bitmap);
-        int draw_w = PG_MIN(bitmap_bounds.size.w, image_rect.size.w);
-        int draw_h = PG_MIN(bitmap_bounds.size.h, image_rect.size.h);
-        GRect draw_rect = GRect(image_rect.origin.x + (image_rect.size.w - draw_w) / 2,
-                                image_rect.origin.y + (image_rect.size.h - draw_h) / 2,
-                                draw_w, draw_h);
-        graphics_draw_bitmap_in_rect(ctx, message->image_bitmap, draw_rect);
+        graphics_draw_bitmap_in_rect(ctx, message->image_bitmap, image_rect);
       } else {
         const char *label = message->image_failed ? "Photo failed" :
                             (message->image_requested ? "Loading photo" : "Photo");
