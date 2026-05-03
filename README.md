@@ -33,7 +33,7 @@ Pebblegram intentionally uses a bridge service because Telegram does not provide
 
 1. Install [release/Pebblegram.pbw](release/Pebblegram.pbw) with the Pebble/Rebble mobile app.
 2. Download and unzip [release/pebblegram-helper.zip](release/pebblegram-helper.zip).
-3. Run setup from the unzipped helper folder.
+3. Run setup from the unzipped helper folder. I recommend the dockerless.bat at this time, as it's the most tested and reliable setup path. Feel free to use and test the docker option if you'd like to help out.
 
 macOS/Linux:
 
