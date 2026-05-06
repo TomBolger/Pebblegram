@@ -11,11 +11,11 @@ var IMAGE_SIZE = 120;
 var IMAGE_COLORS = 64;
 var IMAGE_CHUNK_SIZE = 500;
 var REQUEST_TIMEOUT_MS = 15000;
-var STALE_REFRESH_MS = 30000;
+var PREFETCH_CHAT_COUNT = 4;
 var sendQueue = [];
 var sending = false;
-var messageCache = {};
-var refreshTimers = {};
+var messageStore = {};
+var prefetching = {};
 
 function getSetting(name, fallback) {
   var value = localStorage.getItem(name);
@@ -137,49 +137,12 @@ function done(kind, count) {
   sendToWatch(payload);
 }
 
-function beginCachedRefresh(name) {
-  clearCachedRefresh(name);
-  status('Refreshing...');
-  refreshTimers[name] = setTimeout(function() {
-    status('Disconnected');
-    delete refreshTimers[name];
-  }, STALE_REFRESH_MS);
-}
-
-function clearCachedRefresh(name) {
-  if (refreshTimers[name]) {
-    clearTimeout(refreshTimers[name]);
-    delete refreshTimers[name];
-  }
-}
-
 function clampText(value, maxLength) {
   value = String(value || '');
   if (value.length <= maxLength) {
     return value;
   }
   return value.substring(0, maxLength - 1);
-}
-
-function cacheKey(name) {
-  return 'cache:' + bridgeUrl() + ':' + name;
-}
-
-function readJsonCache(name) {
-  try {
-    var value = localStorage.getItem(cacheKey(name));
-    return value ? JSON.parse(value) : null;
-  } catch (e) {
-    return null;
-  }
-}
-
-function writeJsonCache(name, value) {
-  try {
-    localStorage.setItem(cacheKey(name), JSON.stringify(value));
-  } catch (e) {
-    // Cache writes are best-effort; storage can be tiny on some phone runtimes.
-  }
 }
 
 function payloadValue(payload, name) {
@@ -320,65 +283,68 @@ function sendMessageRows(messages) {
 }
 
 function rememberMessages(chatId, messages) {
-  messageCache[chatId] = messages.slice(Math.max(0, messages.length - MAX_MESSAGE_ROWS));
-  writeJsonCache('messages:' + chatId, messageCache[chatId]);
+  messageStore[chatId] = messages.slice(Math.max(0, messages.length - MAX_MESSAGE_ROWS));
 }
 
-function sendCachedMessages(chatId) {
-  var cached = messageCache[chatId] || readJsonCache('messages:' + chatId);
-  if (!cached || cached.length === 0) {
+function sendStoredMessages(chatId) {
+  var messages = messageStore[chatId];
+  if (!messages || messages.length === 0) {
     return false;
   }
-  messageCache[chatId] = cached;
-  sendMessageRows(cached);
-  done('messages_done', Math.min(cached.length, MAX_MESSAGE_ROWS));
+  sendMessageRows(messages);
+  done('messages_done', Math.min(messages.length, MAX_MESSAGE_ROWS));
   return true;
 }
 
-// Cached rows make the watch feel responsive; the bridge refresh that follows
-// replaces them with fresh rows when the network catches up.
-function getChats() {
-  var cached = readJsonCache('chats');
-  if (cached && cached.length) {
-    sendChatRows(cached);
-    done('chats_done', Math.min(cached.length, MAX_ROWS));
-    beginCachedRefresh('chats');
-  } else {
-    status('Loading chats...');
+function prefetchMessages(chatId) {
+  if (!chatId || messageStore[chatId] || prefetching[chatId]) {
+    return;
   }
+  prefetching[chatId] = true;
+  xhrJson('GET', bridgeUrl() + '/v1/chats/' + encodeURIComponent(chatId) + '/messages?limit=' + INITIAL_MESSAGE_ROWS, null,
+    function(err, data) {
+      delete prefetching[chatId];
+      if (err) {
+        console.log('Prefetch failed for ' + chatId + ': ' + err.message);
+        return;
+      }
+      rememberMessages(chatId, data.messages || []);
+    });
+}
+
+function prefetchTopChats(chats) {
+  chats.slice(0, PREFETCH_CHAT_COUNT).forEach(function(chat) {
+    prefetchMessages(chat.id);
+  });
+}
+
+function getChats() {
+  status('Loading');
   xhrJson('GET', bridgeUrl() + '/v1/chats?limit=' + MAX_ROWS, null, function(err, data) {
     if (err) {
       console.log('Bridge unavailable: ' + err.message);
-      if (!cached || !cached.length) {
-        error('Bridge unavailable');
-      }
+      error('Bridge unavailable');
       return;
     }
-    clearCachedRefresh('chats');
     var chats = data.chats || [];
-    writeJsonCache('chats', chats);
     sendChatRows(chats);
     done('chats_done', Math.min(chats.length, MAX_ROWS));
+    prefetchTopChats(chats);
   });
 }
 
 function getMessages(chatId) {
-  var sentCached = sendCachedMessages(chatId);
-  if (sentCached) {
-    beginCachedRefresh('messages:' + chatId);
-  } else {
-    status('Loading messages...');
+  if (sendStoredMessages(chatId)) {
+    return;
   }
+  status('Loading messages...');
   xhrJson('GET', bridgeUrl() + '/v1/chats/' + encodeURIComponent(chatId) + '/messages?limit=' + INITIAL_MESSAGE_ROWS, null,
     function(err, data) {
       if (err) {
         console.log('Bridge unavailable: ' + err.message);
-        if (!messageCache[chatId] || !messageCache[chatId].length) {
-          error('Messages failed: ' + err.message);
-        }
+        error('Messages failed: ' + err.message);
         return;
       }
-      clearCachedRefresh('messages:' + chatId);
       var messages = data.messages || [];
       rememberMessages(chatId, messages);
       sendMessageRows(messages);
@@ -400,7 +366,7 @@ function getOlderMessages(chatId, beforeId) {
         return;
       }
       var older = data.messages || [];
-      var current = messageCache[chatId] || [];
+      var current = messageStore[chatId] || [];
       var seen = {};
       var merged = [];
       older.concat(current).forEach(function(message) {
@@ -409,10 +375,9 @@ function getOlderMessages(chatId, beforeId) {
           merged.push(message);
         }
       });
-      messageCache[chatId] = merged.slice(0, MAX_MESSAGE_ROWS);
-      writeJsonCache('messages:' + chatId, messageCache[chatId]);
-      sendMessageRows(messageCache[chatId]);
-      done('messages_done', Math.min(messageCache[chatId].length, MAX_MESSAGE_ROWS));
+      messageStore[chatId] = merged.slice(0, MAX_MESSAGE_ROWS);
+      sendMessageRows(messageStore[chatId]);
+      done('messages_done', Math.min(messageStore[chatId].length, MAX_MESSAGE_ROWS));
     });
 }
 

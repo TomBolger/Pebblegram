@@ -16,7 +16,6 @@ import io
 import json
 import os
 import sys
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -184,8 +183,6 @@ class TelethonBackend(Backend):
         self._allow_delete = allow_delete
         self._entity_cache: dict[str, Any] = {}
         self._sender_cache: dict[int, str] = {}
-        self._chat_cache: tuple[float, int, list[dict[str, Any]]] | None = None
-        self._message_cache: dict[tuple[str, int, str], tuple[float, list[dict[str, Any]]]] = {}
         self._image_cache: dict[tuple[str, str, int, int], bytes] = {}
 
     async def start(self) -> None:
@@ -199,11 +196,6 @@ class TelethonBackend(Backend):
             await self._client.start(phone=self._phone)
 
     async def chats(self, limit: int) -> list[dict[str, Any]]:
-        now = time.monotonic()
-        if self._chat_cache:
-            cached_at, cached_limit, cached_rows = self._chat_cache
-            if cached_limit >= limit and now - cached_at < 12:
-                return cached_rows[:limit]
         await self._ensure_connected()
         dialogs = await self._client.get_dialogs(limit=limit * 3)
         result: list[dict[str, Any]] = []
@@ -232,17 +224,11 @@ class TelethonBackend(Backend):
             )
             if len(result) >= limit:
                 break
-        self._chat_cache = (time.monotonic(), limit, result)
         return result
 
     async def messages(self, chat_id: str, limit: int, before_id: str | None = None) -> list[dict[str, Any]]:
         if not self._allow_read_content:
             return []
-        cache_key = (chat_id, limit, before_id or "")
-        cached = self._message_cache.get(cache_key)
-        now = time.monotonic()
-        if cached and now - cached[0] < 8:
-            return cached[1]
         await self._ensure_connected()
         entity = await self._entity(chat_id)
         kwargs = {"limit": limit}
@@ -273,7 +259,6 @@ class TelethonBackend(Backend):
                     "image_token": str(message.id) if has_photo else None,
                 }
             )
-        self._message_cache[cache_key] = (time.monotonic(), rows)
         return rows
 
     async def image_png(self, chat_id: str, message_id: str, size: int, colors: int = 64) -> bytes:
@@ -414,18 +399,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     return
                 reply_to = body.get("reply_to")
                 self._run(self.backend.send_message(chat_id, text, str(reply_to) if reply_to else None))
-                if hasattr(self.backend, "_message_cache"):
-                    self.backend._message_cache.clear()
-                    self.backend._chat_cache = None
                 self._send_json({"ok": True})
                 return
             if parsed.path.startswith("/v1/chats/") and parsed.path.endswith("/delete"):
                 chat_id = unquote(parsed.path.split("/")[3])
                 message_id = str(body.get("message_id", ""))
                 self._run(self.backend.delete_message(chat_id, message_id))
-                if hasattr(self.backend, "_message_cache"):
-                    self.backend._message_cache.clear()
-                    self.backend._chat_cache = None
                 self._send_json({"ok": True})
                 return
             self._send_json({"error": "not found"}, status=404)
