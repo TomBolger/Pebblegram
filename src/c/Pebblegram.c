@@ -10,7 +10,9 @@
 #define MAX_SENDER 36
 #define MAX_ID 24
 #define MAX_IMAGE_BYTES PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 10000, 10000, 10000, 6000, 20000, 20000, 20000)
+#define MAX_LOADED_IMAGES PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 1, 1, 1, 1, 1, 2, 2)
 #define IMAGE_THUMB_SIZE PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 120, 120, 120, 96, 156, 156, 118)
+#define IMAGE_FRAME_EXTRA_W PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 10, 10, 10, 6, 14, 14, 10)
 #define APP_INBOX_SIZE PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 2048, 2048, 2048, 2048, 4096, 4096, 4096)
 #define APP_OUTBOX_SIZE PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 512, 512, 512, 512, 1024, 1024, 1024)
 #define BW_UI PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 0, 0, 0, 1, 0, 0, 0)
@@ -28,10 +30,10 @@
 #define SELECTED_IN_BUBBLE GColorLightGray
 #define SELECTED_OUT_BUBBLE GColorPictonBlue
 #define ACTION_BG GColorBlack
-#define ACTION_TEXT GColorLightGray
+#define ACTION_TEXT GColorDarkGray
 #define ACTION_TEXT_SELECTED GColorWhite
-#define CHAT_SCROLL_STEPS 3
-#define CHAT_SCROLL_FRAME_MS 12
+#define CHAT_SCROLL_STEPS 4
+#define CHAT_SCROLL_FRAME_MS 6
 #define CHAT_SCROLL_DELTA 24
 #define LONG_MESSAGE_SCROLL_DELTA PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 42, 42, 42, 42, 56, 56, 48)
 #define COMPOSE_BUBBLE_H 30
@@ -39,6 +41,8 @@
 #define MESSAGE_COMMAND_RETRY_MS 3000
 #define MESSAGE_COMMAND_MAX_ATTEMPTS 3
 #define IMAGE_COMMAND_RETRY_MS 350
+#define IMAGE_KEEP_SCREEN_MARGIN 48
+#define IMAGE_LOAD_SCREEN_MARGIN 24
 
 // Platform constants are centralized here. Basalt/Diorite stay conservative on
 // heap use; Emery/Gabbro can afford longer text and larger image payloads.
@@ -240,6 +244,10 @@ static int message_bubble_width(GRect bounds) {
   return bounds.size.w - 14;
 }
 
+static int message_image_frame_width(int bubble_w) {
+  return PG_MIN(IMAGE_THUMB_SIZE + IMAGE_FRAME_EXTRA_W, bubble_w - 10);
+}
+
 static int chat_status_y(void) {
   return ROUND_UI ? 6 : 0;
 }
@@ -332,33 +340,131 @@ static void schedule_image_retry(void) {
 
 static bool message_needs_image(Message *message) {
   return message && message->image_placeholder && message->image_token[0] &&
-         !message->image_requested && !message->image_bitmap;
+         !message->image_requested && !message->image_failed && !message->image_bitmap;
 }
 
-static void sync_selected_message_image(void) {
-  const char *selected_token = NULL;
-  if (s_selected_message >= 0 && s_selected_message < s_message_count) {
-    selected_token = s_messages[s_selected_message].image_token;
+static int message_index_from_ptr(Message *message) {
+  if (!message || message < s_messages || message >= s_messages + MAX_MESSAGES) {
+    return -1;
   }
+  return (int)(message - s_messages);
+}
 
+static bool message_image_near_viewport(int index, int margin) {
+  if (index < 0 || index >= s_message_count || !s_messages[index].image_placeholder) {
+    return false;
+  }
+  if (!s_messages_root) {
+    return false;
+  }
+  GRect bounds = layer_get_bounds(s_messages_root);
+  int image_top = s_message_y[index] + s_message_h[index] - IMAGE_THUMB_SIZE - 4;
+  int image_bottom = image_top + IMAGE_THUMB_SIZE;
+  return image_bottom >= s_chat_scroll_offset - margin &&
+         image_top <= s_chat_scroll_offset + bounds.size.h + margin;
+}
+
+static bool message_image_visible(int index) {
+  return message_image_near_viewport(index, 0);
+}
+
+static int message_image_focus_distance(int index) {
+  if (s_selected_message >= 0 && s_selected_message < s_message_count) {
+    return abs(index - s_selected_message) * 1000;
+  }
+  if (!s_messages_root) {
+    return index * 1000;
+  }
+  GRect bounds = layer_get_bounds(s_messages_root);
+  int focus_y = s_chat_scroll_offset + (bounds.size.h / 2);
+  int image_y = s_message_y[index] + s_message_h[index] - (IMAGE_THUMB_SIZE / 2) - 4;
+  return abs(image_y - focus_y);
+}
+
+static bool destroy_farthest_loaded_image(void) {
+  int farthest_index = -1;
+  int farthest_distance = -1;
+  for (int i = 0; i < s_message_count; i++) {
+    if (!s_messages[i].image_bitmap || i == s_selected_message || message_image_visible(i)) {
+      continue;
+    }
+    int distance = message_image_focus_distance(i);
+    if (distance > farthest_distance) {
+      farthest_distance = distance;
+      farthest_index = i;
+    }
+  }
+  if (farthest_index < 0) {
+    return false;
+  }
+  destroy_message_bitmap(&s_messages[farthest_index]);
+  return true;
+}
+
+static void clear_active_image_request(void) {
+  Message *message = find_message_by_image_token(s_image_message_id);
+  if (message) {
+    message->image_requested = false;
+  }
+  s_image_message_id[0] = '\0';
+  s_image_size = 0;
+  s_image_received = 0;
+}
+
+static void sync_message_images(void) {
   for (int i = 0; i < MAX_MESSAGES; i++) {
-    if (i != s_selected_message) {
+    if (!message_image_near_viewport(i, IMAGE_KEEP_SCREEN_MARGIN)) {
       destroy_message_bitmap(&s_messages[i]);
-      s_messages[i].image_requested = false;
       s_messages[i].image_failed = false;
     }
   }
 
-  if (s_image_message_id[0] && (!selected_token || strcmp(s_image_message_id, selected_token) != 0)) {
-    s_image_message_id[0] = '\0';
-    s_image_size = 0;
-    s_image_received = 0;
+  if (s_image_message_id[0]) {
+    Message *message = find_message_by_image_token(s_image_message_id);
+    int image_index = message_index_from_ptr(message);
+    if (!message_image_near_viewport(image_index, IMAGE_KEEP_SCREEN_MARGIN)) {
+      clear_active_image_request();
+    }
   }
+
   refresh_loaded_image_count();
+  while (s_loaded_image_count > MAX_LOADED_IMAGES && destroy_farthest_loaded_image()) {
+    refresh_loaded_image_count();
+  }
 }
 
 static void destroy_offscreen_message_images(void) {
-  sync_selected_message_image();
+  sync_message_images();
+}
+
+static bool message_is_at_or_below_selection(int index) {
+  return s_selected_message < 0 || s_selected_message >= s_message_count || index >= s_selected_message;
+}
+
+static int find_best_image_candidate(bool visible_only, bool prefer_below_selection) {
+  int best_index = -1;
+  int best_distance = 2147483647;
+  for (int i = 0; i < s_message_count; i++) {
+    if (!message_needs_image(&s_messages[i])) {
+      continue;
+    }
+    if (visible_only) {
+      if (!message_image_visible(i)) {
+        continue;
+      }
+    } else if (!message_image_near_viewport(i, IMAGE_LOAD_SCREEN_MARGIN)) {
+      continue;
+    }
+    if (prefer_below_selection && !message_is_at_or_below_selection(i)) {
+      continue;
+    }
+    int distance = message_image_focus_distance(i);
+    if (distance < best_distance) {
+      best_distance = distance;
+      best_index = i;
+    }
+  }
+  return best_index;
 }
 
 static bool send_command_with_status(const char *command, const char *chat_id, const char *text,
@@ -571,7 +677,9 @@ static void chat_scroll_timer_callback(void *data) {
     s_chat_scroll_offset = s_chat_scroll_target;
   } else {
     int delta = s_chat_scroll_target - s_chat_scroll_start;
-    s_chat_scroll_offset = s_chat_scroll_start + ((delta * s_chat_scroll_step) / CHAT_SCROLL_STEPS);
+    int progress = s_chat_scroll_step * CHAT_SCROLL_STEPS;
+    int eased = (progress * 2) - (s_chat_scroll_step * s_chat_scroll_step);
+    s_chat_scroll_offset = s_chat_scroll_start + ((delta * eased) / (CHAT_SCROLL_STEPS * CHAT_SCROLL_STEPS));
     s_chat_scroll_timer = app_timer_register(CHAT_SCROLL_FRAME_MS, chat_scroll_timer_callback, NULL);
   }
 
@@ -649,6 +757,18 @@ static void select_message_with_alignment(int index, bool align_bottom, bool ani
 
   if (s_message_h[s_selected_message] > bounds.size.h - (margin * 2)) {
     set_chat_scroll_offset(align_bottom ? bottom - bounds.size.h : top, animated);
+    request_next_image();
+    return;
+  }
+
+  if (align_bottom && top < s_chat_scroll_offset) {
+    set_chat_scroll_offset(top, animated);
+    request_next_image();
+    return;
+  }
+
+  if (!align_bottom && bottom > s_chat_scroll_offset + bounds.size.h) {
+    set_chat_scroll_offset(bottom - bounds.size.h, animated);
     request_next_image();
     return;
   }
@@ -745,9 +865,10 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
     }
 
     if (message->image_placeholder) {
-      GRect image_rect = GRect(message->outgoing ? x + bubble_w - IMAGE_THUMB_SIZE - 5 : x + 5,
+      int image_w = message_image_frame_width(bubble_w);
+      GRect image_rect = GRect(x + ((bubble_w - image_w) / 2),
                               y + bubble_h - IMAGE_THUMB_SIZE - 4,
-                              IMAGE_THUMB_SIZE, IMAGE_THUMB_SIZE);
+                              image_w, IMAGE_THUMB_SIZE);
       if (message->image_bitmap) {
         graphics_draw_bitmap_in_rect(ctx, message->image_bitmap, image_rect);
       } else {
@@ -891,32 +1012,74 @@ static void message_retry_timer_callback(void *data) {
 
 // Load the first photo that is visible or just about to enter view. This keeps
 // heap use predictable while still prefetching as the user scrolls.
+static bool send_active_image_request(void) {
+  if (!s_image_message_id[0]) {
+    return false;
+  }
+  Message *message = find_message_by_image_token(s_image_message_id);
+  if (!message || message->image_bitmap) {
+    clear_active_image_request();
+    return false;
+  }
+  int image_index = message_index_from_ptr(message);
+  if (!message_image_near_viewport(image_index, IMAGE_KEEP_SCREEN_MARGIN)) {
+    clear_active_image_request();
+    return false;
+  }
+  if (send_command_with_status("get_image", s_current_chat_id, NULL, NULL, message->image_token, false)) {
+    return true;
+  }
+  schedule_image_retry();
+  return false;
+}
+
 static void request_next_image(void) {
   if (!s_messages_root || s_message_count == 0) {
     return;
   }
   recalc_message_layout();
-  sync_selected_message_image();
+  sync_message_images();
 
   if (s_image_message_id[0]) {
     return;
   }
 
-  if (s_selected_message < 0 || s_selected_message >= s_message_count) {
+  if (s_selected_message < 0 || s_selected_message > s_message_count) {
     return;
   }
 
-  Message *message = &s_messages[s_selected_message];
-  if (!message_needs_image(message)) {
+  int image_index = find_best_image_candidate(true, true);
+  if (image_index < 0) {
+    image_index = find_best_image_candidate(true, false);
+  }
+  if (image_index < 0) {
+    image_index = find_best_image_candidate(false, true);
+  }
+  if (image_index < 0) {
+    image_index = find_best_image_candidate(false, false);
+  }
+
+  if (image_index < 0) {
     return;
   }
-  message->image_failed = false;
-  if (send_command_with_status("get_image", s_current_chat_id, NULL, NULL, message->image_token, false)) {
-    message->image_requested = true;
-    copy_cstr(s_image_message_id, sizeof(s_image_message_id), message->image_token);
-  } else {
-    schedule_image_retry();
+
+  bool image_is_visible = message_image_visible(image_index);
+  if (s_loaded_image_count >= MAX_LOADED_IMAGES) {
+    if (destroy_farthest_loaded_image()) {
+      refresh_loaded_image_count();
+    }
+    if (!image_is_visible && s_loaded_image_count >= MAX_LOADED_IMAGES) {
+      return;
+    }
   }
+
+  Message *message = &s_messages[image_index];
+  message->image_failed = false;
+  message->image_requested = true;
+  copy_cstr(s_image_message_id, sizeof(s_image_message_id), message->image_token);
+  s_image_size = 0;
+  s_image_received = 0;
+  send_active_image_request();
   if (s_messages_root) {
     layer_mark_dirty(s_messages_root);
   }
@@ -924,7 +1087,9 @@ static void request_next_image(void) {
 
 static void image_retry_timer_callback(void *data) {
   s_image_retry_timer = NULL;
-  request_next_image();
+  if (!send_active_image_request()) {
+    request_next_image();
+  }
 }
 
 static void request_older_messages(bool move_to_previous, bool silent) {
@@ -1108,7 +1273,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
         if (loading_older && s_selected_message == preserved_index) {
           request_next_image();
         } else if (loading_older && move_to_previous) {
-          select_message_with_alignment(s_selected_message, true, true);
+          select_message_with_alignment(s_selected_message, true, false);
         } else {
           scroll_selected_message_into_view(false);
         }
@@ -1195,12 +1360,9 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     char *message_id = tuple_cstring(iter, MESSAGE_KEY_MessageId);
     int image_size = tuple_int(iter, MESSAGE_KEY_ImageSize, 0);
     Message *message = find_message_by_image_token(message_id);
-    bool is_selected_image = message && s_selected_message >= 0 && s_selected_message < s_message_count &&
-                             message == &s_messages[s_selected_message];
-    if (!is_selected_image) {
-      if (message) {
-        message->image_requested = false;
-      }
+    bool is_active_image = message_id && strcmp(message_id, s_image_message_id) == 0;
+    if (!message || !is_active_image) {
+      request_next_image();
       return;
     }
     if (!message_id || image_size <= 0 || image_size > MAX_IMAGE_BYTES) {
@@ -1237,29 +1399,31 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   if (strcmp(type, "image_done") == 0) {
     char *message_id = tuple_cstring(iter, MESSAGE_KEY_MessageId);
     Message *message = find_message_by_image_token(message_id);
-    bool is_selected_image = message && s_selected_message >= 0 && s_selected_message < s_message_count &&
-                             message == &s_messages[s_selected_message];
-    if (is_selected_image && strcmp(message_id, s_image_message_id) == 0 && s_image_received >= s_image_size) {
-      destroy_message_bitmap(message);
-      message->image_bitmap = gbitmap_create_from_png_data(s_image_buffer, s_image_size);
-      if (message->image_bitmap) {
-        s_loaded_image_count++;
-        message->image_requested = false;
-      } else {
+    int image_index = message_index_from_ptr(message);
+    bool should_keep_image = message_image_near_viewport(image_index, IMAGE_KEEP_SCREEN_MARGIN);
+    bool is_active_image = message_id && strcmp(message_id, s_image_message_id) == 0;
+    if (message && is_active_image) {
+      if (should_keep_image && s_image_received >= s_image_size) {
+        destroy_message_bitmap(message);
+        message->image_bitmap = gbitmap_create_from_png_data(s_image_buffer, s_image_size);
+        if (message->image_bitmap) {
+          s_loaded_image_count++;
+          sync_message_images();
+        } else {
+          message->image_failed = true;
+        }
+      } else if (should_keep_image) {
         message->image_failed = true;
-        message->image_requested = false;
+      } else {
+        message->image_failed = false;
       }
+      message->image_requested = false;
       if (s_messages_root) {
         recalc_message_layout();
         layer_mark_dirty(s_messages_root);
       }
-    } else if (is_selected_image && message_id && strcmp(message_id, s_image_message_id) == 0) {
-      message->image_failed = true;
-      if (s_messages_root) {
-        layer_mark_dirty(s_messages_root);
-      }
     }
-    if (message_id && strcmp(message_id, s_image_message_id) == 0) {
+    if (is_active_image) {
       s_image_size = 0;
       s_image_received = 0;
       s_image_message_id[0] = '\0';
@@ -1271,13 +1435,13 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   if (strcmp(type, "image_error") == 0) {
     char *message_id = tuple_cstring(iter, MESSAGE_KEY_MessageId);
     Message *message = find_message_by_image_token(message_id);
-    bool is_selected_image = message && s_selected_message >= 0 && s_selected_message < s_message_count &&
-                             message == &s_messages[s_selected_message];
-    if (is_selected_image) {
+    int image_index = message_index_from_ptr(message);
+    bool is_active_image = message_id && strcmp(message_id, s_image_message_id) == 0;
+    if (message && is_active_image) {
       message->image_requested = false;
-      message->image_failed = true;
+      message->image_failed = message_image_near_viewport(image_index, IMAGE_KEEP_SCREEN_MARGIN);
     }
-    if (message_id && strcmp(message_id, s_image_message_id) == 0) {
+    if (is_active_image) {
       s_image_message_id[0] = '\0';
     }
     if (s_messages_root) {
@@ -1299,13 +1463,12 @@ static void inbox_dropped_callback(AppMessageResult reason, void *context) {
 static void outbox_failed_callback(DictionaryIterator *iter, AppMessageResult reason, void *context) {
   char *command = tuple_cstring(iter, MESSAGE_KEY_Command);
   if (command && strcmp(command, "get_image") == 0) {
+    char *message_id = tuple_cstring(iter, MESSAGE_KEY_MessageId);
     Message *message = find_message_by_image_token(tuple_cstring(iter, MESSAGE_KEY_MessageId));
     if (message) {
-      message->image_requested = false;
+      message->image_requested = true;
     }
-    char *message_id = tuple_cstring(iter, MESSAGE_KEY_MessageId);
     if (message_id && strcmp(message_id, s_image_message_id) == 0) {
-      s_image_message_id[0] = '\0';
       s_image_size = 0;
       s_image_received = 0;
     }
@@ -1399,8 +1562,8 @@ static void action_layer_update_proc(Layer *layer, GContext *ctx) {
   graphics_context_set_fill_color(ctx, ACTION_BG);
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
 
-  int rail_w = ROUND_UI ? 0 : 12;
-  int content_x = ROUND_UI ? 28 : rail_w;
+  int rail_w = ROUND_UI ? 0 : 18;
+  int content_x = ROUND_UI ? 28 : 24;
   int content_w = bounds.size.w - content_x - (ROUND_UI ? 24 : 0);
   graphics_context_set_fill_color(ctx, APP_COLOR);
   if (ROUND_UI) {
@@ -1408,12 +1571,12 @@ static void action_layer_update_proc(Layer *layer, GContext *ctx) {
   } else {
     graphics_fill_rect(ctx, GRect(0, 0, rail_w, bounds.size.h), 0, GCornerNone);
     graphics_context_set_fill_color(ctx, GColorWhite);
-    graphics_fill_circle(ctx, GPoint(rail_w / 2, 8), 2);
+    graphics_fill_circle(ctx, GPoint(rail_w / 2, 10), 2);
   }
 
   int count = action_item_count();
-  int row_h = ROUND_UI ? 30 : 32;
-  int top = PG_MAX(0, (bounds.size.h - (count * row_h)) / 2);
+  int row_h = ROUND_UI ? 32 : 48;
+  int top = ROUND_UI ? PG_MAX(0, (bounds.size.h - (count * row_h)) / 2) : 0;
 
   if (s_action_mode == ActionMenuConfirm) {
     graphics_context_set_text_color(ctx, ACTION_TEXT);
@@ -1450,8 +1613,8 @@ static void action_layer_update_proc(Layer *layer, GContext *ctx) {
     bool selected = i == s_action_selected;
 
     graphics_context_set_text_color(ctx, selected ? ACTION_TEXT_SELECTED : ACTION_TEXT);
-    graphics_draw_text(ctx, action_item_title(i), fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
-                       GRect(row.origin.x + 4, row.origin.y + 4, row.size.w - 8, row.size.h - 5),
+    graphics_draw_text(ctx, action_item_title(i), fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
+                       GRect(row.origin.x + 1, row.origin.y + 1, row.size.w - 4, row.size.h - 3),
                        GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
   }
 }
@@ -1632,9 +1795,6 @@ static void main_up_click_handler(ClickRecognizerRef recognizer, void *context) 
   }
   if (s_selected_message > 0) {
     select_message_with_alignment(s_selected_message - 1, true, true);
-    if (s_selected_message <= 1) {
-      request_older_messages(false, true);
-    }
   } else {
     request_older_messages(true, false);
   }
@@ -1720,6 +1880,7 @@ static void main_window_load(Window *window) {
 }
 
 static void main_window_unload(Window *window) {
+  light_enable(false);
   destroy_chat_view();
   destroy_message_images();
   if (s_chat_menu) {
@@ -1732,9 +1893,14 @@ static void main_window_unload(Window *window) {
   }
 }
 
+static void main_window_appear(Window *window) {
+  light_enable(false);
+}
+
 static void init(void) {
   s_view_state = ViewStateLoading;
   s_selected_message = -1;
+  light_enable(false);
 
   app_message_register_inbox_received(inbox_received_callback);
   app_message_register_inbox_dropped(inbox_dropped_callback);
@@ -1745,12 +1911,14 @@ static void init(void) {
   window_set_click_config_provider(s_main_window, click_config_provider);
   window_set_window_handlers(s_main_window, (WindowHandlers) {
     .load = main_window_load,
+    .appear = main_window_appear,
     .unload = main_window_unload
   });
   window_stack_push(s_main_window, true);
 }
 
 static void deinit(void) {
+  light_enable(false);
   destroy_message_images();
   if (s_dictation_session) {
     dictation_session_destroy(s_dictation_session);
