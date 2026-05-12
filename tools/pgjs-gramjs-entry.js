@@ -184,8 +184,10 @@ if (typeof root.WebSocket === 'function' && root.WebSocket.__pebblegramWrapped !
 
 var client = require('telegram/client/TelegramClient');
 var stringSession = require('telegram/sessions/StringSession');
+var telegram = require('telegram');
 
 module.exports = {
+  Api: telegram.Api,
   TelegramClient: client.TelegramClient,
   StringSession: stringSession.StringSession,
   runtimeConfig: BUILTIN_CONFIG

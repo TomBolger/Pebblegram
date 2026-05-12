@@ -23,6 +23,7 @@ function clearSession() {
   localStorage.removeItem(PREFIX + 'authStage');
   localStorage.removeItem(PREFIX + 'code');
   localStorage.removeItem(PREFIX + 'password');
+  localStorage.removeItem(PREFIX + 'phoneCodeHash');
 }
 
 function credentials() {
@@ -32,6 +33,7 @@ function credentials() {
     phone: get('phone', ''),
     code: get('code', ''),
     password: get('password', ''),
+    phoneCodeHash: get('phoneCodeHash', ''),
     session: get('session', ''),
     authStage: get('authStage', '')
   };
@@ -39,6 +41,9 @@ function credentials() {
 
 function saveSettings(data) {
   if (data.phone !== undefined) {
+    if (get('phone', '') !== String(data.phone).trim()) {
+      clearSession();
+    }
     set('phone', String(data.phone).trim());
   }
   if (data.code !== undefined) {
@@ -56,6 +61,11 @@ function clearCode() {
   localStorage.removeItem(PREFIX + 'code');
 }
 
+function setPhoneCodeHash(hash) {
+  set('phoneCodeHash', hash);
+  set('authStage', 'code');
+}
+
 function setSession(session) {
   set('session', session);
   set('authStage', 'complete');
@@ -70,5 +80,6 @@ module.exports = {
   saveSettings: saveSettings,
   setSession: setSession,
   clearCode: clearCode,
+  setPhoneCodeHash: setPhoneCodeHash,
   clearSession: clearSession
 };

@@ -31597,7 +31597,9 @@ if (typeof root.WebSocket === "function" && root.WebSocket.__pebblegramWrapped !
 }
 var client = require_TelegramClient();
 var stringSession = require_StringSession();
+var telegram = require_telegram();
 module.exports = {
+  Api: telegram.Api,
   TelegramClient: client.TelegramClient,
   StringSession: stringSession.StringSession,
   runtimeConfig: BUILTIN_CONFIG
