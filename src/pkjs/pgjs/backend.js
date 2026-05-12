@@ -3,6 +3,8 @@ var telegram = require('./telegram');
 var image = require('./image');
 
 function create(options) {
+  auth.setStatusHandler(options.status);
+
   return {
     settingsPageUrl: function(baseUrl) {
       var state = auth.authState();

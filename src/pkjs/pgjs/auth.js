@@ -2,6 +2,16 @@ var cache = require('./cache');
 
 var clientPromise = null;
 var AUTH_TIMEOUT_MS = 30000;
+var statusHandler = function() {};
+
+function setStatusHandler(handler) {
+  statusHandler = typeof handler === 'function' ? handler : function() {};
+}
+
+function reportStatus(message) {
+  console.log('PGJS auth: ' + message);
+  statusHandler(message);
+}
 
 function loadGramJs() {
   var root = typeof global !== 'undefined' ? global : this;
@@ -76,7 +86,11 @@ function createClient(gram, config, sessionString) {
 function requestCode(gram, config, creds) {
   var client = createClient(gram, config, '');
   return timeout(
-    client.connect().then(function() {
+    Promise.resolve().then(function() {
+      reportStatus('PGJS connecting...');
+      return client.connect();
+    }).then(function() {
+      reportStatus('PGJS sending code...');
       return client.sendCode({
         apiId: config.apiId,
         apiHash: config.apiHash
@@ -85,6 +99,7 @@ function requestCode(gram, config, creds) {
       if (!result || typeof result.phoneCodeHash !== 'string') {
         throw new Error('Telegram did not return a login code hash.');
       }
+      reportStatus('PGJS code requested.');
       cache.setPhoneCodeHash(result.phoneCodeHash);
       cache.clearCode();
       return closeClient(client);
@@ -102,10 +117,14 @@ function requestCode(gram, config, creds) {
 function signInWithCode(gram, config, creds) {
   var client = createClient(gram, config, '');
   return timeout(
-    client.connect().then(function() {
+    Promise.resolve().then(function() {
+      reportStatus('PGJS connecting...');
+      return client.connect();
+    }).then(function() {
       if (!creds.phoneCodeHash) {
         throw new Error('Open settings: save your phone number again to request a new code.');
       }
+      reportStatus('PGJS signing in...');
       return client.invoke(new gram.Api.auth.SignIn({
         phoneNumber: creds.phone,
         phoneCodeHash: creds.phoneCodeHash,
@@ -187,7 +206,10 @@ function getClient() {
     }
 
     var client = createClient(gram, config, creds.session);
-    timeout(client.connect().then(function() {
+    timeout(Promise.resolve().then(function() {
+      reportStatus('PGJS connecting...');
+      return client.connect();
+    }).then(function() {
       resolve(client);
     }), 'Telegram connect timed out.').catch(function(err) {
       clientPromise = null;
@@ -202,5 +224,6 @@ module.exports = {
   authState: authState,
   getClient: getClient,
   reset: reset,
+  setStatusHandler: setStatusHandler,
   saveSettings: cache.saveSettings
 };

@@ -77,7 +77,8 @@ function settingsPageUrl() {
 function activePgjs() {
   if (!pgjs) {
     pgjs = pgjsBackend.create({
-      cannedReplies: cannedReplies
+      cannedReplies: cannedReplies,
+      status: status
     });
   }
   return pgjs;
