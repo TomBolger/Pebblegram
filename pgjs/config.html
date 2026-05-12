@@ -1,0 +1,187 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pebblegram Settings</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f3f4f6;
+      color: #111827;
+    }
+    main {
+      max-width: 560px;
+      margin: 0 auto;
+      padding: 18px;
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 24px;
+      font-weight: 700;
+    }
+    .lede {
+      margin: 0 0 16px;
+      color: #475569;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    label {
+      display: block;
+      margin: 16px 0 6px;
+      font-weight: 600;
+    }
+    input, textarea {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 11px;
+      font: inherit;
+      background: #fff;
+    }
+    textarea {
+      min-height: 92px;
+      resize: vertical;
+    }
+    .hint {
+      margin-top: 6px;
+      color: #64748b;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #0f766e;
+      min-height: 18px;
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    button {
+      flex: 1;
+      border: 0;
+      border-radius: 6px;
+      background: #1683d8;
+      color: #fff;
+      padding: 13px;
+      font: inherit;
+      font-weight: 700;
+    }
+    button.secondary {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Pebblegram</h1>
+    <p class="lede">PGJS signs in from the Pebble phone app. No helper server is required.</p>
+
+    <label for="apiId">Telegram API ID</label>
+    <input id="apiId" type="number" inputmode="numeric" placeholder="123456">
+    <div class="hint">Create Telegram API credentials at https://my.telegram.org/apps.</div>
+
+    <label for="apiHash">Telegram API hash</label>
+    <input id="apiHash" type="text" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="0123456789abcdef0123456789abcdef">
+
+    <label for="phone">Phone number</label>
+    <input id="phone" type="tel" placeholder="+15551234567">
+    <div class="hint">Save once with API credentials and phone number to request the Telegram login code.</div>
+
+    <label for="code">Telegram login code</label>
+    <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="12345">
+
+    <label for="password">Cloud password</label>
+    <input id="password" type="password" placeholder="Only if Telegram asks for it">
+
+    <label for="cannedReplies">Canned replies</label>
+    <textarea id="cannedReplies" placeholder="Yes|No|On my way|Call you later|Thanks"></textarea>
+
+    <div class="row">
+      <button id="reset" class="secondary" type="button">Reset session</button>
+      <button id="save" type="button">Save</button>
+    </div>
+    <div id="status" class="status"></div>
+  </main>
+
+  <script>
+    function params() {
+      var result = {};
+      function read(raw) {
+        raw.split('&').forEach(function(part) {
+          if (!part) return;
+          var separator = part.indexOf('=');
+          var key = separator === -1 ? part : part.substring(0, separator);
+          var value = separator === -1 ? '' : part.substring(separator + 1);
+          result[decodeURIComponent(key)] = decodeURIComponent(value.replace(/\+/g, ' '));
+        });
+      }
+      if (window.location.search) {
+        read(window.location.search.substring(1));
+      }
+      if (window.location.hash) {
+        read(window.location.hash.substring(1));
+      }
+      return result;
+    }
+
+    var query = params();
+    var apiId = document.getElementById('apiId');
+    var apiHash = document.getElementById('apiHash');
+    var phone = document.getElementById('phone');
+    var code = document.getElementById('code');
+    var password = document.getElementById('password');
+    var cannedReplies = document.getElementById('cannedReplies');
+    var status = document.getElementById('status');
+    var resetSession = false;
+
+    apiId.value = query.apiId || '';
+    apiHash.value = query.apiHash || '';
+    phone.value = query.phone || '';
+    cannedReplies.value = query.cannedReplies || 'Yes|No|On my way|Call you later|Thanks';
+
+    if (query.hasSession === '1') {
+      status.textContent = 'Telegram session saved.';
+    } else if (query.authStage === 'password') {
+      status.textContent = 'Enter your Telegram cloud password.';
+    } else if (query.authStage === 'code') {
+      status.textContent = 'Enter the Telegram login code.';
+    }
+
+    function closeWith(data) {
+      var returnTo = query.return_to || 'pebblejs://close#';
+      var separator = returnTo.indexOf('#') === -1 ? '#' : '';
+      document.location = returnTo + separator + encodeURIComponent(JSON.stringify(data));
+    }
+
+    document.getElementById('reset').addEventListener('click', function() {
+      resetSession = true;
+      status.textContent = 'Session will be reset when you save.';
+    });
+
+    document.getElementById('save').addEventListener('click', function() {
+      var data = {
+        mode: 'pgjs',
+        apiId: apiId.value.trim(),
+        apiHash: apiHash.value.trim(),
+        phone: phone.value.trim(),
+        code: code.value.trim(),
+        password: password.value,
+        cannedReplies: cannedReplies.value.trim(),
+        resetSession: resetSession
+      };
+      if (!data.apiId || !data.apiHash || !data.phone) {
+        status.textContent = 'Enter API ID, API hash, and phone number.';
+        return;
+      }
+      closeWith(data);
+    });
+  </script>
+</body>
+</html>
