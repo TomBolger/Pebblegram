@@ -49,6 +49,9 @@ helper-backed release line; this work lives on `experiment/pgjs`.
   with esbuild. Dependencies stay installed with `npm install --no-save`.
 - The bundle forces GramJS away from Node TCP/proxy code and into its
   WebSocket transport using shims in `src/pkjs/pgjs/shims/`.
+- The GramJS entry bootstrap now creates a minimal browser-like `window`
+  before loading Telegram modules so GramJS selects its WebSocket path instead
+  of the Node TCP socket path inside PebbleKit JS.
 - The PGJS branch uses a branch-hosted settings URL instead of the stable 1.7
   GitHub Pages settings page. Pebble config pages are opened by URL and are not
   bundled into the PBW.

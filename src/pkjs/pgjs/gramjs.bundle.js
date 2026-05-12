@@ -14686,7 +14686,7 @@ var require_inftrees = __commonJS({
       let len = 0;
       let sym = 0;
       let min = 0, max = 0;
-      let root = 0;
+      let root2 = 0;
       let curr = 0;
       let drop = 0;
       let left = 0;
@@ -14709,14 +14709,14 @@ var require_inftrees = __commonJS({
       for (sym = 0; sym < codes; sym++) {
         count[lens[lens_index + sym]]++;
       }
-      root = bits;
+      root2 = bits;
       for (max = MAXBITS; max >= 1; max--) {
         if (count[max] !== 0) {
           break;
         }
       }
-      if (root > max) {
-        root = max;
+      if (root2 > max) {
+        root2 = max;
       }
       if (max === 0) {
         table[table_index++] = 1 << 24 | 64 << 16 | 0;
@@ -14729,8 +14729,8 @@ var require_inftrees = __commonJS({
           break;
         }
       }
-      if (root < min) {
-        root = min;
+      if (root2 < min) {
+        root2 = min;
       }
       left = 1;
       for (len = 1; len <= MAXBITS; len++) {
@@ -14768,10 +14768,10 @@ var require_inftrees = __commonJS({
       sym = 0;
       len = min;
       next = table_index;
-      curr = root;
+      curr = root2;
       drop = 0;
       low = -1;
-      used = 1 << root;
+      used = 1 << root2;
       mask = used - 1;
       if (type === LENS && used > ENOUGH_LENS || type === DISTS && used > ENOUGH_DISTS) {
         return 1;
@@ -14812,9 +14812,9 @@ var require_inftrees = __commonJS({
           }
           len = lens[lens_index + work[sym]];
         }
-        if (len > root && (huff & mask) !== low) {
+        if (len > root2 && (huff & mask) !== low) {
           if (drop === 0) {
-            drop = root;
+            drop = root2;
           }
           next += min;
           curr = len - drop;
@@ -14832,13 +14832,13 @@ var require_inftrees = __commonJS({
             return 1;
           }
           low = huff & mask;
-          table[low] = root << 24 | curr << 16 | next - table_index | 0;
+          table[low] = root2 << 24 | curr << 16 | next - table_index | 0;
         }
       }
       if (huff !== 0) {
         table[next + huff] = len - drop << 24 | 64 << 16 | 0;
       }
-      opts.bits = root;
+      opts.bits = root2;
       return 0;
     };
     module2.exports = inflate_table;
@@ -17094,8 +17094,8 @@ var require_BinaryReader = __commonJS({
 var require_websocket = __commonJS({
   "src/pkjs/pgjs/shims/websocket.js"(exports2, module2) {
     function W3CWebSocket(uri, protocols) {
-      var root = typeof globalThis !== "undefined" ? globalThis : typeof window !== "undefined" ? window : global;
-      var NativeWebSocket = root.WebSocket || root.MozWebSocket;
+      var root2 = typeof globalThis !== "undefined" ? globalThis : typeof window !== "undefined" ? window : global;
+      var NativeWebSocket = root2.WebSocket || root2.MozWebSocket;
       if (!NativeWebSocket) {
         throw new Error("WebSocket is not available in PebbleKit JS.");
       }
@@ -29335,6 +29335,17 @@ var require_TelegramClient = __commonJS({
 });
 
 // tools/pgjs-gramjs-entry.js
+var root = typeof globalThis !== "undefined" ? globalThis : typeof global !== "undefined" ? global : exports;
+if (!root.window) {
+  root.window = root;
+}
+if (!root.window.location) {
+  root.window.location = { protocol: "https:" };
+}
+if (!root.window.addEventListener) {
+  root.window.addEventListener = function() {
+  };
+}
 var client = require_TelegramClient();
 var stringSession = require_StringSession();
 module.exports = {
