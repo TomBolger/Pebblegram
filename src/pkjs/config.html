@@ -17,9 +17,15 @@
       padding: 18px;
     }
     h1 {
-      margin: 0 0 16px;
+      margin: 0 0 6px;
       font-size: 24px;
       font-weight: 700;
+    }
+    .lede {
+      margin: 0 0 16px;
+      color: #475569;
+      font-size: 14px;
+      line-height: 1.4;
     }
     label {
       display: block;
@@ -75,21 +81,30 @@
 <body>
   <main>
     <h1>Pebblegram</h1>
+    <p class="lede">PGJS signs in from the Pebble phone app. No helper server is required.</p>
 
-    <label for="bridgeUrl">Bridge URL</label>
-    <input id="bridgeUrl" type="url" placeholder="http://192.168.1.10:8765">
-    <div class="hint">Use your bridge computer's LAN, VPN, or hosted URL. The emulator can use http://127.0.0.1:8765. On Android, point this at a host the phone can reach, such as your LAN IP or a Docker host address.</div>
+    <label for="apiId">Telegram API ID</label>
+    <input id="apiId" type="number" inputmode="numeric" placeholder="123456">
+    <div class="hint">Create Telegram API credentials at https://my.telegram.org/apps.</div>
 
-    <label for="bridgeToken">Bridge token</label>
-    <input id="bridgeToken" type="password" placeholder="Optional, but recommended for hosted bridges">
-    <div class="hint">Set this to the same value as PEBBLEGRAM_TOKEN on the bridge. Leave it blank only for local trusted testing.</div>
+    <label for="apiHash">Telegram API hash</label>
+    <input id="apiHash" type="text" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="0123456789abcdef0123456789abcdef">
+
+    <label for="phone">Phone number</label>
+    <input id="phone" type="tel" placeholder="+15551234567">
+    <div class="hint">Save once with API credentials and phone number to request the Telegram login code.</div>
+
+    <label for="code">Telegram login code</label>
+    <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="12345">
+
+    <label for="password">Cloud password</label>
+    <input id="password" type="password" placeholder="Only if Telegram asks for it">
 
     <label for="cannedReplies">Canned replies</label>
     <textarea id="cannedReplies" placeholder="Yes|No|On my way|Call you later|Thanks"></textarea>
-    <div class="hint">Separate replies with a vertical bar. The phase-1 watch app uses the default five replies; editable watch sync is reserved for the next pass.</div>
 
     <div class="row">
-      <button id="check" class="secondary" type="button">Check bridge</button>
+      <button id="reset" class="secondary" type="button">Reset session</button>
       <button id="save" type="button">Save</button>
     </div>
     <div id="status" class="status"></div>
@@ -116,112 +131,56 @@
       return result;
     }
 
-    function normalizeBridgeUrl(value) {
-      value = String(value || '').trim();
-      if (!value) {
-        return '';
-      }
-      var configIndex = value.search(/\/config\.html(?:$|[?#])/);
-      if (configIndex >= 0) {
-        value = value.substring(0, configIndex);
-      }
-      value = value.replace(/\/+$/, '');
-      if (!/^https?:\/\//i.test(value) || /^pebblejs:/i.test(value)) {
-        return '';
-      }
-      return value;
-    }
-
     var query = params();
-    var bridgeUrl = document.getElementById('bridgeUrl');
-    var bridgeToken = document.getElementById('bridgeToken');
+    var apiId = document.getElementById('apiId');
+    var apiHash = document.getElementById('apiHash');
+    var phone = document.getElementById('phone');
+    var code = document.getElementById('code');
+    var password = document.getElementById('password');
     var cannedReplies = document.getElementById('cannedReplies');
     var status = document.getElementById('status');
-    bridgeUrl.value = normalizeBridgeUrl(query.bridgeUrl) || 'http://127.0.0.1:8765';
-    bridgeToken.value = query.bridgeToken || '';
+    var resetSession = false;
+
+    apiId.value = query.apiId || '';
+    apiHash.value = query.apiHash || '';
+    phone.value = query.phone || '';
     cannedReplies.value = query.cannedReplies || 'Yes|No|On my way|Call you later|Thanks';
 
-    function setStatus(text) {
-      status.textContent = text;
+    if (query.hasSession === '1') {
+      status.textContent = 'Telegram session saved.';
+    } else if (query.authStage === 'password') {
+      status.textContent = 'Enter your Telegram cloud password.';
+    } else if (query.authStage === 'code') {
+      status.textContent = 'Enter the Telegram login code.';
     }
 
-    function checkBridge() {
-      var headers = {'ngrok-skip-browser-warning': 'true'};
-      var baseUrl = normalizeBridgeUrl(bridgeUrl.value);
-      if (!baseUrl) {
-        setStatus('Bridge check failed: enter an http or https URL');
-        return;
-      }
-      var url = baseUrl + '/v1/chats?limit=1';
-      if (bridgeToken.value.trim()) {
-        headers.Authorization = 'Bearer ' + bridgeToken.value.trim();
-      }
-
-      if (window.fetch) {
-        fetch(url, {headers: headers})
-          .then(function(resp) {
-            if (!resp.ok) {
-              throw new Error('HTTP ' + resp.status);
-            }
-            return resp.json();
-          })
-          .then(function(data) {
-            setStatus(data && data.chats ? 'Bridge is reachable.' : 'Bridge responded, but not cleanly.');
-          })
-          .catch(function(err) {
-            setStatus('Bridge check failed: ' + err.message);
-          });
-        return;
-      }
-
-      var req = new XMLHttpRequest();
-      req.open('GET', url, true);
-      req.timeout = 15000;
-      Object.keys(headers).forEach(function(name) {
-        req.setRequestHeader(name, headers[name]);
-      });
-      req.onreadystatechange = function() {
-        if (req.readyState !== 4) {
-          return;
-        }
-        if (req.status < 200 || req.status >= 300) {
-          setStatus('Bridge check failed: HTTP ' + req.status);
-          return;
-        }
-        try {
-          var data = JSON.parse(req.responseText || '{}');
-          setStatus(data && data.chats ? 'Bridge is reachable.' : 'Bridge responded, but not cleanly.');
-        } catch (e) {
-          setStatus('Bridge check failed: bad JSON');
-        }
-      };
-      req.onerror = function() {
-        setStatus('Bridge check failed: network error');
-      };
-      req.ontimeout = function() {
-        setStatus('Bridge check failed: timeout');
-      };
-      req.send();
+    function closeWith(data) {
+      var returnTo = query.return_to || 'pebblejs://close#';
+      var separator = returnTo.indexOf('#') === -1 ? '#' : '';
+      document.location = returnTo + separator + encodeURIComponent(JSON.stringify(data));
     }
 
-    document.getElementById('check').addEventListener('click', function() {
-      setStatus('Checking...');
-      setTimeout(checkBridge, 0);
+    document.getElementById('reset').addEventListener('click', function() {
+      resetSession = true;
+      status.textContent = 'Session will be reset when you save.';
     });
 
     document.getElementById('save').addEventListener('click', function() {
       var data = {
-        bridgeUrl: normalizeBridgeUrl(bridgeUrl.value),
-        bridgeToken: bridgeToken.value.trim(),
-        cannedReplies: cannedReplies.value.trim()
+        mode: 'pgjs',
+        apiId: apiId.value.trim(),
+        apiHash: apiHash.value.trim(),
+        phone: phone.value.trim(),
+        code: code.value.trim(),
+        password: password.value,
+        cannedReplies: cannedReplies.value.trim(),
+        resetSession: resetSession
       };
-      if (!data.bridgeUrl) {
-        setStatus('Enter an http or https bridge URL.');
+      if (!data.apiId || !data.apiHash || !data.phone) {
+        status.textContent = 'Enter API ID, API hash, and phone number.';
         return;
       }
-      var returnTo = query.return_to || 'pebblejs://close#';
-      var separator = returnTo.indexOf('#') === -1 ? '#' : '';
-      document.location = returnTo + separator + encodeURIComponent(JSON.stringify(data));
+      closeWith(data);
     });
   </script>
 </body>

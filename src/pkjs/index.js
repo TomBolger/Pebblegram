@@ -1,7 +1,10 @@
 var MessageKeys = require('message_keys');
+var pgjsBackend = require('./pgjs/backend');
 
 var DEFAULT_BRIDGE_URL = 'http://127.0.0.1:8765';
 var SETTINGS_PAGE_URL = 'https://tombolger.github.io/Pebblegram/config.html';
+var PGJS_SETTINGS_PAGE_URL = 'https://tombolger.github.io/Pebblegram/pgjs/config.html';
+var DEFAULT_BACKEND_MODE = 'pgjs';
 var MAX_ROWS = 20;
 var INITIAL_MESSAGE_ROWS = 8;
 var OLDER_MESSAGE_ROWS = 6;
@@ -17,6 +20,7 @@ var sendQueue = [];
 var sending = false;
 var messageStore = {};
 var prefetching = {};
+var pgjs = null;
 
 function getSetting(name, fallback) {
   var value = localStorage.getItem(name);
@@ -25,6 +29,14 @@ function getSetting(name, fallback) {
 
 function bridgeUrl() {
   return normalizeBridgeUrl(getSetting('bridgeUrl', DEFAULT_BRIDGE_URL)) || DEFAULT_BRIDGE_URL;
+}
+
+function backendMode() {
+  return getSetting('backendMode', DEFAULT_BACKEND_MODE);
+}
+
+function usingPgjs() {
+  return backendMode() === 'pgjs';
 }
 
 function bridgeToken() {
@@ -52,10 +64,23 @@ function normalizeBridgeUrl(value) {
 }
 
 function settingsPageUrl() {
+  if (usingPgjs()) {
+    return activePgjs().settingsPageUrl(PGJS_SETTINGS_PAGE_URL);
+  }
   return SETTINGS_PAGE_URL +
-    '?bridgeUrl=' + encodeURIComponent(bridgeUrl()) +
+    '?mode=helper' +
+    '&bridgeUrl=' + encodeURIComponent(bridgeUrl()) +
     '&bridgeToken=' + encodeURIComponent(bridgeToken()) +
     '&cannedReplies=' + encodeURIComponent(cannedReplies());
+}
+
+function activePgjs() {
+  if (!pgjs) {
+    pgjs = pgjsBackend.create({
+      cannedReplies: cannedReplies
+    });
+  }
+  return pgjs;
 }
 
 function configureForPlatform() {
@@ -140,6 +165,12 @@ function done(kind, count) {
   payload[MessageKeys.Type] = kind;
   payload[MessageKeys.Count] = count;
   sendToWatch(payload);
+}
+
+function promiseError(prefix, err) {
+  var message = err && err.message ? err.message : String(err || 'unknown error');
+  console.log(prefix + ': ' + message);
+  error(prefix + ': ' + message);
 }
 
 function clampText(value, maxLength) {
@@ -302,6 +333,9 @@ function sendStoredMessages(chatId) {
 }
 
 function prefetchMessages(chatId) {
+  if (usingPgjs()) {
+    return;
+  }
   if (!chatId || messageStore[chatId] || prefetching[chatId]) {
     return;
   }
@@ -324,6 +358,16 @@ function prefetchTopChats(chats) {
 }
 
 function getChats() {
+  if (usingPgjs()) {
+    status('Loading');
+    activePgjs().chats(MAX_ROWS).then(function(chats) {
+      sendChatRows(chats || []);
+      done('chats_done', Math.min((chats || []).length, MAX_ROWS));
+    }).catch(function(err) {
+      promiseError('PGJS chats failed', err);
+    });
+    return;
+  }
   status('Loading');
   xhrJson('GET', bridgeUrl() + '/v1/chats?limit=' + MAX_ROWS, null, function(err, data) {
     if (err) {
@@ -339,6 +383,20 @@ function getChats() {
 }
 
 function getMessages(chatId) {
+  if (usingPgjs()) {
+    if (sendStoredMessages(chatId)) {
+      return;
+    }
+    status('Loading messages...');
+    activePgjs().messages(chatId, INITIAL_MESSAGE_ROWS).then(function(messages) {
+      rememberMessages(chatId, messages || []);
+      sendMessageRows(messages || []);
+      done('messages_done', Math.min((messages || []).length, INITIAL_MESSAGE_ROWS));
+    }).catch(function(err) {
+      promiseError('PGJS messages failed', err);
+    });
+    return;
+  }
   if (sendStoredMessages(chatId)) {
     return;
   }
@@ -359,6 +417,26 @@ function getMessages(chatId) {
 
 function getOlderMessages(chatId, beforeId) {
   if (!beforeId) {
+    return;
+  }
+  if (usingPgjs()) {
+    status('Loading older...');
+    activePgjs().olderMessages(chatId, OLDER_MESSAGE_ROWS, beforeId).then(function(older) {
+      var current = messageStore[chatId] || [];
+      var seen = {};
+      var merged = [];
+      (older || []).concat(current).forEach(function(message) {
+        if (!seen[message.id]) {
+          seen[message.id] = true;
+          merged.push(message);
+        }
+      });
+      messageStore[chatId] = merged.slice(0, MAX_MESSAGE_ROWS);
+      sendMessageRows(messageStore[chatId]);
+      done('messages_done', Math.min(messageStore[chatId].length, MAX_MESSAGE_ROWS));
+    }).catch(function(err) {
+      promiseError('PGJS older failed', err);
+    });
     return;
   }
   status('Loading older...');
@@ -387,6 +465,16 @@ function getOlderMessages(chatId, beforeId) {
 }
 
 function sendMessage(chatId, text, replyTo) {
+  if (usingPgjs()) {
+    activePgjs().sendMessage(chatId, text, replyTo).then(function() {
+      var payload = {};
+      payload[MessageKeys.Type] = 'sent';
+      sendToWatch(payload);
+    }).catch(function(err) {
+      promiseError('PGJS send failed', err);
+    });
+    return;
+  }
   xhrJson('POST', bridgeUrl() + '/v1/chats/' + encodeURIComponent(chatId) + '/send', {
     text: text,
     reply_to: replyTo || null
@@ -402,6 +490,16 @@ function sendMessage(chatId, text, replyTo) {
 }
 
 function deleteMessage(chatId, messageId) {
+  if (usingPgjs()) {
+    activePgjs().deleteMessage(chatId, messageId).then(function() {
+      var payload = {};
+      payload[MessageKeys.Type] = 'deleted';
+      sendToWatch(payload);
+    }).catch(function(err) {
+      promiseError('PGJS delete failed', err);
+    });
+    return;
+  }
   xhrJson('POST', bridgeUrl() + '/v1/chats/' + encodeURIComponent(chatId) + '/delete', {
     message_id: messageId
   }, function(err) {
@@ -416,6 +514,18 @@ function deleteMessage(chatId, messageId) {
 }
 
 function sendImage(chatId, messageId) {
+  if (usingPgjs()) {
+    activePgjs().imageBytes(chatId, messageId).then(function(bytes) {
+      sendImageBytes(messageId, bytes);
+    }).catch(function(err) {
+      console.log('PGJS image failed: ' + (err && err.message ? err.message : err));
+      var failed = {};
+      failed[MessageKeys.Type] = 'image_error';
+      failed[MessageKeys.MessageId] = String(messageId || '');
+      sendToWatch(failed);
+    });
+    return;
+  }
   var url = bridgeUrl() + '/v1/chats/' + encodeURIComponent(chatId) + '/messages/' +
     encodeURIComponent(messageId) + '/image?size=' + IMAGE_SIZE +
     '&width=' + IMAGE_WIDTH + '&height=' + IMAGE_SIZE + '&colors=' + IMAGE_COLORS;
@@ -428,38 +538,41 @@ function sendImage(chatId, messageId) {
       return;
     }
 
-    var bytes = new Uint8Array(buffer);
-    var start = {};
-    start[MessageKeys.Type] = 'image_start';
-    start[MessageKeys.MessageId] = String(messageId || '');
-    start[MessageKeys.ImageSize] = bytes.length;
-    sendToWatch(start);
-
-    // PNGs are chunked through AppMessage and reassembled by the C app.
-    for (var offset = 0; offset < bytes.length; offset += IMAGE_CHUNK_SIZE) {
-      var chunk = {};
-      var slice = bytes.subarray(offset, Math.min(offset + IMAGE_CHUNK_SIZE, bytes.length));
-      var data = [];
-      for (var i = 0; i < slice.length; i++) {
-        data.push(slice[i]);
-      }
-      chunk[MessageKeys.Type] = 'image';
-      chunk[MessageKeys.MessageId] = String(messageId || '');
-      chunk[MessageKeys.Index] = offset;
-      chunk[MessageKeys.ImageData] = data;
-      sendToWatch(chunk);
-    }
-
-    var donePayload = {};
-    donePayload[MessageKeys.Type] = 'image_done';
-    donePayload[MessageKeys.MessageId] = String(messageId || '');
-    sendToWatch(donePayload);
+    sendImageBytes(messageId, new Uint8Array(buffer));
   });
+}
+
+function sendImageBytes(messageId, bytes) {
+  var start = {};
+  start[MessageKeys.Type] = 'image_start';
+  start[MessageKeys.MessageId] = String(messageId || '');
+  start[MessageKeys.ImageSize] = bytes.length;
+  sendToWatch(start);
+
+  // PNGs are chunked through AppMessage and reassembled by the C app.
+  for (var offset = 0; offset < bytes.length; offset += IMAGE_CHUNK_SIZE) {
+    var chunk = {};
+    var slice = bytes.subarray(offset, Math.min(offset + IMAGE_CHUNK_SIZE, bytes.length));
+    var data = [];
+    for (var i = 0; i < slice.length; i++) {
+      data.push(slice[i]);
+    }
+    chunk[MessageKeys.Type] = 'image';
+    chunk[MessageKeys.MessageId] = String(messageId || '');
+    chunk[MessageKeys.Index] = offset;
+    chunk[MessageKeys.ImageData] = data;
+    sendToWatch(chunk);
+  }
+
+  var donePayload = {};
+  donePayload[MessageKeys.Type] = 'image_done';
+  donePayload[MessageKeys.MessageId] = String(messageId || '');
+  sendToWatch(donePayload);
 }
 
 Pebble.addEventListener('ready', function() {
   configureForPlatform();
-  console.log('Pebblegram JS ready, bridge=' + bridgeUrl() + ', canned=' + cannedReplies());
+  console.log('Pebblegram JS ready, backend=' + backendMode() + ', canned=' + cannedReplies());
   sendSettings();
   getChats();
 });
@@ -504,11 +617,17 @@ Pebble.addEventListener('webviewclosed', function(event) {
     return;
   }
 
-  var nextBridgeUrl = normalizeBridgeUrl(data.bridgeUrl);
-  if (nextBridgeUrl) {
-    localStorage.setItem('bridgeUrl', nextBridgeUrl);
+  if (data.mode === 'pgjs') {
+    localStorage.setItem('backendMode', 'pgjs');
+    activePgjs().applySettings(data);
+  } else {
+    localStorage.setItem('backendMode', 'helper');
+    var nextBridgeUrl = normalizeBridgeUrl(data.bridgeUrl);
+    if (nextBridgeUrl) {
+      localStorage.setItem('bridgeUrl', nextBridgeUrl);
+    }
+    localStorage.setItem('bridgeToken', data.bridgeToken || '');
   }
-  localStorage.setItem('bridgeToken', data.bridgeToken || '');
   if (data.cannedReplies) {
     localStorage.setItem('cannedReplies', data.cannedReplies);
   }
