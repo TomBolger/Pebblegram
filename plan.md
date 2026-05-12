@@ -25,6 +25,11 @@ helper-backed release line; this work lives on `experiment/pgjs`.
 - Reopen settings, enter the login code, and save again to complete login.
 - If Telegram requires a cloud password, the same settings page accepts it.
 - Store the GramJS StringSession in PebbleKit JS localStorage only.
+- PGJS now follows the tg-pebble credential model: Telegram API ID/hash are
+  embedded at GramJS bundle time with `PGJS_TELEGRAM_API_ID` and
+  `PGJS_TELEGRAM_API_HASH`; the visible settings page only asks for phone,
+  code, optional password, and canned replies. Legacy saved API credentials are
+  used only as a hidden fallback for existing local test installs.
 
 ## Image Pipeline
 
@@ -52,6 +57,9 @@ helper-backed release line; this work lives on `experiment/pgjs`.
 - The GramJS entry bootstrap now creates a minimal browser-like `window`
   before loading Telegram modules so GramJS selects its WebSocket path instead
   of the Node TCP socket path inside PebbleKit JS.
+- The GramJS bundle now installs a browser Buffer polyfill globally before
+  Telegram modules initialize and defaults GramJS to plain WebSocket
+  (`useWSS: false`) unless forced by build config.
 - Closing PGJS settings now runs the auth attempt directly and leaves the
   resulting success/error status visible before any chat refresh starts. This
   is required to diagnose phone-side auth failures without relying on JS logs.

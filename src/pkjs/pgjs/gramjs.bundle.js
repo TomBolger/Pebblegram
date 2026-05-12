@@ -46,9 +46,1901 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
+// <define:__PGJS_BUILTIN_CONFIG__>
+var define_PGJS_BUILTIN_CONFIG_default;
+var init_define_PGJS_BUILTIN_CONFIG = __esm({
+  "<define:__PGJS_BUILTIN_CONFIG__>"() {
+    define_PGJS_BUILTIN_CONFIG_default = { apiId: 0, apiHash: "", forceWSS: false, testServers: false };
+  }
+});
+
+// node_modules/base64-js/index.js
+var require_base64_js = __commonJS({
+  "node_modules/base64-js/index.js"(exports2) {
+    "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
+    exports2.byteLength = byteLength;
+    exports2.toByteArray = toByteArray;
+    exports2.fromByteArray = fromByteArray;
+    var lookup = [];
+    var revLookup = [];
+    var Arr = typeof Uint8Array !== "undefined" ? Uint8Array : Array;
+    var code = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    for (i = 0, len = code.length; i < len; ++i) {
+      lookup[i] = code[i];
+      revLookup[code.charCodeAt(i)] = i;
+    }
+    var i;
+    var len;
+    revLookup["-".charCodeAt(0)] = 62;
+    revLookup["_".charCodeAt(0)] = 63;
+    function getLens(b64) {
+      var len2 = b64.length;
+      if (len2 % 4 > 0) {
+        throw new Error("Invalid string. Length must be a multiple of 4");
+      }
+      var validLen = b64.indexOf("=");
+      if (validLen === -1)
+        validLen = len2;
+      var placeHoldersLen = validLen === len2 ? 0 : 4 - validLen % 4;
+      return [validLen, placeHoldersLen];
+    }
+    function byteLength(b64) {
+      var lens = getLens(b64);
+      var validLen = lens[0];
+      var placeHoldersLen = lens[1];
+      return (validLen + placeHoldersLen) * 3 / 4 - placeHoldersLen;
+    }
+    function _byteLength(b64, validLen, placeHoldersLen) {
+      return (validLen + placeHoldersLen) * 3 / 4 - placeHoldersLen;
+    }
+    function toByteArray(b64) {
+      var tmp;
+      var lens = getLens(b64);
+      var validLen = lens[0];
+      var placeHoldersLen = lens[1];
+      var arr = new Arr(_byteLength(b64, validLen, placeHoldersLen));
+      var curByte = 0;
+      var len2 = placeHoldersLen > 0 ? validLen - 4 : validLen;
+      var i2;
+      for (i2 = 0; i2 < len2; i2 += 4) {
+        tmp = revLookup[b64.charCodeAt(i2)] << 18 | revLookup[b64.charCodeAt(i2 + 1)] << 12 | revLookup[b64.charCodeAt(i2 + 2)] << 6 | revLookup[b64.charCodeAt(i2 + 3)];
+        arr[curByte++] = tmp >> 16 & 255;
+        arr[curByte++] = tmp >> 8 & 255;
+        arr[curByte++] = tmp & 255;
+      }
+      if (placeHoldersLen === 2) {
+        tmp = revLookup[b64.charCodeAt(i2)] << 2 | revLookup[b64.charCodeAt(i2 + 1)] >> 4;
+        arr[curByte++] = tmp & 255;
+      }
+      if (placeHoldersLen === 1) {
+        tmp = revLookup[b64.charCodeAt(i2)] << 10 | revLookup[b64.charCodeAt(i2 + 1)] << 4 | revLookup[b64.charCodeAt(i2 + 2)] >> 2;
+        arr[curByte++] = tmp >> 8 & 255;
+        arr[curByte++] = tmp & 255;
+      }
+      return arr;
+    }
+    function tripletToBase64(num) {
+      return lookup[num >> 18 & 63] + lookup[num >> 12 & 63] + lookup[num >> 6 & 63] + lookup[num & 63];
+    }
+    function encodeChunk(uint8, start, end) {
+      var tmp;
+      var output = [];
+      for (var i2 = start; i2 < end; i2 += 3) {
+        tmp = (uint8[i2] << 16 & 16711680) + (uint8[i2 + 1] << 8 & 65280) + (uint8[i2 + 2] & 255);
+        output.push(tripletToBase64(tmp));
+      }
+      return output.join("");
+    }
+    function fromByteArray(uint8) {
+      var tmp;
+      var len2 = uint8.length;
+      var extraBytes = len2 % 3;
+      var parts = [];
+      var maxChunkLength = 16383;
+      for (var i2 = 0, len22 = len2 - extraBytes; i2 < len22; i2 += maxChunkLength) {
+        parts.push(encodeChunk(uint8, i2, i2 + maxChunkLength > len22 ? len22 : i2 + maxChunkLength));
+      }
+      if (extraBytes === 1) {
+        tmp = uint8[len2 - 1];
+        parts.push(
+          lookup[tmp >> 2] + lookup[tmp << 4 & 63] + "=="
+        );
+      } else if (extraBytes === 2) {
+        tmp = (uint8[len2 - 2] << 8) + uint8[len2 - 1];
+        parts.push(
+          lookup[tmp >> 10] + lookup[tmp >> 4 & 63] + lookup[tmp << 2 & 63] + "="
+        );
+      }
+      return parts.join("");
+    }
+  }
+});
+
+// node_modules/ieee754/index.js
+var require_ieee754 = __commonJS({
+  "node_modules/ieee754/index.js"(exports2) {
+    init_define_PGJS_BUILTIN_CONFIG();
+    exports2.read = function(buffer2, offset, isLE, mLen, nBytes) {
+      var e, m;
+      var eLen = nBytes * 8 - mLen - 1;
+      var eMax = (1 << eLen) - 1;
+      var eBias = eMax >> 1;
+      var nBits = -7;
+      var i = isLE ? nBytes - 1 : 0;
+      var d = isLE ? -1 : 1;
+      var s = buffer2[offset + i];
+      i += d;
+      e = s & (1 << -nBits) - 1;
+      s >>= -nBits;
+      nBits += eLen;
+      for (; nBits > 0; e = e * 256 + buffer2[offset + i], i += d, nBits -= 8) {
+      }
+      m = e & (1 << -nBits) - 1;
+      e >>= -nBits;
+      nBits += mLen;
+      for (; nBits > 0; m = m * 256 + buffer2[offset + i], i += d, nBits -= 8) {
+      }
+      if (e === 0) {
+        e = 1 - eBias;
+      } else if (e === eMax) {
+        return m ? NaN : (s ? -1 : 1) * Infinity;
+      } else {
+        m = m + Math.pow(2, mLen);
+        e = e - eBias;
+      }
+      return (s ? -1 : 1) * m * Math.pow(2, e - mLen);
+    };
+    exports2.write = function(buffer2, value, offset, isLE, mLen, nBytes) {
+      var e, m, c;
+      var eLen = nBytes * 8 - mLen - 1;
+      var eMax = (1 << eLen) - 1;
+      var eBias = eMax >> 1;
+      var rt = mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0;
+      var i = isLE ? 0 : nBytes - 1;
+      var d = isLE ? 1 : -1;
+      var s = value < 0 || value === 0 && 1 / value < 0 ? 1 : 0;
+      value = Math.abs(value);
+      if (isNaN(value) || value === Infinity) {
+        m = isNaN(value) ? 1 : 0;
+        e = eMax;
+      } else {
+        e = Math.floor(Math.log(value) / Math.LN2);
+        if (value * (c = Math.pow(2, -e)) < 1) {
+          e--;
+          c *= 2;
+        }
+        if (e + eBias >= 1) {
+          value += rt / c;
+        } else {
+          value += rt * Math.pow(2, 1 - eBias);
+        }
+        if (value * c >= 2) {
+          e++;
+          c /= 2;
+        }
+        if (e + eBias >= eMax) {
+          m = 0;
+          e = eMax;
+        } else if (e + eBias >= 1) {
+          m = (value * c - 1) * Math.pow(2, mLen);
+          e = e + eBias;
+        } else {
+          m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen);
+          e = 0;
+        }
+      }
+      for (; mLen >= 8; buffer2[offset + i] = m & 255, i += d, m /= 256, mLen -= 8) {
+      }
+      e = e << mLen | m;
+      eLen += mLen;
+      for (; eLen > 0; buffer2[offset + i] = e & 255, i += d, e /= 256, eLen -= 8) {
+      }
+      buffer2[offset + i - d] |= s * 128;
+    };
+  }
+});
+
+// node_modules/buffer/index.js
+var require_buffer = __commonJS({
+  "node_modules/buffer/index.js"(exports2) {
+    "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
+    var base64 = require_base64_js();
+    var ieee754 = require_ieee754();
+    var customInspectSymbol = typeof Symbol === "function" && typeof Symbol["for"] === "function" ? Symbol["for"]("nodejs.util.inspect.custom") : null;
+    exports2.Buffer = Buffer2;
+    exports2.SlowBuffer = SlowBuffer;
+    exports2.INSPECT_MAX_BYTES = 50;
+    var K_MAX_LENGTH = 2147483647;
+    exports2.kMaxLength = K_MAX_LENGTH;
+    Buffer2.TYPED_ARRAY_SUPPORT = typedArraySupport();
+    if (!Buffer2.TYPED_ARRAY_SUPPORT && typeof console !== "undefined" && typeof console.error === "function") {
+      console.error(
+        "This browser lacks typed array (Uint8Array) support which is required by `buffer` v5.x. Use `buffer` v4.x if you require old browser support."
+      );
+    }
+    function typedArraySupport() {
+      try {
+        const arr = new Uint8Array(1);
+        const proto = { foo: function() {
+          return 42;
+        } };
+        Object.setPrototypeOf(proto, Uint8Array.prototype);
+        Object.setPrototypeOf(arr, proto);
+        return arr.foo() === 42;
+      } catch (e) {
+        return false;
+      }
+    }
+    Object.defineProperty(Buffer2.prototype, "parent", {
+      enumerable: true,
+      get: function() {
+        if (!Buffer2.isBuffer(this))
+          return void 0;
+        return this.buffer;
+      }
+    });
+    Object.defineProperty(Buffer2.prototype, "offset", {
+      enumerable: true,
+      get: function() {
+        if (!Buffer2.isBuffer(this))
+          return void 0;
+        return this.byteOffset;
+      }
+    });
+    function createBuffer(length) {
+      if (length > K_MAX_LENGTH) {
+        throw new RangeError('The value "' + length + '" is invalid for option "size"');
+      }
+      const buf = new Uint8Array(length);
+      Object.setPrototypeOf(buf, Buffer2.prototype);
+      return buf;
+    }
+    function Buffer2(arg, encodingOrOffset, length) {
+      if (typeof arg === "number") {
+        if (typeof encodingOrOffset === "string") {
+          throw new TypeError(
+            'The "string" argument must be of type string. Received type number'
+          );
+        }
+        return allocUnsafe(arg);
+      }
+      return from(arg, encodingOrOffset, length);
+    }
+    Buffer2.poolSize = 8192;
+    function from(value, encodingOrOffset, length) {
+      if (typeof value === "string") {
+        return fromString(value, encodingOrOffset);
+      }
+      if (ArrayBuffer.isView(value)) {
+        return fromArrayView(value);
+      }
+      if (value == null) {
+        throw new TypeError(
+          "The first argument must be one of type string, Buffer, ArrayBuffer, Array, or Array-like Object. Received type " + typeof value
+        );
+      }
+      if (isInstance(value, ArrayBuffer) || value && isInstance(value.buffer, ArrayBuffer)) {
+        return fromArrayBuffer(value, encodingOrOffset, length);
+      }
+      if (typeof SharedArrayBuffer !== "undefined" && (isInstance(value, SharedArrayBuffer) || value && isInstance(value.buffer, SharedArrayBuffer))) {
+        return fromArrayBuffer(value, encodingOrOffset, length);
+      }
+      if (typeof value === "number") {
+        throw new TypeError(
+          'The "value" argument must not be of type number. Received type number'
+        );
+      }
+      const valueOf = value.valueOf && value.valueOf();
+      if (valueOf != null && valueOf !== value) {
+        return Buffer2.from(valueOf, encodingOrOffset, length);
+      }
+      const b = fromObject(value);
+      if (b)
+        return b;
+      if (typeof Symbol !== "undefined" && Symbol.toPrimitive != null && typeof value[Symbol.toPrimitive] === "function") {
+        return Buffer2.from(value[Symbol.toPrimitive]("string"), encodingOrOffset, length);
+      }
+      throw new TypeError(
+        "The first argument must be one of type string, Buffer, ArrayBuffer, Array, or Array-like Object. Received type " + typeof value
+      );
+    }
+    Buffer2.from = function(value, encodingOrOffset, length) {
+      return from(value, encodingOrOffset, length);
+    };
+    Object.setPrototypeOf(Buffer2.prototype, Uint8Array.prototype);
+    Object.setPrototypeOf(Buffer2, Uint8Array);
+    function assertSize(size) {
+      if (typeof size !== "number") {
+        throw new TypeError('"size" argument must be of type number');
+      } else if (size < 0) {
+        throw new RangeError('The value "' + size + '" is invalid for option "size"');
+      }
+    }
+    function alloc(size, fill, encoding) {
+      assertSize(size);
+      if (size <= 0) {
+        return createBuffer(size);
+      }
+      if (fill !== void 0) {
+        return typeof encoding === "string" ? createBuffer(size).fill(fill, encoding) : createBuffer(size).fill(fill);
+      }
+      return createBuffer(size);
+    }
+    Buffer2.alloc = function(size, fill, encoding) {
+      return alloc(size, fill, encoding);
+    };
+    function allocUnsafe(size) {
+      assertSize(size);
+      return createBuffer(size < 0 ? 0 : checked(size) | 0);
+    }
+    Buffer2.allocUnsafe = function(size) {
+      return allocUnsafe(size);
+    };
+    Buffer2.allocUnsafeSlow = function(size) {
+      return allocUnsafe(size);
+    };
+    function fromString(string, encoding) {
+      if (typeof encoding !== "string" || encoding === "") {
+        encoding = "utf8";
+      }
+      if (!Buffer2.isEncoding(encoding)) {
+        throw new TypeError("Unknown encoding: " + encoding);
+      }
+      const length = byteLength(string, encoding) | 0;
+      let buf = createBuffer(length);
+      const actual = buf.write(string, encoding);
+      if (actual !== length) {
+        buf = buf.slice(0, actual);
+      }
+      return buf;
+    }
+    function fromArrayLike(array) {
+      const length = array.length < 0 ? 0 : checked(array.length) | 0;
+      const buf = createBuffer(length);
+      for (let i = 0; i < length; i += 1) {
+        buf[i] = array[i] & 255;
+      }
+      return buf;
+    }
+    function fromArrayView(arrayView) {
+      if (isInstance(arrayView, Uint8Array)) {
+        const copy = new Uint8Array(arrayView);
+        return fromArrayBuffer(copy.buffer, copy.byteOffset, copy.byteLength);
+      }
+      return fromArrayLike(arrayView);
+    }
+    function fromArrayBuffer(array, byteOffset, length) {
+      if (byteOffset < 0 || array.byteLength < byteOffset) {
+        throw new RangeError('"offset" is outside of buffer bounds');
+      }
+      if (array.byteLength < byteOffset + (length || 0)) {
+        throw new RangeError('"length" is outside of buffer bounds');
+      }
+      let buf;
+      if (byteOffset === void 0 && length === void 0) {
+        buf = new Uint8Array(array);
+      } else if (length === void 0) {
+        buf = new Uint8Array(array, byteOffset);
+      } else {
+        buf = new Uint8Array(array, byteOffset, length);
+      }
+      Object.setPrototypeOf(buf, Buffer2.prototype);
+      return buf;
+    }
+    function fromObject(obj) {
+      if (Buffer2.isBuffer(obj)) {
+        const len = checked(obj.length) | 0;
+        const buf = createBuffer(len);
+        if (buf.length === 0) {
+          return buf;
+        }
+        obj.copy(buf, 0, 0, len);
+        return buf;
+      }
+      if (obj.length !== void 0) {
+        if (typeof obj.length !== "number" || numberIsNaN(obj.length)) {
+          return createBuffer(0);
+        }
+        return fromArrayLike(obj);
+      }
+      if (obj.type === "Buffer" && Array.isArray(obj.data)) {
+        return fromArrayLike(obj.data);
+      }
+    }
+    function checked(length) {
+      if (length >= K_MAX_LENGTH) {
+        throw new RangeError("Attempt to allocate Buffer larger than maximum size: 0x" + K_MAX_LENGTH.toString(16) + " bytes");
+      }
+      return length | 0;
+    }
+    function SlowBuffer(length) {
+      if (+length != length) {
+        length = 0;
+      }
+      return Buffer2.alloc(+length);
+    }
+    Buffer2.isBuffer = function isBuffer(b) {
+      return b != null && b._isBuffer === true && b !== Buffer2.prototype;
+    };
+    Buffer2.compare = function compare(a, b) {
+      if (isInstance(a, Uint8Array))
+        a = Buffer2.from(a, a.offset, a.byteLength);
+      if (isInstance(b, Uint8Array))
+        b = Buffer2.from(b, b.offset, b.byteLength);
+      if (!Buffer2.isBuffer(a) || !Buffer2.isBuffer(b)) {
+        throw new TypeError(
+          'The "buf1", "buf2" arguments must be one of type Buffer or Uint8Array'
+        );
+      }
+      if (a === b)
+        return 0;
+      let x = a.length;
+      let y = b.length;
+      for (let i = 0, len = Math.min(x, y); i < len; ++i) {
+        if (a[i] !== b[i]) {
+          x = a[i];
+          y = b[i];
+          break;
+        }
+      }
+      if (x < y)
+        return -1;
+      if (y < x)
+        return 1;
+      return 0;
+    };
+    Buffer2.isEncoding = function isEncoding(encoding) {
+      switch (String(encoding).toLowerCase()) {
+        case "hex":
+        case "utf8":
+        case "utf-8":
+        case "ascii":
+        case "latin1":
+        case "binary":
+        case "base64":
+        case "ucs2":
+        case "ucs-2":
+        case "utf16le":
+        case "utf-16le":
+          return true;
+        default:
+          return false;
+      }
+    };
+    Buffer2.concat = function concat(list, length) {
+      if (!Array.isArray(list)) {
+        throw new TypeError('"list" argument must be an Array of Buffers');
+      }
+      if (list.length === 0) {
+        return Buffer2.alloc(0);
+      }
+      let i;
+      if (length === void 0) {
+        length = 0;
+        for (i = 0; i < list.length; ++i) {
+          length += list[i].length;
+        }
+      }
+      const buffer2 = Buffer2.allocUnsafe(length);
+      let pos = 0;
+      for (i = 0; i < list.length; ++i) {
+        let buf = list[i];
+        if (isInstance(buf, Uint8Array)) {
+          if (pos + buf.length > buffer2.length) {
+            if (!Buffer2.isBuffer(buf))
+              buf = Buffer2.from(buf);
+            buf.copy(buffer2, pos);
+          } else {
+            Uint8Array.prototype.set.call(
+              buffer2,
+              buf,
+              pos
+            );
+          }
+        } else if (!Buffer2.isBuffer(buf)) {
+          throw new TypeError('"list" argument must be an Array of Buffers');
+        } else {
+          buf.copy(buffer2, pos);
+        }
+        pos += buf.length;
+      }
+      return buffer2;
+    };
+    function byteLength(string, encoding) {
+      if (Buffer2.isBuffer(string)) {
+        return string.length;
+      }
+      if (ArrayBuffer.isView(string) || isInstance(string, ArrayBuffer)) {
+        return string.byteLength;
+      }
+      if (typeof string !== "string") {
+        throw new TypeError(
+          'The "string" argument must be one of type string, Buffer, or ArrayBuffer. Received type ' + typeof string
+        );
+      }
+      const len = string.length;
+      const mustMatch = arguments.length > 2 && arguments[2] === true;
+      if (!mustMatch && len === 0)
+        return 0;
+      let loweredCase = false;
+      for (; ; ) {
+        switch (encoding) {
+          case "ascii":
+          case "latin1":
+          case "binary":
+            return len;
+          case "utf8":
+          case "utf-8":
+            return utf8ToBytes(string).length;
+          case "ucs2":
+          case "ucs-2":
+          case "utf16le":
+          case "utf-16le":
+            return len * 2;
+          case "hex":
+            return len >>> 1;
+          case "base64":
+            return base64ToBytes(string).length;
+          default:
+            if (loweredCase) {
+              return mustMatch ? -1 : utf8ToBytes(string).length;
+            }
+            encoding = ("" + encoding).toLowerCase();
+            loweredCase = true;
+        }
+      }
+    }
+    Buffer2.byteLength = byteLength;
+    function slowToString(encoding, start, end) {
+      let loweredCase = false;
+      if (start === void 0 || start < 0) {
+        start = 0;
+      }
+      if (start > this.length) {
+        return "";
+      }
+      if (end === void 0 || end > this.length) {
+        end = this.length;
+      }
+      if (end <= 0) {
+        return "";
+      }
+      end >>>= 0;
+      start >>>= 0;
+      if (end <= start) {
+        return "";
+      }
+      if (!encoding)
+        encoding = "utf8";
+      while (true) {
+        switch (encoding) {
+          case "hex":
+            return hexSlice(this, start, end);
+          case "utf8":
+          case "utf-8":
+            return utf8Slice(this, start, end);
+          case "ascii":
+            return asciiSlice(this, start, end);
+          case "latin1":
+          case "binary":
+            return latin1Slice(this, start, end);
+          case "base64":
+            return base64Slice(this, start, end);
+          case "ucs2":
+          case "ucs-2":
+          case "utf16le":
+          case "utf-16le":
+            return utf16leSlice(this, start, end);
+          default:
+            if (loweredCase)
+              throw new TypeError("Unknown encoding: " + encoding);
+            encoding = (encoding + "").toLowerCase();
+            loweredCase = true;
+        }
+      }
+    }
+    Buffer2.prototype._isBuffer = true;
+    function swap(b, n, m) {
+      const i = b[n];
+      b[n] = b[m];
+      b[m] = i;
+    }
+    Buffer2.prototype.swap16 = function swap16() {
+      const len = this.length;
+      if (len % 2 !== 0) {
+        throw new RangeError("Buffer size must be a multiple of 16-bits");
+      }
+      for (let i = 0; i < len; i += 2) {
+        swap(this, i, i + 1);
+      }
+      return this;
+    };
+    Buffer2.prototype.swap32 = function swap32() {
+      const len = this.length;
+      if (len % 4 !== 0) {
+        throw new RangeError("Buffer size must be a multiple of 32-bits");
+      }
+      for (let i = 0; i < len; i += 4) {
+        swap(this, i, i + 3);
+        swap(this, i + 1, i + 2);
+      }
+      return this;
+    };
+    Buffer2.prototype.swap64 = function swap64() {
+      const len = this.length;
+      if (len % 8 !== 0) {
+        throw new RangeError("Buffer size must be a multiple of 64-bits");
+      }
+      for (let i = 0; i < len; i += 8) {
+        swap(this, i, i + 7);
+        swap(this, i + 1, i + 6);
+        swap(this, i + 2, i + 5);
+        swap(this, i + 3, i + 4);
+      }
+      return this;
+    };
+    Buffer2.prototype.toString = function toString() {
+      const length = this.length;
+      if (length === 0)
+        return "";
+      if (arguments.length === 0)
+        return utf8Slice(this, 0, length);
+      return slowToString.apply(this, arguments);
+    };
+    Buffer2.prototype.toLocaleString = Buffer2.prototype.toString;
+    Buffer2.prototype.equals = function equals(b) {
+      if (!Buffer2.isBuffer(b))
+        throw new TypeError("Argument must be a Buffer");
+      if (this === b)
+        return true;
+      return Buffer2.compare(this, b) === 0;
+    };
+    Buffer2.prototype.inspect = function inspect() {
+      let str = "";
+      const max = exports2.INSPECT_MAX_BYTES;
+      str = this.toString("hex", 0, max).replace(/(.{2})/g, "$1 ").trim();
+      if (this.length > max)
+        str += " ... ";
+      return "<Buffer " + str + ">";
+    };
+    if (customInspectSymbol) {
+      Buffer2.prototype[customInspectSymbol] = Buffer2.prototype.inspect;
+    }
+    Buffer2.prototype.compare = function compare(target, start, end, thisStart, thisEnd) {
+      if (isInstance(target, Uint8Array)) {
+        target = Buffer2.from(target, target.offset, target.byteLength);
+      }
+      if (!Buffer2.isBuffer(target)) {
+        throw new TypeError(
+          'The "target" argument must be one of type Buffer or Uint8Array. Received type ' + typeof target
+        );
+      }
+      if (start === void 0) {
+        start = 0;
+      }
+      if (end === void 0) {
+        end = target ? target.length : 0;
+      }
+      if (thisStart === void 0) {
+        thisStart = 0;
+      }
+      if (thisEnd === void 0) {
+        thisEnd = this.length;
+      }
+      if (start < 0 || end > target.length || thisStart < 0 || thisEnd > this.length) {
+        throw new RangeError("out of range index");
+      }
+      if (thisStart >= thisEnd && start >= end) {
+        return 0;
+      }
+      if (thisStart >= thisEnd) {
+        return -1;
+      }
+      if (start >= end) {
+        return 1;
+      }
+      start >>>= 0;
+      end >>>= 0;
+      thisStart >>>= 0;
+      thisEnd >>>= 0;
+      if (this === target)
+        return 0;
+      let x = thisEnd - thisStart;
+      let y = end - start;
+      const len = Math.min(x, y);
+      const thisCopy = this.slice(thisStart, thisEnd);
+      const targetCopy = target.slice(start, end);
+      for (let i = 0; i < len; ++i) {
+        if (thisCopy[i] !== targetCopy[i]) {
+          x = thisCopy[i];
+          y = targetCopy[i];
+          break;
+        }
+      }
+      if (x < y)
+        return -1;
+      if (y < x)
+        return 1;
+      return 0;
+    };
+    function bidirectionalIndexOf(buffer2, val, byteOffset, encoding, dir) {
+      if (buffer2.length === 0)
+        return -1;
+      if (typeof byteOffset === "string") {
+        encoding = byteOffset;
+        byteOffset = 0;
+      } else if (byteOffset > 2147483647) {
+        byteOffset = 2147483647;
+      } else if (byteOffset < -2147483648) {
+        byteOffset = -2147483648;
+      }
+      byteOffset = +byteOffset;
+      if (numberIsNaN(byteOffset)) {
+        byteOffset = dir ? 0 : buffer2.length - 1;
+      }
+      if (byteOffset < 0)
+        byteOffset = buffer2.length + byteOffset;
+      if (byteOffset >= buffer2.length) {
+        if (dir)
+          return -1;
+        else
+          byteOffset = buffer2.length - 1;
+      } else if (byteOffset < 0) {
+        if (dir)
+          byteOffset = 0;
+        else
+          return -1;
+      }
+      if (typeof val === "string") {
+        val = Buffer2.from(val, encoding);
+      }
+      if (Buffer2.isBuffer(val)) {
+        if (val.length === 0) {
+          return -1;
+        }
+        return arrayIndexOf(buffer2, val, byteOffset, encoding, dir);
+      } else if (typeof val === "number") {
+        val = val & 255;
+        if (typeof Uint8Array.prototype.indexOf === "function") {
+          if (dir) {
+            return Uint8Array.prototype.indexOf.call(buffer2, val, byteOffset);
+          } else {
+            return Uint8Array.prototype.lastIndexOf.call(buffer2, val, byteOffset);
+          }
+        }
+        return arrayIndexOf(buffer2, [val], byteOffset, encoding, dir);
+      }
+      throw new TypeError("val must be string, number or Buffer");
+    }
+    function arrayIndexOf(arr, val, byteOffset, encoding, dir) {
+      let indexSize = 1;
+      let arrLength = arr.length;
+      let valLength = val.length;
+      if (encoding !== void 0) {
+        encoding = String(encoding).toLowerCase();
+        if (encoding === "ucs2" || encoding === "ucs-2" || encoding === "utf16le" || encoding === "utf-16le") {
+          if (arr.length < 2 || val.length < 2) {
+            return -1;
+          }
+          indexSize = 2;
+          arrLength /= 2;
+          valLength /= 2;
+          byteOffset /= 2;
+        }
+      }
+      function read(buf, i2) {
+        if (indexSize === 1) {
+          return buf[i2];
+        } else {
+          return buf.readUInt16BE(i2 * indexSize);
+        }
+      }
+      let i;
+      if (dir) {
+        let foundIndex = -1;
+        for (i = byteOffset; i < arrLength; i++) {
+          if (read(arr, i) === read(val, foundIndex === -1 ? 0 : i - foundIndex)) {
+            if (foundIndex === -1)
+              foundIndex = i;
+            if (i - foundIndex + 1 === valLength)
+              return foundIndex * indexSize;
+          } else {
+            if (foundIndex !== -1)
+              i -= i - foundIndex;
+            foundIndex = -1;
+          }
+        }
+      } else {
+        if (byteOffset + valLength > arrLength)
+          byteOffset = arrLength - valLength;
+        for (i = byteOffset; i >= 0; i--) {
+          let found = true;
+          for (let j = 0; j < valLength; j++) {
+            if (read(arr, i + j) !== read(val, j)) {
+              found = false;
+              break;
+            }
+          }
+          if (found)
+            return i;
+        }
+      }
+      return -1;
+    }
+    Buffer2.prototype.includes = function includes(val, byteOffset, encoding) {
+      return this.indexOf(val, byteOffset, encoding) !== -1;
+    };
+    Buffer2.prototype.indexOf = function indexOf(val, byteOffset, encoding) {
+      return bidirectionalIndexOf(this, val, byteOffset, encoding, true);
+    };
+    Buffer2.prototype.lastIndexOf = function lastIndexOf(val, byteOffset, encoding) {
+      return bidirectionalIndexOf(this, val, byteOffset, encoding, false);
+    };
+    function hexWrite(buf, string, offset, length) {
+      offset = Number(offset) || 0;
+      const remaining = buf.length - offset;
+      if (!length) {
+        length = remaining;
+      } else {
+        length = Number(length);
+        if (length > remaining) {
+          length = remaining;
+        }
+      }
+      const strLen = string.length;
+      if (length > strLen / 2) {
+        length = strLen / 2;
+      }
+      let i;
+      for (i = 0; i < length; ++i) {
+        const parsed = parseInt(string.substr(i * 2, 2), 16);
+        if (numberIsNaN(parsed))
+          return i;
+        buf[offset + i] = parsed;
+      }
+      return i;
+    }
+    function utf8Write(buf, string, offset, length) {
+      return blitBuffer(utf8ToBytes(string, buf.length - offset), buf, offset, length);
+    }
+    function asciiWrite(buf, string, offset, length) {
+      return blitBuffer(asciiToBytes(string), buf, offset, length);
+    }
+    function base64Write(buf, string, offset, length) {
+      return blitBuffer(base64ToBytes(string), buf, offset, length);
+    }
+    function ucs2Write(buf, string, offset, length) {
+      return blitBuffer(utf16leToBytes(string, buf.length - offset), buf, offset, length);
+    }
+    Buffer2.prototype.write = function write(string, offset, length, encoding) {
+      if (offset === void 0) {
+        encoding = "utf8";
+        length = this.length;
+        offset = 0;
+      } else if (length === void 0 && typeof offset === "string") {
+        encoding = offset;
+        length = this.length;
+        offset = 0;
+      } else if (isFinite(offset)) {
+        offset = offset >>> 0;
+        if (isFinite(length)) {
+          length = length >>> 0;
+          if (encoding === void 0)
+            encoding = "utf8";
+        } else {
+          encoding = length;
+          length = void 0;
+        }
+      } else {
+        throw new Error(
+          "Buffer.write(string, encoding, offset[, length]) is no longer supported"
+        );
+      }
+      const remaining = this.length - offset;
+      if (length === void 0 || length > remaining)
+        length = remaining;
+      if (string.length > 0 && (length < 0 || offset < 0) || offset > this.length) {
+        throw new RangeError("Attempt to write outside buffer bounds");
+      }
+      if (!encoding)
+        encoding = "utf8";
+      let loweredCase = false;
+      for (; ; ) {
+        switch (encoding) {
+          case "hex":
+            return hexWrite(this, string, offset, length);
+          case "utf8":
+          case "utf-8":
+            return utf8Write(this, string, offset, length);
+          case "ascii":
+          case "latin1":
+          case "binary":
+            return asciiWrite(this, string, offset, length);
+          case "base64":
+            return base64Write(this, string, offset, length);
+          case "ucs2":
+          case "ucs-2":
+          case "utf16le":
+          case "utf-16le":
+            return ucs2Write(this, string, offset, length);
+          default:
+            if (loweredCase)
+              throw new TypeError("Unknown encoding: " + encoding);
+            encoding = ("" + encoding).toLowerCase();
+            loweredCase = true;
+        }
+      }
+    };
+    Buffer2.prototype.toJSON = function toJSON() {
+      return {
+        type: "Buffer",
+        data: Array.prototype.slice.call(this._arr || this, 0)
+      };
+    };
+    function base64Slice(buf, start, end) {
+      if (start === 0 && end === buf.length) {
+        return base64.fromByteArray(buf);
+      } else {
+        return base64.fromByteArray(buf.slice(start, end));
+      }
+    }
+    function utf8Slice(buf, start, end) {
+      end = Math.min(buf.length, end);
+      const res = [];
+      let i = start;
+      while (i < end) {
+        const firstByte = buf[i];
+        let codePoint = null;
+        let bytesPerSequence = firstByte > 239 ? 4 : firstByte > 223 ? 3 : firstByte > 191 ? 2 : 1;
+        if (i + bytesPerSequence <= end) {
+          let secondByte, thirdByte, fourthByte, tempCodePoint;
+          switch (bytesPerSequence) {
+            case 1:
+              if (firstByte < 128) {
+                codePoint = firstByte;
+              }
+              break;
+            case 2:
+              secondByte = buf[i + 1];
+              if ((secondByte & 192) === 128) {
+                tempCodePoint = (firstByte & 31) << 6 | secondByte & 63;
+                if (tempCodePoint > 127) {
+                  codePoint = tempCodePoint;
+                }
+              }
+              break;
+            case 3:
+              secondByte = buf[i + 1];
+              thirdByte = buf[i + 2];
+              if ((secondByte & 192) === 128 && (thirdByte & 192) === 128) {
+                tempCodePoint = (firstByte & 15) << 12 | (secondByte & 63) << 6 | thirdByte & 63;
+                if (tempCodePoint > 2047 && (tempCodePoint < 55296 || tempCodePoint > 57343)) {
+                  codePoint = tempCodePoint;
+                }
+              }
+              break;
+            case 4:
+              secondByte = buf[i + 1];
+              thirdByte = buf[i + 2];
+              fourthByte = buf[i + 3];
+              if ((secondByte & 192) === 128 && (thirdByte & 192) === 128 && (fourthByte & 192) === 128) {
+                tempCodePoint = (firstByte & 15) << 18 | (secondByte & 63) << 12 | (thirdByte & 63) << 6 | fourthByte & 63;
+                if (tempCodePoint > 65535 && tempCodePoint < 1114112) {
+                  codePoint = tempCodePoint;
+                }
+              }
+          }
+        }
+        if (codePoint === null) {
+          codePoint = 65533;
+          bytesPerSequence = 1;
+        } else if (codePoint > 65535) {
+          codePoint -= 65536;
+          res.push(codePoint >>> 10 & 1023 | 55296);
+          codePoint = 56320 | codePoint & 1023;
+        }
+        res.push(codePoint);
+        i += bytesPerSequence;
+      }
+      return decodeCodePointsArray(res);
+    }
+    var MAX_ARGUMENTS_LENGTH = 4096;
+    function decodeCodePointsArray(codePoints) {
+      const len = codePoints.length;
+      if (len <= MAX_ARGUMENTS_LENGTH) {
+        return String.fromCharCode.apply(String, codePoints);
+      }
+      let res = "";
+      let i = 0;
+      while (i < len) {
+        res += String.fromCharCode.apply(
+          String,
+          codePoints.slice(i, i += MAX_ARGUMENTS_LENGTH)
+        );
+      }
+      return res;
+    }
+    function asciiSlice(buf, start, end) {
+      let ret = "";
+      end = Math.min(buf.length, end);
+      for (let i = start; i < end; ++i) {
+        ret += String.fromCharCode(buf[i] & 127);
+      }
+      return ret;
+    }
+    function latin1Slice(buf, start, end) {
+      let ret = "";
+      end = Math.min(buf.length, end);
+      for (let i = start; i < end; ++i) {
+        ret += String.fromCharCode(buf[i]);
+      }
+      return ret;
+    }
+    function hexSlice(buf, start, end) {
+      const len = buf.length;
+      if (!start || start < 0)
+        start = 0;
+      if (!end || end < 0 || end > len)
+        end = len;
+      let out = "";
+      for (let i = start; i < end; ++i) {
+        out += hexSliceLookupTable[buf[i]];
+      }
+      return out;
+    }
+    function utf16leSlice(buf, start, end) {
+      const bytes = buf.slice(start, end);
+      let res = "";
+      for (let i = 0; i < bytes.length - 1; i += 2) {
+        res += String.fromCharCode(bytes[i] + bytes[i + 1] * 256);
+      }
+      return res;
+    }
+    Buffer2.prototype.slice = function slice(start, end) {
+      const len = this.length;
+      start = ~~start;
+      end = end === void 0 ? len : ~~end;
+      if (start < 0) {
+        start += len;
+        if (start < 0)
+          start = 0;
+      } else if (start > len) {
+        start = len;
+      }
+      if (end < 0) {
+        end += len;
+        if (end < 0)
+          end = 0;
+      } else if (end > len) {
+        end = len;
+      }
+      if (end < start)
+        end = start;
+      const newBuf = this.subarray(start, end);
+      Object.setPrototypeOf(newBuf, Buffer2.prototype);
+      return newBuf;
+    };
+    function checkOffset(offset, ext, length) {
+      if (offset % 1 !== 0 || offset < 0)
+        throw new RangeError("offset is not uint");
+      if (offset + ext > length)
+        throw new RangeError("Trying to access beyond buffer length");
+    }
+    Buffer2.prototype.readUintLE = Buffer2.prototype.readUIntLE = function readUIntLE(offset, byteLength2, noAssert) {
+      offset = offset >>> 0;
+      byteLength2 = byteLength2 >>> 0;
+      if (!noAssert)
+        checkOffset(offset, byteLength2, this.length);
+      let val = this[offset];
+      let mul = 1;
+      let i = 0;
+      while (++i < byteLength2 && (mul *= 256)) {
+        val += this[offset + i] * mul;
+      }
+      return val;
+    };
+    Buffer2.prototype.readUintBE = Buffer2.prototype.readUIntBE = function readUIntBE(offset, byteLength2, noAssert) {
+      offset = offset >>> 0;
+      byteLength2 = byteLength2 >>> 0;
+      if (!noAssert) {
+        checkOffset(offset, byteLength2, this.length);
+      }
+      let val = this[offset + --byteLength2];
+      let mul = 1;
+      while (byteLength2 > 0 && (mul *= 256)) {
+        val += this[offset + --byteLength2] * mul;
+      }
+      return val;
+    };
+    Buffer2.prototype.readUint8 = Buffer2.prototype.readUInt8 = function readUInt8(offset, noAssert) {
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkOffset(offset, 1, this.length);
+      return this[offset];
+    };
+    Buffer2.prototype.readUint16LE = Buffer2.prototype.readUInt16LE = function readUInt16LE(offset, noAssert) {
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkOffset(offset, 2, this.length);
+      return this[offset] | this[offset + 1] << 8;
+    };
+    Buffer2.prototype.readUint16BE = Buffer2.prototype.readUInt16BE = function readUInt16BE(offset, noAssert) {
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkOffset(offset, 2, this.length);
+      return this[offset] << 8 | this[offset + 1];
+    };
+    Buffer2.prototype.readUint32LE = Buffer2.prototype.readUInt32LE = function readUInt32LE(offset, noAssert) {
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkOffset(offset, 4, this.length);
+      return (this[offset] | this[offset + 1] << 8 | this[offset + 2] << 16) + this[offset + 3] * 16777216;
+    };
+    Buffer2.prototype.readUint32BE = Buffer2.prototype.readUInt32BE = function readUInt32BE(offset, noAssert) {
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkOffset(offset, 4, this.length);
+      return this[offset] * 16777216 + (this[offset + 1] << 16 | this[offset + 2] << 8 | this[offset + 3]);
+    };
+    Buffer2.prototype.readBigUInt64LE = defineBigIntMethod(function readBigUInt64LE(offset) {
+      offset = offset >>> 0;
+      validateNumber(offset, "offset");
+      const first = this[offset];
+      const last = this[offset + 7];
+      if (first === void 0 || last === void 0) {
+        boundsError(offset, this.length - 8);
+      }
+      const lo = first + this[++offset] * __pow(2, 8) + this[++offset] * __pow(2, 16) + this[++offset] * __pow(2, 24);
+      const hi = this[++offset] + this[++offset] * __pow(2, 8) + this[++offset] * __pow(2, 16) + last * __pow(2, 24);
+      return BigInt(lo) + (BigInt(hi) << BigInt(32));
+    });
+    Buffer2.prototype.readBigUInt64BE = defineBigIntMethod(function readBigUInt64BE(offset) {
+      offset = offset >>> 0;
+      validateNumber(offset, "offset");
+      const first = this[offset];
+      const last = this[offset + 7];
+      if (first === void 0 || last === void 0) {
+        boundsError(offset, this.length - 8);
+      }
+      const hi = first * __pow(2, 24) + this[++offset] * __pow(2, 16) + this[++offset] * __pow(2, 8) + this[++offset];
+      const lo = this[++offset] * __pow(2, 24) + this[++offset] * __pow(2, 16) + this[++offset] * __pow(2, 8) + last;
+      return (BigInt(hi) << BigInt(32)) + BigInt(lo);
+    });
+    Buffer2.prototype.readIntLE = function readIntLE(offset, byteLength2, noAssert) {
+      offset = offset >>> 0;
+      byteLength2 = byteLength2 >>> 0;
+      if (!noAssert)
+        checkOffset(offset, byteLength2, this.length);
+      let val = this[offset];
+      let mul = 1;
+      let i = 0;
+      while (++i < byteLength2 && (mul *= 256)) {
+        val += this[offset + i] * mul;
+      }
+      mul *= 128;
+      if (val >= mul)
+        val -= Math.pow(2, 8 * byteLength2);
+      return val;
+    };
+    Buffer2.prototype.readIntBE = function readIntBE(offset, byteLength2, noAssert) {
+      offset = offset >>> 0;
+      byteLength2 = byteLength2 >>> 0;
+      if (!noAssert)
+        checkOffset(offset, byteLength2, this.length);
+      let i = byteLength2;
+      let mul = 1;
+      let val = this[offset + --i];
+      while (i > 0 && (mul *= 256)) {
+        val += this[offset + --i] * mul;
+      }
+      mul *= 128;
+      if (val >= mul)
+        val -= Math.pow(2, 8 * byteLength2);
+      return val;
+    };
+    Buffer2.prototype.readInt8 = function readInt8(offset, noAssert) {
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkOffset(offset, 1, this.length);
+      if (!(this[offset] & 128))
+        return this[offset];
+      return (255 - this[offset] + 1) * -1;
+    };
+    Buffer2.prototype.readInt16LE = function readInt16LE(offset, noAssert) {
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkOffset(offset, 2, this.length);
+      const val = this[offset] | this[offset + 1] << 8;
+      return val & 32768 ? val | 4294901760 : val;
+    };
+    Buffer2.prototype.readInt16BE = function readInt16BE(offset, noAssert) {
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkOffset(offset, 2, this.length);
+      const val = this[offset + 1] | this[offset] << 8;
+      return val & 32768 ? val | 4294901760 : val;
+    };
+    Buffer2.prototype.readInt32LE = function readInt32LE(offset, noAssert) {
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkOffset(offset, 4, this.length);
+      return this[offset] | this[offset + 1] << 8 | this[offset + 2] << 16 | this[offset + 3] << 24;
+    };
+    Buffer2.prototype.readInt32BE = function readInt32BE(offset, noAssert) {
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkOffset(offset, 4, this.length);
+      return this[offset] << 24 | this[offset + 1] << 16 | this[offset + 2] << 8 | this[offset + 3];
+    };
+    Buffer2.prototype.readBigInt64LE = defineBigIntMethod(function readBigInt64LE(offset) {
+      offset = offset >>> 0;
+      validateNumber(offset, "offset");
+      const first = this[offset];
+      const last = this[offset + 7];
+      if (first === void 0 || last === void 0) {
+        boundsError(offset, this.length - 8);
+      }
+      const val = this[offset + 4] + this[offset + 5] * __pow(2, 8) + this[offset + 6] * __pow(2, 16) + (last << 24);
+      return (BigInt(val) << BigInt(32)) + BigInt(first + this[++offset] * __pow(2, 8) + this[++offset] * __pow(2, 16) + this[++offset] * __pow(2, 24));
+    });
+    Buffer2.prototype.readBigInt64BE = defineBigIntMethod(function readBigInt64BE(offset) {
+      offset = offset >>> 0;
+      validateNumber(offset, "offset");
+      const first = this[offset];
+      const last = this[offset + 7];
+      if (first === void 0 || last === void 0) {
+        boundsError(offset, this.length - 8);
+      }
+      const val = (first << 24) + // Overflow
+      this[++offset] * __pow(2, 16) + this[++offset] * __pow(2, 8) + this[++offset];
+      return (BigInt(val) << BigInt(32)) + BigInt(this[++offset] * __pow(2, 24) + this[++offset] * __pow(2, 16) + this[++offset] * __pow(2, 8) + last);
+    });
+    Buffer2.prototype.readFloatLE = function readFloatLE(offset, noAssert) {
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkOffset(offset, 4, this.length);
+      return ieee754.read(this, offset, true, 23, 4);
+    };
+    Buffer2.prototype.readFloatBE = function readFloatBE(offset, noAssert) {
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkOffset(offset, 4, this.length);
+      return ieee754.read(this, offset, false, 23, 4);
+    };
+    Buffer2.prototype.readDoubleLE = function readDoubleLE(offset, noAssert) {
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkOffset(offset, 8, this.length);
+      return ieee754.read(this, offset, true, 52, 8);
+    };
+    Buffer2.prototype.readDoubleBE = function readDoubleBE(offset, noAssert) {
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkOffset(offset, 8, this.length);
+      return ieee754.read(this, offset, false, 52, 8);
+    };
+    function checkInt(buf, value, offset, ext, max, min) {
+      if (!Buffer2.isBuffer(buf))
+        throw new TypeError('"buffer" argument must be a Buffer instance');
+      if (value > max || value < min)
+        throw new RangeError('"value" argument is out of bounds');
+      if (offset + ext > buf.length)
+        throw new RangeError("Index out of range");
+    }
+    Buffer2.prototype.writeUintLE = Buffer2.prototype.writeUIntLE = function writeUIntLE(value, offset, byteLength2, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      byteLength2 = byteLength2 >>> 0;
+      if (!noAssert) {
+        const maxBytes = Math.pow(2, 8 * byteLength2) - 1;
+        checkInt(this, value, offset, byteLength2, maxBytes, 0);
+      }
+      let mul = 1;
+      let i = 0;
+      this[offset] = value & 255;
+      while (++i < byteLength2 && (mul *= 256)) {
+        this[offset + i] = value / mul & 255;
+      }
+      return offset + byteLength2;
+    };
+    Buffer2.prototype.writeUintBE = Buffer2.prototype.writeUIntBE = function writeUIntBE(value, offset, byteLength2, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      byteLength2 = byteLength2 >>> 0;
+      if (!noAssert) {
+        const maxBytes = Math.pow(2, 8 * byteLength2) - 1;
+        checkInt(this, value, offset, byteLength2, maxBytes, 0);
+      }
+      let i = byteLength2 - 1;
+      let mul = 1;
+      this[offset + i] = value & 255;
+      while (--i >= 0 && (mul *= 256)) {
+        this[offset + i] = value / mul & 255;
+      }
+      return offset + byteLength2;
+    };
+    Buffer2.prototype.writeUint8 = Buffer2.prototype.writeUInt8 = function writeUInt8(value, offset, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkInt(this, value, offset, 1, 255, 0);
+      this[offset] = value & 255;
+      return offset + 1;
+    };
+    Buffer2.prototype.writeUint16LE = Buffer2.prototype.writeUInt16LE = function writeUInt16LE(value, offset, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkInt(this, value, offset, 2, 65535, 0);
+      this[offset] = value & 255;
+      this[offset + 1] = value >>> 8;
+      return offset + 2;
+    };
+    Buffer2.prototype.writeUint16BE = Buffer2.prototype.writeUInt16BE = function writeUInt16BE(value, offset, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkInt(this, value, offset, 2, 65535, 0);
+      this[offset] = value >>> 8;
+      this[offset + 1] = value & 255;
+      return offset + 2;
+    };
+    Buffer2.prototype.writeUint32LE = Buffer2.prototype.writeUInt32LE = function writeUInt32LE(value, offset, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkInt(this, value, offset, 4, 4294967295, 0);
+      this[offset + 3] = value >>> 24;
+      this[offset + 2] = value >>> 16;
+      this[offset + 1] = value >>> 8;
+      this[offset] = value & 255;
+      return offset + 4;
+    };
+    Buffer2.prototype.writeUint32BE = Buffer2.prototype.writeUInt32BE = function writeUInt32BE(value, offset, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkInt(this, value, offset, 4, 4294967295, 0);
+      this[offset] = value >>> 24;
+      this[offset + 1] = value >>> 16;
+      this[offset + 2] = value >>> 8;
+      this[offset + 3] = value & 255;
+      return offset + 4;
+    };
+    function wrtBigUInt64LE(buf, value, offset, min, max) {
+      checkIntBI(value, min, max, buf, offset, 7);
+      let lo = Number(value & BigInt(4294967295));
+      buf[offset++] = lo;
+      lo = lo >> 8;
+      buf[offset++] = lo;
+      lo = lo >> 8;
+      buf[offset++] = lo;
+      lo = lo >> 8;
+      buf[offset++] = lo;
+      let hi = Number(value >> BigInt(32) & BigInt(4294967295));
+      buf[offset++] = hi;
+      hi = hi >> 8;
+      buf[offset++] = hi;
+      hi = hi >> 8;
+      buf[offset++] = hi;
+      hi = hi >> 8;
+      buf[offset++] = hi;
+      return offset;
+    }
+    function wrtBigUInt64BE(buf, value, offset, min, max) {
+      checkIntBI(value, min, max, buf, offset, 7);
+      let lo = Number(value & BigInt(4294967295));
+      buf[offset + 7] = lo;
+      lo = lo >> 8;
+      buf[offset + 6] = lo;
+      lo = lo >> 8;
+      buf[offset + 5] = lo;
+      lo = lo >> 8;
+      buf[offset + 4] = lo;
+      let hi = Number(value >> BigInt(32) & BigInt(4294967295));
+      buf[offset + 3] = hi;
+      hi = hi >> 8;
+      buf[offset + 2] = hi;
+      hi = hi >> 8;
+      buf[offset + 1] = hi;
+      hi = hi >> 8;
+      buf[offset] = hi;
+      return offset + 8;
+    }
+    Buffer2.prototype.writeBigUInt64LE = defineBigIntMethod(function writeBigUInt64LE(value, offset = 0) {
+      return wrtBigUInt64LE(this, value, offset, BigInt(0), BigInt("0xffffffffffffffff"));
+    });
+    Buffer2.prototype.writeBigUInt64BE = defineBigIntMethod(function writeBigUInt64BE(value, offset = 0) {
+      return wrtBigUInt64BE(this, value, offset, BigInt(0), BigInt("0xffffffffffffffff"));
+    });
+    Buffer2.prototype.writeIntLE = function writeIntLE(value, offset, byteLength2, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      if (!noAssert) {
+        const limit = Math.pow(2, 8 * byteLength2 - 1);
+        checkInt(this, value, offset, byteLength2, limit - 1, -limit);
+      }
+      let i = 0;
+      let mul = 1;
+      let sub = 0;
+      this[offset] = value & 255;
+      while (++i < byteLength2 && (mul *= 256)) {
+        if (value < 0 && sub === 0 && this[offset + i - 1] !== 0) {
+          sub = 1;
+        }
+        this[offset + i] = (value / mul >> 0) - sub & 255;
+      }
+      return offset + byteLength2;
+    };
+    Buffer2.prototype.writeIntBE = function writeIntBE(value, offset, byteLength2, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      if (!noAssert) {
+        const limit = Math.pow(2, 8 * byteLength2 - 1);
+        checkInt(this, value, offset, byteLength2, limit - 1, -limit);
+      }
+      let i = byteLength2 - 1;
+      let mul = 1;
+      let sub = 0;
+      this[offset + i] = value & 255;
+      while (--i >= 0 && (mul *= 256)) {
+        if (value < 0 && sub === 0 && this[offset + i + 1] !== 0) {
+          sub = 1;
+        }
+        this[offset + i] = (value / mul >> 0) - sub & 255;
+      }
+      return offset + byteLength2;
+    };
+    Buffer2.prototype.writeInt8 = function writeInt8(value, offset, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkInt(this, value, offset, 1, 127, -128);
+      if (value < 0)
+        value = 255 + value + 1;
+      this[offset] = value & 255;
+      return offset + 1;
+    };
+    Buffer2.prototype.writeInt16LE = function writeInt16LE(value, offset, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkInt(this, value, offset, 2, 32767, -32768);
+      this[offset] = value & 255;
+      this[offset + 1] = value >>> 8;
+      return offset + 2;
+    };
+    Buffer2.prototype.writeInt16BE = function writeInt16BE(value, offset, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkInt(this, value, offset, 2, 32767, -32768);
+      this[offset] = value >>> 8;
+      this[offset + 1] = value & 255;
+      return offset + 2;
+    };
+    Buffer2.prototype.writeInt32LE = function writeInt32LE(value, offset, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkInt(this, value, offset, 4, 2147483647, -2147483648);
+      this[offset] = value & 255;
+      this[offset + 1] = value >>> 8;
+      this[offset + 2] = value >>> 16;
+      this[offset + 3] = value >>> 24;
+      return offset + 4;
+    };
+    Buffer2.prototype.writeInt32BE = function writeInt32BE(value, offset, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      if (!noAssert)
+        checkInt(this, value, offset, 4, 2147483647, -2147483648);
+      if (value < 0)
+        value = 4294967295 + value + 1;
+      this[offset] = value >>> 24;
+      this[offset + 1] = value >>> 16;
+      this[offset + 2] = value >>> 8;
+      this[offset + 3] = value & 255;
+      return offset + 4;
+    };
+    Buffer2.prototype.writeBigInt64LE = defineBigIntMethod(function writeBigInt64LE(value, offset = 0) {
+      return wrtBigUInt64LE(this, value, offset, -BigInt("0x8000000000000000"), BigInt("0x7fffffffffffffff"));
+    });
+    Buffer2.prototype.writeBigInt64BE = defineBigIntMethod(function writeBigInt64BE(value, offset = 0) {
+      return wrtBigUInt64BE(this, value, offset, -BigInt("0x8000000000000000"), BigInt("0x7fffffffffffffff"));
+    });
+    function checkIEEE754(buf, value, offset, ext, max, min) {
+      if (offset + ext > buf.length)
+        throw new RangeError("Index out of range");
+      if (offset < 0)
+        throw new RangeError("Index out of range");
+    }
+    function writeFloat(buf, value, offset, littleEndian, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      if (!noAssert) {
+        checkIEEE754(buf, value, offset, 4, 34028234663852886e22, -34028234663852886e22);
+      }
+      ieee754.write(buf, value, offset, littleEndian, 23, 4);
+      return offset + 4;
+    }
+    Buffer2.prototype.writeFloatLE = function writeFloatLE(value, offset, noAssert) {
+      return writeFloat(this, value, offset, true, noAssert);
+    };
+    Buffer2.prototype.writeFloatBE = function writeFloatBE(value, offset, noAssert) {
+      return writeFloat(this, value, offset, false, noAssert);
+    };
+    function writeDouble(buf, value, offset, littleEndian, noAssert) {
+      value = +value;
+      offset = offset >>> 0;
+      if (!noAssert) {
+        checkIEEE754(buf, value, offset, 8, 17976931348623157e292, -17976931348623157e292);
+      }
+      ieee754.write(buf, value, offset, littleEndian, 52, 8);
+      return offset + 8;
+    }
+    Buffer2.prototype.writeDoubleLE = function writeDoubleLE(value, offset, noAssert) {
+      return writeDouble(this, value, offset, true, noAssert);
+    };
+    Buffer2.prototype.writeDoubleBE = function writeDoubleBE(value, offset, noAssert) {
+      return writeDouble(this, value, offset, false, noAssert);
+    };
+    Buffer2.prototype.copy = function copy(target, targetStart, start, end) {
+      if (!Buffer2.isBuffer(target))
+        throw new TypeError("argument should be a Buffer");
+      if (!start)
+        start = 0;
+      if (!end && end !== 0)
+        end = this.length;
+      if (targetStart >= target.length)
+        targetStart = target.length;
+      if (!targetStart)
+        targetStart = 0;
+      if (end > 0 && end < start)
+        end = start;
+      if (end === start)
+        return 0;
+      if (target.length === 0 || this.length === 0)
+        return 0;
+      if (targetStart < 0) {
+        throw new RangeError("targetStart out of bounds");
+      }
+      if (start < 0 || start >= this.length)
+        throw new RangeError("Index out of range");
+      if (end < 0)
+        throw new RangeError("sourceEnd out of bounds");
+      if (end > this.length)
+        end = this.length;
+      if (target.length - targetStart < end - start) {
+        end = target.length - targetStart + start;
+      }
+      const len = end - start;
+      if (this === target && typeof Uint8Array.prototype.copyWithin === "function") {
+        this.copyWithin(targetStart, start, end);
+      } else {
+        Uint8Array.prototype.set.call(
+          target,
+          this.subarray(start, end),
+          targetStart
+        );
+      }
+      return len;
+    };
+    Buffer2.prototype.fill = function fill(val, start, end, encoding) {
+      if (typeof val === "string") {
+        if (typeof start === "string") {
+          encoding = start;
+          start = 0;
+          end = this.length;
+        } else if (typeof end === "string") {
+          encoding = end;
+          end = this.length;
+        }
+        if (encoding !== void 0 && typeof encoding !== "string") {
+          throw new TypeError("encoding must be a string");
+        }
+        if (typeof encoding === "string" && !Buffer2.isEncoding(encoding)) {
+          throw new TypeError("Unknown encoding: " + encoding);
+        }
+        if (val.length === 1) {
+          const code = val.charCodeAt(0);
+          if (encoding === "utf8" && code < 128 || encoding === "latin1") {
+            val = code;
+          }
+        }
+      } else if (typeof val === "number") {
+        val = val & 255;
+      } else if (typeof val === "boolean") {
+        val = Number(val);
+      }
+      if (start < 0 || this.length < start || this.length < end) {
+        throw new RangeError("Out of range index");
+      }
+      if (end <= start) {
+        return this;
+      }
+      start = start >>> 0;
+      end = end === void 0 ? this.length : end >>> 0;
+      if (!val)
+        val = 0;
+      let i;
+      if (typeof val === "number") {
+        for (i = start; i < end; ++i) {
+          this[i] = val;
+        }
+      } else {
+        const bytes = Buffer2.isBuffer(val) ? val : Buffer2.from(val, encoding);
+        const len = bytes.length;
+        if (len === 0) {
+          throw new TypeError('The value "' + val + '" is invalid for argument "value"');
+        }
+        for (i = 0; i < end - start; ++i) {
+          this[i + start] = bytes[i % len];
+        }
+      }
+      return this;
+    };
+    var errors = {};
+    function E(sym, getMessage, Base) {
+      errors[sym] = class NodeError extends Base {
+        constructor() {
+          super();
+          Object.defineProperty(this, "message", {
+            value: getMessage.apply(this, arguments),
+            writable: true,
+            configurable: true
+          });
+          this.name = `${this.name} [${sym}]`;
+          this.stack;
+          delete this.name;
+        }
+        get code() {
+          return sym;
+        }
+        set code(value) {
+          Object.defineProperty(this, "code", {
+            configurable: true,
+            enumerable: true,
+            value,
+            writable: true
+          });
+        }
+        toString() {
+          return `${this.name} [${sym}]: ${this.message}`;
+        }
+      };
+    }
+    E(
+      "ERR_BUFFER_OUT_OF_BOUNDS",
+      function(name) {
+        if (name) {
+          return `${name} is outside of buffer bounds`;
+        }
+        return "Attempt to access memory outside buffer bounds";
+      },
+      RangeError
+    );
+    E(
+      "ERR_INVALID_ARG_TYPE",
+      function(name, actual) {
+        return `The "${name}" argument must be of type number. Received type ${typeof actual}`;
+      },
+      TypeError
+    );
+    E(
+      "ERR_OUT_OF_RANGE",
+      function(str, range, input) {
+        let msg = `The value of "${str}" is out of range.`;
+        let received = input;
+        if (Number.isInteger(input) && Math.abs(input) > __pow(2, 32)) {
+          received = addNumericalSeparator(String(input));
+        } else if (typeof input === "bigint") {
+          received = String(input);
+          if (input > __pow(BigInt(2), BigInt(32)) || input < -__pow(BigInt(2), BigInt(32))) {
+            received = addNumericalSeparator(received);
+          }
+          received += "n";
+        }
+        msg += ` It must be ${range}. Received ${received}`;
+        return msg;
+      },
+      RangeError
+    );
+    function addNumericalSeparator(val) {
+      let res = "";
+      let i = val.length;
+      const start = val[0] === "-" ? 1 : 0;
+      for (; i >= start + 4; i -= 3) {
+        res = `_${val.slice(i - 3, i)}${res}`;
+      }
+      return `${val.slice(0, i)}${res}`;
+    }
+    function checkBounds(buf, offset, byteLength2) {
+      validateNumber(offset, "offset");
+      if (buf[offset] === void 0 || buf[offset + byteLength2] === void 0) {
+        boundsError(offset, buf.length - (byteLength2 + 1));
+      }
+    }
+    function checkIntBI(value, min, max, buf, offset, byteLength2) {
+      if (value > max || value < min) {
+        const n = typeof min === "bigint" ? "n" : "";
+        let range;
+        if (byteLength2 > 3) {
+          if (min === 0 || min === BigInt(0)) {
+            range = `>= 0${n} and < 2${n} ** ${(byteLength2 + 1) * 8}${n}`;
+          } else {
+            range = `>= -(2${n} ** ${(byteLength2 + 1) * 8 - 1}${n}) and < 2 ** ${(byteLength2 + 1) * 8 - 1}${n}`;
+          }
+        } else {
+          range = `>= ${min}${n} and <= ${max}${n}`;
+        }
+        throw new errors.ERR_OUT_OF_RANGE("value", range, value);
+      }
+      checkBounds(buf, offset, byteLength2);
+    }
+    function validateNumber(value, name) {
+      if (typeof value !== "number") {
+        throw new errors.ERR_INVALID_ARG_TYPE(name, "number", value);
+      }
+    }
+    function boundsError(value, length, type) {
+      if (Math.floor(value) !== value) {
+        validateNumber(value, type);
+        throw new errors.ERR_OUT_OF_RANGE(type || "offset", "an integer", value);
+      }
+      if (length < 0) {
+        throw new errors.ERR_BUFFER_OUT_OF_BOUNDS();
+      }
+      throw new errors.ERR_OUT_OF_RANGE(
+        type || "offset",
+        `>= ${type ? 1 : 0} and <= ${length}`,
+        value
+      );
+    }
+    var INVALID_BASE64_RE = /[^+/0-9A-Za-z-_]/g;
+    function base64clean(str) {
+      str = str.split("=")[0];
+      str = str.trim().replace(INVALID_BASE64_RE, "");
+      if (str.length < 2)
+        return "";
+      while (str.length % 4 !== 0) {
+        str = str + "=";
+      }
+      return str;
+    }
+    function utf8ToBytes(string, units) {
+      units = units || Infinity;
+      let codePoint;
+      const length = string.length;
+      let leadSurrogate = null;
+      const bytes = [];
+      for (let i = 0; i < length; ++i) {
+        codePoint = string.charCodeAt(i);
+        if (codePoint > 55295 && codePoint < 57344) {
+          if (!leadSurrogate) {
+            if (codePoint > 56319) {
+              if ((units -= 3) > -1)
+                bytes.push(239, 191, 189);
+              continue;
+            } else if (i + 1 === length) {
+              if ((units -= 3) > -1)
+                bytes.push(239, 191, 189);
+              continue;
+            }
+            leadSurrogate = codePoint;
+            continue;
+          }
+          if (codePoint < 56320) {
+            if ((units -= 3) > -1)
+              bytes.push(239, 191, 189);
+            leadSurrogate = codePoint;
+            continue;
+          }
+          codePoint = (leadSurrogate - 55296 << 10 | codePoint - 56320) + 65536;
+        } else if (leadSurrogate) {
+          if ((units -= 3) > -1)
+            bytes.push(239, 191, 189);
+        }
+        leadSurrogate = null;
+        if (codePoint < 128) {
+          if ((units -= 1) < 0)
+            break;
+          bytes.push(codePoint);
+        } else if (codePoint < 2048) {
+          if ((units -= 2) < 0)
+            break;
+          bytes.push(
+            codePoint >> 6 | 192,
+            codePoint & 63 | 128
+          );
+        } else if (codePoint < 65536) {
+          if ((units -= 3) < 0)
+            break;
+          bytes.push(
+            codePoint >> 12 | 224,
+            codePoint >> 6 & 63 | 128,
+            codePoint & 63 | 128
+          );
+        } else if (codePoint < 1114112) {
+          if ((units -= 4) < 0)
+            break;
+          bytes.push(
+            codePoint >> 18 | 240,
+            codePoint >> 12 & 63 | 128,
+            codePoint >> 6 & 63 | 128,
+            codePoint & 63 | 128
+          );
+        } else {
+          throw new Error("Invalid code point");
+        }
+      }
+      return bytes;
+    }
+    function asciiToBytes(str) {
+      const byteArray = [];
+      for (let i = 0; i < str.length; ++i) {
+        byteArray.push(str.charCodeAt(i) & 255);
+      }
+      return byteArray;
+    }
+    function utf16leToBytes(str, units) {
+      let c, hi, lo;
+      const byteArray = [];
+      for (let i = 0; i < str.length; ++i) {
+        if ((units -= 2) < 0)
+          break;
+        c = str.charCodeAt(i);
+        hi = c >> 8;
+        lo = c % 256;
+        byteArray.push(lo);
+        byteArray.push(hi);
+      }
+      return byteArray;
+    }
+    function base64ToBytes(str) {
+      return base64.toByteArray(base64clean(str));
+    }
+    function blitBuffer(src, dst, offset, length) {
+      let i;
+      for (i = 0; i < length; ++i) {
+        if (i + offset >= dst.length || i >= src.length)
+          break;
+        dst[i + offset] = src[i];
+      }
+      return i;
+    }
+    function isInstance(obj, type) {
+      return obj instanceof type || obj != null && obj.constructor != null && obj.constructor.name != null && obj.constructor.name === type.name;
+    }
+    function numberIsNaN(obj) {
+      return obj !== obj;
+    }
+    var hexSliceLookupTable = function() {
+      const alphabet = "0123456789abcdef";
+      const table = new Array(256);
+      for (let i = 0; i < 16; ++i) {
+        const i16 = i * 16;
+        for (let j = 0; j < 16; ++j) {
+          table[i16 + j] = alphabet[i] + alphabet[j];
+        }
+      }
+      return table;
+    }();
+    function defineBigIntMethod(fn) {
+      return typeof BigInt === "undefined" ? BufferBigIntNotDefined : fn;
+    }
+    function BufferBigIntNotDefined() {
+      throw new Error("BigInt not supported");
+    }
+  }
+});
+
 // src/pkjs/pgjs/shims/util.js
 var require_util = __commonJS({
   "src/pkjs/pgjs/shims/util.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     function inherits(child, parent) {
       child.prototype = Object.create(parent.prototype);
       child.prototype.constructor = child;
@@ -72,6 +1964,7 @@ var require_util = __commonJS({
 var require_inspect = __commonJS({
   "node_modules/telegram/inspect.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.inspect = void 0;
     var util_1 = require_util();
@@ -84,6 +1977,7 @@ var require_inspect = __commonJS({
 // node_modules/big-integer/BigInteger.js
 var require_BigInteger = __commonJS({
   "node_modules/big-integer/BigInteger.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     var bigInt = function(undefined2) {
       "use strict";
       var BASE = 1e7, LOG_BASE = 7, MAX_INT = 9007199254740992, MAX_INT_ARR = smallToArray(MAX_INT), DEFAULT_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
@@ -1439,6 +3333,7 @@ var require_BigInteger = __commonJS({
 // src/pkjs/pgjs/shims/crypto.js
 var require_crypto = __commonJS({
   "src/pkjs/pgjs/shims/crypto.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     function randomBytes(count) {
       var bytes = new Uint8Array(count);
       var cryptoObject = typeof self !== "undefined" && self.crypto || typeof window !== "undefined" && window.crypto || typeof global !== "undefined" && global.crypto;
@@ -1458,6 +3353,7 @@ var require_crypto = __commonJS({
 var require_CryptoFile = __commonJS({
   "node_modules/telegram/CryptoFile.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -1500,6 +3396,7 @@ var require_CryptoFile = __commonJS({
 var require_platform = __commonJS({
   "node_modules/telegram/platform.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.isNode = exports2.isBrowser = exports2.isDeno = void 0;
     exports2.isDeno = "Deno" in globalThis;
@@ -1512,6 +3409,7 @@ var require_platform = __commonJS({
 var require_Helpers = __commonJS({
   "node_modules/telegram/Helpers.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod2) {
       return mod2 && mod2.__esModule ? mod2 : { "default": mod2 };
     };
@@ -1544,8 +3442,8 @@ var require_Helpers = __commonJS({
     var big_integer_1 = __importDefault2(require_BigInteger());
     var CryptoFile_1 = __importDefault2(require_CryptoFile());
     var platform_1 = require_platform();
-    function readBigIntFromBuffer(buffer, little = true, signed = false) {
-      let randBuffer = Buffer.from(buffer);
+    function readBigIntFromBuffer(buffer2, little = true, signed = false) {
+      let randBuffer = Buffer.from(buffer2);
       const bytesNumber = randBuffer.length;
       if (little) {
         randBuffer = randBuffer.reverse();
@@ -1610,11 +3508,11 @@ var require_Helpers = __commonJS({
         bigIntVar = (0, big_integer_1.default)(2).pow((0, big_integer_1.default)(bytesNumber).multiply(8)).add(bigIntVar);
       }
       const hex = bigIntVar.toString(16).padStart(bytesNumber * 2, "0");
-      let buffer = Buffer.from(hex, "hex");
+      let buffer2 = Buffer.from(hex, "hex");
       if (little) {
-        buffer = buffer.reverse();
+        buffer2 = buffer2.reverse();
       }
-      return buffer;
+      return buffer2;
     }
     function generateRandomLong(signed = true) {
       return readBigIntFromBuffer(generateRandomBytes(8), true, signed);
@@ -1849,6 +3747,7 @@ var require_Helpers = __commonJS({
 var require_apiTl = __commonJS({
   "node_modules/telegram/tl/apiTl.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     module2.exports = `boolFalse#bc799737 = Bool;
 boolTrue#997275b5 = Bool;
 true#3fedd339 = True;
@@ -3949,6 +5848,7 @@ fragment.getCollectibleInfo#be1e85ba collectible:InputCollectible = fragment.Col
 var require_schemaTl = __commonJS({
   "node_modules/telegram/tl/schemaTl.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     module2.exports = `
 resPQ#05162463 nonce:int128 server_nonce:int128 pq:string server_public_key_fingerprints:Vector<long> = ResPQ;
 p_q_inner_data#83c95aec pq:string p:string q:string nonce:int128 server_nonce:int128 new_nonce:int256 = P_Q_inner_data;
@@ -4020,6 +5920,7 @@ destroy_session#e7512126 session_id:long = DestroySessionRes;
 var require_generationHelpers = __commonJS({
   "node_modules/telegram/tl/generationHelpers.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.variableSnakeToCamelCase = exports2.snakeToCamelCase = exports2.CORE_TYPES = exports2.fromLine = exports2.parseTl = exports2.findAll = void 0;
     exports2.serializeBytes = serializeBytes;
@@ -4271,6 +6172,7 @@ var require_generationHelpers = __commonJS({
 var require_api = __commonJS({
   "node_modules/telegram/tl/api.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var { inspect } = require_inspect();
     var bigInt = require_BigInteger();
     var { generateRandomBytes, readBigIntFromBuffer, isArrayLike, betterConsoleLog } = require_Helpers();
@@ -4733,6 +6635,7 @@ var require_api = __commonJS({
 var require_chatGetter = __commonJS({
   "node_modules/telegram/tl/custom/chatGetter.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __asyncValues2 = exports2 && exports2.__asyncValues || function(o) {
       if (!Symbol.asyncIterator)
         throw new TypeError("Symbol.asyncIterator is not defined.");
@@ -4869,6 +6772,7 @@ var require_chatGetter = __commonJS({
 var require_senderGetter = __commonJS({
   "node_modules/telegram/tl/custom/senderGetter.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SenderGetter = void 0;
     var api_1 = require_api();
@@ -4933,6 +6837,7 @@ var require_senderGetter = __commonJS({
 var require_Mime = __commonJS({
   "node_modules/mime/Mime.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     function Mime() {
       this._types = /* @__PURE__ */ Object.create(null);
       this._extensions = /* @__PURE__ */ Object.create(null);
@@ -4986,6 +6891,7 @@ var require_Mime = __commonJS({
 // node_modules/mime/types/standard.js
 var require_standard = __commonJS({
   "node_modules/mime/types/standard.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     module2.exports = { "application/andrew-inset": ["ez"], "application/applixware": ["aw"], "application/atom+xml": ["atom"], "application/atomcat+xml": ["atomcat"], "application/atomdeleted+xml": ["atomdeleted"], "application/atomsvc+xml": ["atomsvc"], "application/atsc-dwd+xml": ["dwd"], "application/atsc-held+xml": ["held"], "application/atsc-rsat+xml": ["rsat"], "application/bdoc": ["bdoc"], "application/calendar+xml": ["xcs"], "application/ccxml+xml": ["ccxml"], "application/cdfx+xml": ["cdfx"], "application/cdmi-capability": ["cdmia"], "application/cdmi-container": ["cdmic"], "application/cdmi-domain": ["cdmid"], "application/cdmi-object": ["cdmio"], "application/cdmi-queue": ["cdmiq"], "application/cu-seeme": ["cu"], "application/dash+xml": ["mpd"], "application/davmount+xml": ["davmount"], "application/docbook+xml": ["dbk"], "application/dssc+der": ["dssc"], "application/dssc+xml": ["xdssc"], "application/ecmascript": ["es", "ecma"], "application/emma+xml": ["emma"], "application/emotionml+xml": ["emotionml"], "application/epub+zip": ["epub"], "application/exi": ["exi"], "application/express": ["exp"], "application/fdt+xml": ["fdt"], "application/font-tdpfr": ["pfr"], "application/geo+json": ["geojson"], "application/gml+xml": ["gml"], "application/gpx+xml": ["gpx"], "application/gxf": ["gxf"], "application/gzip": ["gz"], "application/hjson": ["hjson"], "application/hyperstudio": ["stk"], "application/inkml+xml": ["ink", "inkml"], "application/ipfix": ["ipfix"], "application/its+xml": ["its"], "application/java-archive": ["jar", "war", "ear"], "application/java-serialized-object": ["ser"], "application/java-vm": ["class"], "application/javascript": ["js", "mjs"], "application/json": ["json", "map"], "application/json5": ["json5"], "application/jsonml+json": ["jsonml"], "application/ld+json": ["jsonld"], "application/lgr+xml": ["lgr"], "application/lost+xml": ["lostxml"], "application/mac-binhex40": ["hqx"], "application/mac-compactpro": ["cpt"], "application/mads+xml": ["mads"], "application/manifest+json": ["webmanifest"], "application/marc": ["mrc"], "application/marcxml+xml": ["mrcx"], "application/mathematica": ["ma", "nb", "mb"], "application/mathml+xml": ["mathml"], "application/mbox": ["mbox"], "application/mediaservercontrol+xml": ["mscml"], "application/metalink+xml": ["metalink"], "application/metalink4+xml": ["meta4"], "application/mets+xml": ["mets"], "application/mmt-aei+xml": ["maei"], "application/mmt-usd+xml": ["musd"], "application/mods+xml": ["mods"], "application/mp21": ["m21", "mp21"], "application/mp4": ["mp4s", "m4p"], "application/msword": ["doc", "dot"], "application/mxf": ["mxf"], "application/n-quads": ["nq"], "application/n-triples": ["nt"], "application/node": ["cjs"], "application/octet-stream": ["bin", "dms", "lrf", "mar", "so", "dist", "distz", "pkg", "bpk", "dump", "elc", "deploy", "exe", "dll", "deb", "dmg", "iso", "img", "msi", "msp", "msm", "buffer"], "application/oda": ["oda"], "application/oebps-package+xml": ["opf"], "application/ogg": ["ogx"], "application/omdoc+xml": ["omdoc"], "application/onenote": ["onetoc", "onetoc2", "onetmp", "onepkg"], "application/oxps": ["oxps"], "application/p2p-overlay+xml": ["relo"], "application/patch-ops-error+xml": ["xer"], "application/pdf": ["pdf"], "application/pgp-encrypted": ["pgp"], "application/pgp-signature": ["asc", "sig"], "application/pics-rules": ["prf"], "application/pkcs10": ["p10"], "application/pkcs7-mime": ["p7m", "p7c"], "application/pkcs7-signature": ["p7s"], "application/pkcs8": ["p8"], "application/pkix-attr-cert": ["ac"], "application/pkix-cert": ["cer"], "application/pkix-crl": ["crl"], "application/pkix-pkipath": ["pkipath"], "application/pkixcmp": ["pki"], "application/pls+xml": ["pls"], "application/postscript": ["ai", "eps", "ps"], "application/provenance+xml": ["provx"], "application/pskc+xml": ["pskcxml"], "application/raml+yaml": ["raml"], "application/rdf+xml": ["rdf", "owl"], "application/reginfo+xml": ["rif"], "application/relax-ng-compact-syntax": ["rnc"], "application/resource-lists+xml": ["rl"], "application/resource-lists-diff+xml": ["rld"], "application/rls-services+xml": ["rs"], "application/route-apd+xml": ["rapd"], "application/route-s-tsid+xml": ["sls"], "application/route-usd+xml": ["rusd"], "application/rpki-ghostbusters": ["gbr"], "application/rpki-manifest": ["mft"], "application/rpki-roa": ["roa"], "application/rsd+xml": ["rsd"], "application/rss+xml": ["rss"], "application/rtf": ["rtf"], "application/sbml+xml": ["sbml"], "application/scvp-cv-request": ["scq"], "application/scvp-cv-response": ["scs"], "application/scvp-vp-request": ["spq"], "application/scvp-vp-response": ["spp"], "application/sdp": ["sdp"], "application/senml+xml": ["senmlx"], "application/sensml+xml": ["sensmlx"], "application/set-payment-initiation": ["setpay"], "application/set-registration-initiation": ["setreg"], "application/shf+xml": ["shf"], "application/sieve": ["siv", "sieve"], "application/smil+xml": ["smi", "smil"], "application/sparql-query": ["rq"], "application/sparql-results+xml": ["srx"], "application/srgs": ["gram"], "application/srgs+xml": ["grxml"], "application/sru+xml": ["sru"], "application/ssdl+xml": ["ssdl"], "application/ssml+xml": ["ssml"], "application/swid+xml": ["swidtag"], "application/tei+xml": ["tei", "teicorpus"], "application/thraud+xml": ["tfi"], "application/timestamped-data": ["tsd"], "application/toml": ["toml"], "application/trig": ["trig"], "application/ttml+xml": ["ttml"], "application/ubjson": ["ubj"], "application/urc-ressheet+xml": ["rsheet"], "application/urc-targetdesc+xml": ["td"], "application/voicexml+xml": ["vxml"], "application/wasm": ["wasm"], "application/widget": ["wgt"], "application/winhlp": ["hlp"], "application/wsdl+xml": ["wsdl"], "application/wspolicy+xml": ["wspolicy"], "application/xaml+xml": ["xaml"], "application/xcap-att+xml": ["xav"], "application/xcap-caps+xml": ["xca"], "application/xcap-diff+xml": ["xdf"], "application/xcap-el+xml": ["xel"], "application/xcap-ns+xml": ["xns"], "application/xenc+xml": ["xenc"], "application/xhtml+xml": ["xhtml", "xht"], "application/xliff+xml": ["xlf"], "application/xml": ["xml", "xsl", "xsd", "rng"], "application/xml-dtd": ["dtd"], "application/xop+xml": ["xop"], "application/xproc+xml": ["xpl"], "application/xslt+xml": ["*xsl", "xslt"], "application/xspf+xml": ["xspf"], "application/xv+xml": ["mxml", "xhvml", "xvml", "xvm"], "application/yang": ["yang"], "application/yin+xml": ["yin"], "application/zip": ["zip"], "audio/3gpp": ["*3gpp"], "audio/adpcm": ["adp"], "audio/amr": ["amr"], "audio/basic": ["au", "snd"], "audio/midi": ["mid", "midi", "kar", "rmi"], "audio/mobile-xmf": ["mxmf"], "audio/mp3": ["*mp3"], "audio/mp4": ["m4a", "mp4a"], "audio/mpeg": ["mpga", "mp2", "mp2a", "mp3", "m2a", "m3a"], "audio/ogg": ["oga", "ogg", "spx", "opus"], "audio/s3m": ["s3m"], "audio/silk": ["sil"], "audio/wav": ["wav"], "audio/wave": ["*wav"], "audio/webm": ["weba"], "audio/xm": ["xm"], "font/collection": ["ttc"], "font/otf": ["otf"], "font/ttf": ["ttf"], "font/woff": ["woff"], "font/woff2": ["woff2"], "image/aces": ["exr"], "image/apng": ["apng"], "image/avif": ["avif"], "image/bmp": ["bmp"], "image/cgm": ["cgm"], "image/dicom-rle": ["drle"], "image/emf": ["emf"], "image/fits": ["fits"], "image/g3fax": ["g3"], "image/gif": ["gif"], "image/heic": ["heic"], "image/heic-sequence": ["heics"], "image/heif": ["heif"], "image/heif-sequence": ["heifs"], "image/hej2k": ["hej2"], "image/hsj2": ["hsj2"], "image/ief": ["ief"], "image/jls": ["jls"], "image/jp2": ["jp2", "jpg2"], "image/jpeg": ["jpeg", "jpg", "jpe"], "image/jph": ["jph"], "image/jphc": ["jhc"], "image/jpm": ["jpm"], "image/jpx": ["jpx", "jpf"], "image/jxr": ["jxr"], "image/jxra": ["jxra"], "image/jxrs": ["jxrs"], "image/jxs": ["jxs"], "image/jxsc": ["jxsc"], "image/jxsi": ["jxsi"], "image/jxss": ["jxss"], "image/ktx": ["ktx"], "image/ktx2": ["ktx2"], "image/png": ["png"], "image/sgi": ["sgi"], "image/svg+xml": ["svg", "svgz"], "image/t38": ["t38"], "image/tiff": ["tif", "tiff"], "image/tiff-fx": ["tfx"], "image/webp": ["webp"], "image/wmf": ["wmf"], "message/disposition-notification": ["disposition-notification"], "message/global": ["u8msg"], "message/global-delivery-status": ["u8dsn"], "message/global-disposition-notification": ["u8mdn"], "message/global-headers": ["u8hdr"], "message/rfc822": ["eml", "mime"], "model/3mf": ["3mf"], "model/gltf+json": ["gltf"], "model/gltf-binary": ["glb"], "model/iges": ["igs", "iges"], "model/mesh": ["msh", "mesh", "silo"], "model/mtl": ["mtl"], "model/obj": ["obj"], "model/step+xml": ["stpx"], "model/step+zip": ["stpz"], "model/step-xml+zip": ["stpxz"], "model/stl": ["stl"], "model/vrml": ["wrl", "vrml"], "model/x3d+binary": ["*x3db", "x3dbz"], "model/x3d+fastinfoset": ["x3db"], "model/x3d+vrml": ["*x3dv", "x3dvz"], "model/x3d+xml": ["x3d", "x3dz"], "model/x3d-vrml": ["x3dv"], "text/cache-manifest": ["appcache", "manifest"], "text/calendar": ["ics", "ifb"], "text/coffeescript": ["coffee", "litcoffee"], "text/css": ["css"], "text/csv": ["csv"], "text/html": ["html", "htm", "shtml"], "text/jade": ["jade"], "text/jsx": ["jsx"], "text/less": ["less"], "text/markdown": ["markdown", "md"], "text/mathml": ["mml"], "text/mdx": ["mdx"], "text/n3": ["n3"], "text/plain": ["txt", "text", "conf", "def", "list", "log", "in", "ini"], "text/richtext": ["rtx"], "text/rtf": ["*rtf"], "text/sgml": ["sgml", "sgm"], "text/shex": ["shex"], "text/slim": ["slim", "slm"], "text/spdx": ["spdx"], "text/stylus": ["stylus", "styl"], "text/tab-separated-values": ["tsv"], "text/troff": ["t", "tr", "roff", "man", "me", "ms"], "text/turtle": ["ttl"], "text/uri-list": ["uri", "uris", "urls"], "text/vcard": ["vcard"], "text/vtt": ["vtt"], "text/xml": ["*xml"], "text/yaml": ["yaml", "yml"], "video/3gpp": ["3gp", "3gpp"], "video/3gpp2": ["3g2"], "video/h261": ["h261"], "video/h263": ["h263"], "video/h264": ["h264"], "video/iso.segment": ["m4s"], "video/jpeg": ["jpgv"], "video/jpm": ["*jpm", "jpgm"], "video/mj2": ["mj2", "mjp2"], "video/mp2t": ["ts"], "video/mp4": ["mp4", "mp4v", "mpg4"], "video/mpeg": ["mpeg", "mpg", "mpe", "m1v", "m2v"], "video/ogg": ["ogv"], "video/quicktime": ["qt", "mov"], "video/webm": ["webm"] };
   }
 });
@@ -4993,6 +6899,7 @@ var require_standard = __commonJS({
 // node_modules/mime/types/other.js
 var require_other = __commonJS({
   "node_modules/mime/types/other.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     module2.exports = { "application/prs.cww": ["cww"], "application/vnd.1000minds.decision-model+xml": ["1km"], "application/vnd.3gpp.pic-bw-large": ["plb"], "application/vnd.3gpp.pic-bw-small": ["psb"], "application/vnd.3gpp.pic-bw-var": ["pvb"], "application/vnd.3gpp2.tcap": ["tcap"], "application/vnd.3m.post-it-notes": ["pwn"], "application/vnd.accpac.simply.aso": ["aso"], "application/vnd.accpac.simply.imp": ["imp"], "application/vnd.acucobol": ["acu"], "application/vnd.acucorp": ["atc", "acutc"], "application/vnd.adobe.air-application-installer-package+zip": ["air"], "application/vnd.adobe.formscentral.fcdt": ["fcdt"], "application/vnd.adobe.fxp": ["fxp", "fxpl"], "application/vnd.adobe.xdp+xml": ["xdp"], "application/vnd.adobe.xfdf": ["xfdf"], "application/vnd.ahead.space": ["ahead"], "application/vnd.airzip.filesecure.azf": ["azf"], "application/vnd.airzip.filesecure.azs": ["azs"], "application/vnd.amazon.ebook": ["azw"], "application/vnd.americandynamics.acc": ["acc"], "application/vnd.amiga.ami": ["ami"], "application/vnd.android.package-archive": ["apk"], "application/vnd.anser-web-certificate-issue-initiation": ["cii"], "application/vnd.anser-web-funds-transfer-initiation": ["fti"], "application/vnd.antix.game-component": ["atx"], "application/vnd.apple.installer+xml": ["mpkg"], "application/vnd.apple.keynote": ["key"], "application/vnd.apple.mpegurl": ["m3u8"], "application/vnd.apple.numbers": ["numbers"], "application/vnd.apple.pages": ["pages"], "application/vnd.apple.pkpass": ["pkpass"], "application/vnd.aristanetworks.swi": ["swi"], "application/vnd.astraea-software.iota": ["iota"], "application/vnd.audiograph": ["aep"], "application/vnd.balsamiq.bmml+xml": ["bmml"], "application/vnd.blueice.multipass": ["mpm"], "application/vnd.bmi": ["bmi"], "application/vnd.businessobjects": ["rep"], "application/vnd.chemdraw+xml": ["cdxml"], "application/vnd.chipnuts.karaoke-mmd": ["mmd"], "application/vnd.cinderella": ["cdy"], "application/vnd.citationstyles.style+xml": ["csl"], "application/vnd.claymore": ["cla"], "application/vnd.cloanto.rp9": ["rp9"], "application/vnd.clonk.c4group": ["c4g", "c4d", "c4f", "c4p", "c4u"], "application/vnd.cluetrust.cartomobile-config": ["c11amc"], "application/vnd.cluetrust.cartomobile-config-pkg": ["c11amz"], "application/vnd.commonspace": ["csp"], "application/vnd.contact.cmsg": ["cdbcmsg"], "application/vnd.cosmocaller": ["cmc"], "application/vnd.crick.clicker": ["clkx"], "application/vnd.crick.clicker.keyboard": ["clkk"], "application/vnd.crick.clicker.palette": ["clkp"], "application/vnd.crick.clicker.template": ["clkt"], "application/vnd.crick.clicker.wordbank": ["clkw"], "application/vnd.criticaltools.wbs+xml": ["wbs"], "application/vnd.ctc-posml": ["pml"], "application/vnd.cups-ppd": ["ppd"], "application/vnd.curl.car": ["car"], "application/vnd.curl.pcurl": ["pcurl"], "application/vnd.dart": ["dart"], "application/vnd.data-vision.rdz": ["rdz"], "application/vnd.dbf": ["dbf"], "application/vnd.dece.data": ["uvf", "uvvf", "uvd", "uvvd"], "application/vnd.dece.ttml+xml": ["uvt", "uvvt"], "application/vnd.dece.unspecified": ["uvx", "uvvx"], "application/vnd.dece.zip": ["uvz", "uvvz"], "application/vnd.denovo.fcselayout-link": ["fe_launch"], "application/vnd.dna": ["dna"], "application/vnd.dolby.mlp": ["mlp"], "application/vnd.dpgraph": ["dpg"], "application/vnd.dreamfactory": ["dfac"], "application/vnd.ds-keypoint": ["kpxx"], "application/vnd.dvb.ait": ["ait"], "application/vnd.dvb.service": ["svc"], "application/vnd.dynageo": ["geo"], "application/vnd.ecowin.chart": ["mag"], "application/vnd.enliven": ["nml"], "application/vnd.epson.esf": ["esf"], "application/vnd.epson.msf": ["msf"], "application/vnd.epson.quickanime": ["qam"], "application/vnd.epson.salt": ["slt"], "application/vnd.epson.ssf": ["ssf"], "application/vnd.eszigno3+xml": ["es3", "et3"], "application/vnd.ezpix-album": ["ez2"], "application/vnd.ezpix-package": ["ez3"], "application/vnd.fdf": ["fdf"], "application/vnd.fdsn.mseed": ["mseed"], "application/vnd.fdsn.seed": ["seed", "dataless"], "application/vnd.flographit": ["gph"], "application/vnd.fluxtime.clip": ["ftc"], "application/vnd.framemaker": ["fm", "frame", "maker", "book"], "application/vnd.frogans.fnc": ["fnc"], "application/vnd.frogans.ltf": ["ltf"], "application/vnd.fsc.weblaunch": ["fsc"], "application/vnd.fujitsu.oasys": ["oas"], "application/vnd.fujitsu.oasys2": ["oa2"], "application/vnd.fujitsu.oasys3": ["oa3"], "application/vnd.fujitsu.oasysgp": ["fg5"], "application/vnd.fujitsu.oasysprs": ["bh2"], "application/vnd.fujixerox.ddd": ["ddd"], "application/vnd.fujixerox.docuworks": ["xdw"], "application/vnd.fujixerox.docuworks.binder": ["xbd"], "application/vnd.fuzzysheet": ["fzs"], "application/vnd.genomatix.tuxedo": ["txd"], "application/vnd.geogebra.file": ["ggb"], "application/vnd.geogebra.tool": ["ggt"], "application/vnd.geometry-explorer": ["gex", "gre"], "application/vnd.geonext": ["gxt"], "application/vnd.geoplan": ["g2w"], "application/vnd.geospace": ["g3w"], "application/vnd.gmx": ["gmx"], "application/vnd.google-apps.document": ["gdoc"], "application/vnd.google-apps.presentation": ["gslides"], "application/vnd.google-apps.spreadsheet": ["gsheet"], "application/vnd.google-earth.kml+xml": ["kml"], "application/vnd.google-earth.kmz": ["kmz"], "application/vnd.grafeq": ["gqf", "gqs"], "application/vnd.groove-account": ["gac"], "application/vnd.groove-help": ["ghf"], "application/vnd.groove-identity-message": ["gim"], "application/vnd.groove-injector": ["grv"], "application/vnd.groove-tool-message": ["gtm"], "application/vnd.groove-tool-template": ["tpl"], "application/vnd.groove-vcard": ["vcg"], "application/vnd.hal+xml": ["hal"], "application/vnd.handheld-entertainment+xml": ["zmm"], "application/vnd.hbci": ["hbci"], "application/vnd.hhe.lesson-player": ["les"], "application/vnd.hp-hpgl": ["hpgl"], "application/vnd.hp-hpid": ["hpid"], "application/vnd.hp-hps": ["hps"], "application/vnd.hp-jlyt": ["jlt"], "application/vnd.hp-pcl": ["pcl"], "application/vnd.hp-pclxl": ["pclxl"], "application/vnd.hydrostatix.sof-data": ["sfd-hdstx"], "application/vnd.ibm.minipay": ["mpy"], "application/vnd.ibm.modcap": ["afp", "listafp", "list3820"], "application/vnd.ibm.rights-management": ["irm"], "application/vnd.ibm.secure-container": ["sc"], "application/vnd.iccprofile": ["icc", "icm"], "application/vnd.igloader": ["igl"], "application/vnd.immervision-ivp": ["ivp"], "application/vnd.immervision-ivu": ["ivu"], "application/vnd.insors.igm": ["igm"], "application/vnd.intercon.formnet": ["xpw", "xpx"], "application/vnd.intergeo": ["i2g"], "application/vnd.intu.qbo": ["qbo"], "application/vnd.intu.qfx": ["qfx"], "application/vnd.ipunplugged.rcprofile": ["rcprofile"], "application/vnd.irepository.package+xml": ["irp"], "application/vnd.is-xpr": ["xpr"], "application/vnd.isac.fcs": ["fcs"], "application/vnd.jam": ["jam"], "application/vnd.jcp.javame.midlet-rms": ["rms"], "application/vnd.jisp": ["jisp"], "application/vnd.joost.joda-archive": ["joda"], "application/vnd.kahootz": ["ktz", "ktr"], "application/vnd.kde.karbon": ["karbon"], "application/vnd.kde.kchart": ["chrt"], "application/vnd.kde.kformula": ["kfo"], "application/vnd.kde.kivio": ["flw"], "application/vnd.kde.kontour": ["kon"], "application/vnd.kde.kpresenter": ["kpr", "kpt"], "application/vnd.kde.kspread": ["ksp"], "application/vnd.kde.kword": ["kwd", "kwt"], "application/vnd.kenameaapp": ["htke"], "application/vnd.kidspiration": ["kia"], "application/vnd.kinar": ["kne", "knp"], "application/vnd.koan": ["skp", "skd", "skt", "skm"], "application/vnd.kodak-descriptor": ["sse"], "application/vnd.las.las+xml": ["lasxml"], "application/vnd.llamagraphics.life-balance.desktop": ["lbd"], "application/vnd.llamagraphics.life-balance.exchange+xml": ["lbe"], "application/vnd.lotus-1-2-3": ["123"], "application/vnd.lotus-approach": ["apr"], "application/vnd.lotus-freelance": ["pre"], "application/vnd.lotus-notes": ["nsf"], "application/vnd.lotus-organizer": ["org"], "application/vnd.lotus-screencam": ["scm"], "application/vnd.lotus-wordpro": ["lwp"], "application/vnd.macports.portpkg": ["portpkg"], "application/vnd.mapbox-vector-tile": ["mvt"], "application/vnd.mcd": ["mcd"], "application/vnd.medcalcdata": ["mc1"], "application/vnd.mediastation.cdkey": ["cdkey"], "application/vnd.mfer": ["mwf"], "application/vnd.mfmp": ["mfm"], "application/vnd.micrografx.flo": ["flo"], "application/vnd.micrografx.igx": ["igx"], "application/vnd.mif": ["mif"], "application/vnd.mobius.daf": ["daf"], "application/vnd.mobius.dis": ["dis"], "application/vnd.mobius.mbk": ["mbk"], "application/vnd.mobius.mqy": ["mqy"], "application/vnd.mobius.msl": ["msl"], "application/vnd.mobius.plc": ["plc"], "application/vnd.mobius.txf": ["txf"], "application/vnd.mophun.application": ["mpn"], "application/vnd.mophun.certificate": ["mpc"], "application/vnd.mozilla.xul+xml": ["xul"], "application/vnd.ms-artgalry": ["cil"], "application/vnd.ms-cab-compressed": ["cab"], "application/vnd.ms-excel": ["xls", "xlm", "xla", "xlc", "xlt", "xlw"], "application/vnd.ms-excel.addin.macroenabled.12": ["xlam"], "application/vnd.ms-excel.sheet.binary.macroenabled.12": ["xlsb"], "application/vnd.ms-excel.sheet.macroenabled.12": ["xlsm"], "application/vnd.ms-excel.template.macroenabled.12": ["xltm"], "application/vnd.ms-fontobject": ["eot"], "application/vnd.ms-htmlhelp": ["chm"], "application/vnd.ms-ims": ["ims"], "application/vnd.ms-lrm": ["lrm"], "application/vnd.ms-officetheme": ["thmx"], "application/vnd.ms-outlook": ["msg"], "application/vnd.ms-pki.seccat": ["cat"], "application/vnd.ms-pki.stl": ["*stl"], "application/vnd.ms-powerpoint": ["ppt", "pps", "pot"], "application/vnd.ms-powerpoint.addin.macroenabled.12": ["ppam"], "application/vnd.ms-powerpoint.presentation.macroenabled.12": ["pptm"], "application/vnd.ms-powerpoint.slide.macroenabled.12": ["sldm"], "application/vnd.ms-powerpoint.slideshow.macroenabled.12": ["ppsm"], "application/vnd.ms-powerpoint.template.macroenabled.12": ["potm"], "application/vnd.ms-project": ["mpp", "mpt"], "application/vnd.ms-word.document.macroenabled.12": ["docm"], "application/vnd.ms-word.template.macroenabled.12": ["dotm"], "application/vnd.ms-works": ["wps", "wks", "wcm", "wdb"], "application/vnd.ms-wpl": ["wpl"], "application/vnd.ms-xpsdocument": ["xps"], "application/vnd.mseq": ["mseq"], "application/vnd.musician": ["mus"], "application/vnd.muvee.style": ["msty"], "application/vnd.mynfc": ["taglet"], "application/vnd.neurolanguage.nlu": ["nlu"], "application/vnd.nitf": ["ntf", "nitf"], "application/vnd.noblenet-directory": ["nnd"], "application/vnd.noblenet-sealer": ["nns"], "application/vnd.noblenet-web": ["nnw"], "application/vnd.nokia.n-gage.ac+xml": ["*ac"], "application/vnd.nokia.n-gage.data": ["ngdat"], "application/vnd.nokia.n-gage.symbian.install": ["n-gage"], "application/vnd.nokia.radio-preset": ["rpst"], "application/vnd.nokia.radio-presets": ["rpss"], "application/vnd.novadigm.edm": ["edm"], "application/vnd.novadigm.edx": ["edx"], "application/vnd.novadigm.ext": ["ext"], "application/vnd.oasis.opendocument.chart": ["odc"], "application/vnd.oasis.opendocument.chart-template": ["otc"], "application/vnd.oasis.opendocument.database": ["odb"], "application/vnd.oasis.opendocument.formula": ["odf"], "application/vnd.oasis.opendocument.formula-template": ["odft"], "application/vnd.oasis.opendocument.graphics": ["odg"], "application/vnd.oasis.opendocument.graphics-template": ["otg"], "application/vnd.oasis.opendocument.image": ["odi"], "application/vnd.oasis.opendocument.image-template": ["oti"], "application/vnd.oasis.opendocument.presentation": ["odp"], "application/vnd.oasis.opendocument.presentation-template": ["otp"], "application/vnd.oasis.opendocument.spreadsheet": ["ods"], "application/vnd.oasis.opendocument.spreadsheet-template": ["ots"], "application/vnd.oasis.opendocument.text": ["odt"], "application/vnd.oasis.opendocument.text-master": ["odm"], "application/vnd.oasis.opendocument.text-template": ["ott"], "application/vnd.oasis.opendocument.text-web": ["oth"], "application/vnd.olpc-sugar": ["xo"], "application/vnd.oma.dd2+xml": ["dd2"], "application/vnd.openblox.game+xml": ["obgx"], "application/vnd.openofficeorg.extension": ["oxt"], "application/vnd.openstreetmap.data+xml": ["osm"], "application/vnd.openxmlformats-officedocument.presentationml.presentation": ["pptx"], "application/vnd.openxmlformats-officedocument.presentationml.slide": ["sldx"], "application/vnd.openxmlformats-officedocument.presentationml.slideshow": ["ppsx"], "application/vnd.openxmlformats-officedocument.presentationml.template": ["potx"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ["xlsx"], "application/vnd.openxmlformats-officedocument.spreadsheetml.template": ["xltx"], "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ["docx"], "application/vnd.openxmlformats-officedocument.wordprocessingml.template": ["dotx"], "application/vnd.osgeo.mapguide.package": ["mgp"], "application/vnd.osgi.dp": ["dp"], "application/vnd.osgi.subsystem": ["esa"], "application/vnd.palm": ["pdb", "pqa", "oprc"], "application/vnd.pawaafile": ["paw"], "application/vnd.pg.format": ["str"], "application/vnd.pg.osasli": ["ei6"], "application/vnd.picsel": ["efif"], "application/vnd.pmi.widget": ["wg"], "application/vnd.pocketlearn": ["plf"], "application/vnd.powerbuilder6": ["pbd"], "application/vnd.previewsystems.box": ["box"], "application/vnd.proteus.magazine": ["mgz"], "application/vnd.publishare-delta-tree": ["qps"], "application/vnd.pvi.ptid1": ["ptid"], "application/vnd.quark.quarkxpress": ["qxd", "qxt", "qwd", "qwt", "qxl", "qxb"], "application/vnd.rar": ["rar"], "application/vnd.realvnc.bed": ["bed"], "application/vnd.recordare.musicxml": ["mxl"], "application/vnd.recordare.musicxml+xml": ["musicxml"], "application/vnd.rig.cryptonote": ["cryptonote"], "application/vnd.rim.cod": ["cod"], "application/vnd.rn-realmedia": ["rm"], "application/vnd.rn-realmedia-vbr": ["rmvb"], "application/vnd.route66.link66+xml": ["link66"], "application/vnd.sailingtracker.track": ["st"], "application/vnd.seemail": ["see"], "application/vnd.sema": ["sema"], "application/vnd.semd": ["semd"], "application/vnd.semf": ["semf"], "application/vnd.shana.informed.formdata": ["ifm"], "application/vnd.shana.informed.formtemplate": ["itp"], "application/vnd.shana.informed.interchange": ["iif"], "application/vnd.shana.informed.package": ["ipk"], "application/vnd.simtech-mindmapper": ["twd", "twds"], "application/vnd.smaf": ["mmf"], "application/vnd.smart.teacher": ["teacher"], "application/vnd.software602.filler.form+xml": ["fo"], "application/vnd.solent.sdkm+xml": ["sdkm", "sdkd"], "application/vnd.spotfire.dxp": ["dxp"], "application/vnd.spotfire.sfs": ["sfs"], "application/vnd.stardivision.calc": ["sdc"], "application/vnd.stardivision.draw": ["sda"], "application/vnd.stardivision.impress": ["sdd"], "application/vnd.stardivision.math": ["smf"], "application/vnd.stardivision.writer": ["sdw", "vor"], "application/vnd.stardivision.writer-global": ["sgl"], "application/vnd.stepmania.package": ["smzip"], "application/vnd.stepmania.stepchart": ["sm"], "application/vnd.sun.wadl+xml": ["wadl"], "application/vnd.sun.xml.calc": ["sxc"], "application/vnd.sun.xml.calc.template": ["stc"], "application/vnd.sun.xml.draw": ["sxd"], "application/vnd.sun.xml.draw.template": ["std"], "application/vnd.sun.xml.impress": ["sxi"], "application/vnd.sun.xml.impress.template": ["sti"], "application/vnd.sun.xml.math": ["sxm"], "application/vnd.sun.xml.writer": ["sxw"], "application/vnd.sun.xml.writer.global": ["sxg"], "application/vnd.sun.xml.writer.template": ["stw"], "application/vnd.sus-calendar": ["sus", "susp"], "application/vnd.svd": ["svd"], "application/vnd.symbian.install": ["sis", "sisx"], "application/vnd.syncml+xml": ["xsm"], "application/vnd.syncml.dm+wbxml": ["bdm"], "application/vnd.syncml.dm+xml": ["xdm"], "application/vnd.syncml.dmddf+xml": ["ddf"], "application/vnd.tao.intent-module-archive": ["tao"], "application/vnd.tcpdump.pcap": ["pcap", "cap", "dmp"], "application/vnd.tmobile-livetv": ["tmo"], "application/vnd.trid.tpt": ["tpt"], "application/vnd.triscape.mxs": ["mxs"], "application/vnd.trueapp": ["tra"], "application/vnd.ufdl": ["ufd", "ufdl"], "application/vnd.uiq.theme": ["utz"], "application/vnd.umajin": ["umj"], "application/vnd.unity": ["unityweb"], "application/vnd.uoml+xml": ["uoml"], "application/vnd.vcx": ["vcx"], "application/vnd.visio": ["vsd", "vst", "vss", "vsw"], "application/vnd.visionary": ["vis"], "application/vnd.vsf": ["vsf"], "application/vnd.wap.wbxml": ["wbxml"], "application/vnd.wap.wmlc": ["wmlc"], "application/vnd.wap.wmlscriptc": ["wmlsc"], "application/vnd.webturbo": ["wtb"], "application/vnd.wolfram.player": ["nbp"], "application/vnd.wordperfect": ["wpd"], "application/vnd.wqd": ["wqd"], "application/vnd.wt.stf": ["stf"], "application/vnd.xara": ["xar"], "application/vnd.xfdl": ["xfdl"], "application/vnd.yamaha.hv-dic": ["hvd"], "application/vnd.yamaha.hv-script": ["hvs"], "application/vnd.yamaha.hv-voice": ["hvp"], "application/vnd.yamaha.openscoreformat": ["osf"], "application/vnd.yamaha.openscoreformat.osfpvg+xml": ["osfpvg"], "application/vnd.yamaha.smaf-audio": ["saf"], "application/vnd.yamaha.smaf-phrase": ["spf"], "application/vnd.yellowriver-custom-menu": ["cmp"], "application/vnd.zul": ["zir", "zirz"], "application/vnd.zzazz.deck+xml": ["zaz"], "application/x-7z-compressed": ["7z"], "application/x-abiword": ["abw"], "application/x-ace-compressed": ["ace"], "application/x-apple-diskimage": ["*dmg"], "application/x-arj": ["arj"], "application/x-authorware-bin": ["aab", "x32", "u32", "vox"], "application/x-authorware-map": ["aam"], "application/x-authorware-seg": ["aas"], "application/x-bcpio": ["bcpio"], "application/x-bdoc": ["*bdoc"], "application/x-bittorrent": ["torrent"], "application/x-blorb": ["blb", "blorb"], "application/x-bzip": ["bz"], "application/x-bzip2": ["bz2", "boz"], "application/x-cbr": ["cbr", "cba", "cbt", "cbz", "cb7"], "application/x-cdlink": ["vcd"], "application/x-cfs-compressed": ["cfs"], "application/x-chat": ["chat"], "application/x-chess-pgn": ["pgn"], "application/x-chrome-extension": ["crx"], "application/x-cocoa": ["cco"], "application/x-conference": ["nsc"], "application/x-cpio": ["cpio"], "application/x-csh": ["csh"], "application/x-debian-package": ["*deb", "udeb"], "application/x-dgc-compressed": ["dgc"], "application/x-director": ["dir", "dcr", "dxr", "cst", "cct", "cxt", "w3d", "fgd", "swa"], "application/x-doom": ["wad"], "application/x-dtbncx+xml": ["ncx"], "application/x-dtbook+xml": ["dtb"], "application/x-dtbresource+xml": ["res"], "application/x-dvi": ["dvi"], "application/x-envoy": ["evy"], "application/x-eva": ["eva"], "application/x-font-bdf": ["bdf"], "application/x-font-ghostscript": ["gsf"], "application/x-font-linux-psf": ["psf"], "application/x-font-pcf": ["pcf"], "application/x-font-snf": ["snf"], "application/x-font-type1": ["pfa", "pfb", "pfm", "afm"], "application/x-freearc": ["arc"], "application/x-futuresplash": ["spl"], "application/x-gca-compressed": ["gca"], "application/x-glulx": ["ulx"], "application/x-gnumeric": ["gnumeric"], "application/x-gramps-xml": ["gramps"], "application/x-gtar": ["gtar"], "application/x-hdf": ["hdf"], "application/x-httpd-php": ["php"], "application/x-install-instructions": ["install"], "application/x-iso9660-image": ["*iso"], "application/x-iwork-keynote-sffkey": ["*key"], "application/x-iwork-numbers-sffnumbers": ["*numbers"], "application/x-iwork-pages-sffpages": ["*pages"], "application/x-java-archive-diff": ["jardiff"], "application/x-java-jnlp-file": ["jnlp"], "application/x-keepass2": ["kdbx"], "application/x-latex": ["latex"], "application/x-lua-bytecode": ["luac"], "application/x-lzh-compressed": ["lzh", "lha"], "application/x-makeself": ["run"], "application/x-mie": ["mie"], "application/x-mobipocket-ebook": ["prc", "mobi"], "application/x-ms-application": ["application"], "application/x-ms-shortcut": ["lnk"], "application/x-ms-wmd": ["wmd"], "application/x-ms-wmz": ["wmz"], "application/x-ms-xbap": ["xbap"], "application/x-msaccess": ["mdb"], "application/x-msbinder": ["obd"], "application/x-mscardfile": ["crd"], "application/x-msclip": ["clp"], "application/x-msdos-program": ["*exe"], "application/x-msdownload": ["*exe", "*dll", "com", "bat", "*msi"], "application/x-msmediaview": ["mvb", "m13", "m14"], "application/x-msmetafile": ["*wmf", "*wmz", "*emf", "emz"], "application/x-msmoney": ["mny"], "application/x-mspublisher": ["pub"], "application/x-msschedule": ["scd"], "application/x-msterminal": ["trm"], "application/x-mswrite": ["wri"], "application/x-netcdf": ["nc", "cdf"], "application/x-ns-proxy-autoconfig": ["pac"], "application/x-nzb": ["nzb"], "application/x-perl": ["pl", "pm"], "application/x-pilot": ["*prc", "*pdb"], "application/x-pkcs12": ["p12", "pfx"], "application/x-pkcs7-certificates": ["p7b", "spc"], "application/x-pkcs7-certreqresp": ["p7r"], "application/x-rar-compressed": ["*rar"], "application/x-redhat-package-manager": ["rpm"], "application/x-research-info-systems": ["ris"], "application/x-sea": ["sea"], "application/x-sh": ["sh"], "application/x-shar": ["shar"], "application/x-shockwave-flash": ["swf"], "application/x-silverlight-app": ["xap"], "application/x-sql": ["sql"], "application/x-stuffit": ["sit"], "application/x-stuffitx": ["sitx"], "application/x-subrip": ["srt"], "application/x-sv4cpio": ["sv4cpio"], "application/x-sv4crc": ["sv4crc"], "application/x-t3vm-image": ["t3"], "application/x-tads": ["gam"], "application/x-tar": ["tar"], "application/x-tcl": ["tcl", "tk"], "application/x-tex": ["tex"], "application/x-tex-tfm": ["tfm"], "application/x-texinfo": ["texinfo", "texi"], "application/x-tgif": ["*obj"], "application/x-ustar": ["ustar"], "application/x-virtualbox-hdd": ["hdd"], "application/x-virtualbox-ova": ["ova"], "application/x-virtualbox-ovf": ["ovf"], "application/x-virtualbox-vbox": ["vbox"], "application/x-virtualbox-vbox-extpack": ["vbox-extpack"], "application/x-virtualbox-vdi": ["vdi"], "application/x-virtualbox-vhd": ["vhd"], "application/x-virtualbox-vmdk": ["vmdk"], "application/x-wais-source": ["src"], "application/x-web-app-manifest+json": ["webapp"], "application/x-x509-ca-cert": ["der", "crt", "pem"], "application/x-xfig": ["fig"], "application/x-xliff+xml": ["*xlf"], "application/x-xpinstall": ["xpi"], "application/x-xz": ["xz"], "application/x-zmachine": ["z1", "z2", "z3", "z4", "z5", "z6", "z7", "z8"], "audio/vnd.dece.audio": ["uva", "uvva"], "audio/vnd.digital-winds": ["eol"], "audio/vnd.dra": ["dra"], "audio/vnd.dts": ["dts"], "audio/vnd.dts.hd": ["dtshd"], "audio/vnd.lucent.voice": ["lvp"], "audio/vnd.ms-playready.media.pya": ["pya"], "audio/vnd.nuera.ecelp4800": ["ecelp4800"], "audio/vnd.nuera.ecelp7470": ["ecelp7470"], "audio/vnd.nuera.ecelp9600": ["ecelp9600"], "audio/vnd.rip": ["rip"], "audio/x-aac": ["aac"], "audio/x-aiff": ["aif", "aiff", "aifc"], "audio/x-caf": ["caf"], "audio/x-flac": ["flac"], "audio/x-m4a": ["*m4a"], "audio/x-matroska": ["mka"], "audio/x-mpegurl": ["m3u"], "audio/x-ms-wax": ["wax"], "audio/x-ms-wma": ["wma"], "audio/x-pn-realaudio": ["ram", "ra"], "audio/x-pn-realaudio-plugin": ["rmp"], "audio/x-realaudio": ["*ra"], "audio/x-wav": ["*wav"], "chemical/x-cdx": ["cdx"], "chemical/x-cif": ["cif"], "chemical/x-cmdf": ["cmdf"], "chemical/x-cml": ["cml"], "chemical/x-csml": ["csml"], "chemical/x-xyz": ["xyz"], "image/prs.btif": ["btif"], "image/prs.pti": ["pti"], "image/vnd.adobe.photoshop": ["psd"], "image/vnd.airzip.accelerator.azv": ["azv"], "image/vnd.dece.graphic": ["uvi", "uvvi", "uvg", "uvvg"], "image/vnd.djvu": ["djvu", "djv"], "image/vnd.dvb.subtitle": ["*sub"], "image/vnd.dwg": ["dwg"], "image/vnd.dxf": ["dxf"], "image/vnd.fastbidsheet": ["fbs"], "image/vnd.fpx": ["fpx"], "image/vnd.fst": ["fst"], "image/vnd.fujixerox.edmics-mmr": ["mmr"], "image/vnd.fujixerox.edmics-rlc": ["rlc"], "image/vnd.microsoft.icon": ["ico"], "image/vnd.ms-dds": ["dds"], "image/vnd.ms-modi": ["mdi"], "image/vnd.ms-photo": ["wdp"], "image/vnd.net-fpx": ["npx"], "image/vnd.pco.b16": ["b16"], "image/vnd.tencent.tap": ["tap"], "image/vnd.valve.source.texture": ["vtf"], "image/vnd.wap.wbmp": ["wbmp"], "image/vnd.xiff": ["xif"], "image/vnd.zbrush.pcx": ["pcx"], "image/x-3ds": ["3ds"], "image/x-cmu-raster": ["ras"], "image/x-cmx": ["cmx"], "image/x-freehand": ["fh", "fhc", "fh4", "fh5", "fh7"], "image/x-icon": ["*ico"], "image/x-jng": ["jng"], "image/x-mrsid-image": ["sid"], "image/x-ms-bmp": ["*bmp"], "image/x-pcx": ["*pcx"], "image/x-pict": ["pic", "pct"], "image/x-portable-anymap": ["pnm"], "image/x-portable-bitmap": ["pbm"], "image/x-portable-graymap": ["pgm"], "image/x-portable-pixmap": ["ppm"], "image/x-rgb": ["rgb"], "image/x-tga": ["tga"], "image/x-xbitmap": ["xbm"], "image/x-xpixmap": ["xpm"], "image/x-xwindowdump": ["xwd"], "message/vnd.wfa.wsc": ["wsc"], "model/vnd.collada+xml": ["dae"], "model/vnd.dwf": ["dwf"], "model/vnd.gdl": ["gdl"], "model/vnd.gtw": ["gtw"], "model/vnd.mts": ["mts"], "model/vnd.opengex": ["ogex"], "model/vnd.parasolid.transmit.binary": ["x_b"], "model/vnd.parasolid.transmit.text": ["x_t"], "model/vnd.sap.vds": ["vds"], "model/vnd.usdz+zip": ["usdz"], "model/vnd.valve.source.compiled-map": ["bsp"], "model/vnd.vtu": ["vtu"], "text/prs.lines.tag": ["dsc"], "text/vnd.curl": ["curl"], "text/vnd.curl.dcurl": ["dcurl"], "text/vnd.curl.mcurl": ["mcurl"], "text/vnd.curl.scurl": ["scurl"], "text/vnd.dvb.subtitle": ["sub"], "text/vnd.fly": ["fly"], "text/vnd.fmi.flexstor": ["flx"], "text/vnd.graphviz": ["gv"], "text/vnd.in3d.3dml": ["3dml"], "text/vnd.in3d.spot": ["spot"], "text/vnd.sun.j2me.app-descriptor": ["jad"], "text/vnd.wap.wml": ["wml"], "text/vnd.wap.wmlscript": ["wmls"], "text/x-asm": ["s", "asm"], "text/x-c": ["c", "cc", "cxx", "cpp", "h", "hh", "dic"], "text/x-component": ["htc"], "text/x-fortran": ["f", "for", "f77", "f90"], "text/x-handlebars-template": ["hbs"], "text/x-java-source": ["java"], "text/x-lua": ["lua"], "text/x-markdown": ["mkd"], "text/x-nfo": ["nfo"], "text/x-opml": ["opml"], "text/x-org": ["*org"], "text/x-pascal": ["p", "pas"], "text/x-processing": ["pde"], "text/x-sass": ["sass"], "text/x-scss": ["scss"], "text/x-setext": ["etx"], "text/x-sfv": ["sfv"], "text/x-suse-ymp": ["ymp"], "text/x-uuencode": ["uu"], "text/x-vcalendar": ["vcs"], "text/x-vcard": ["vcf"], "video/vnd.dece.hd": ["uvh", "uvvh"], "video/vnd.dece.mobile": ["uvm", "uvvm"], "video/vnd.dece.pd": ["uvp", "uvvp"], "video/vnd.dece.sd": ["uvs", "uvvs"], "video/vnd.dece.video": ["uvv", "uvvv"], "video/vnd.dvb.file": ["dvb"], "video/vnd.fvt": ["fvt"], "video/vnd.mpegurl": ["mxu", "m4u"], "video/vnd.ms-playready.media.pyv": ["pyv"], "video/vnd.uvvu.mp4": ["uvu", "uvvu"], "video/vnd.vivo": ["viv"], "video/x-f4v": ["f4v"], "video/x-fli": ["fli"], "video/x-flv": ["flv"], "video/x-m4v": ["m4v"], "video/x-matroska": ["mkv", "mk3d", "mks"], "video/x-mng": ["mng"], "video/x-ms-asf": ["asf", "asx"], "video/x-ms-vob": ["vob"], "video/x-ms-wm": ["wm"], "video/x-ms-wmv": ["wmv"], "video/x-ms-wmx": ["wmx"], "video/x-ms-wvx": ["wvx"], "video/x-msvideo": ["avi"], "video/x-sgi-movie": ["movie"], "video/x-smv": ["smv"], "x-conference/x-cooltalk": ["ice"] };
   }
 });
@@ -5001,6 +6908,7 @@ var require_other = __commonJS({
 var require_mime = __commonJS({
   "node_modules/mime/index.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var Mime = require_Mime();
     module2.exports = new Mime(require_standard(), require_other());
   }
@@ -5017,6 +6925,7 @@ var require_decode = __commonJS({
 var require_decode_codepoint = __commonJS({
   "node_modules/entities/lib/decode_codepoint.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -5073,6 +6982,7 @@ var require_xml = __commonJS({
 var require_Tokenizer = __commonJS({
   "node_modules/htmlparser2/lib/Tokenizer.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -5941,6 +7851,7 @@ var require_Tokenizer = __commonJS({
 var require_Parser = __commonJS({
   "node_modules/htmlparser2/lib/Parser.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -6270,6 +8181,7 @@ var require_Parser = __commonJS({
 var require_lib = __commonJS({
   "node_modules/domelementtype/lib/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Doctype = exports2.CDATA = exports2.Tag = exports2.Style = exports2.Script = exports2.Comment = exports2.Directive = exports2.Text = exports2.Root = exports2.isTag = exports2.ElementType = void 0;
     var ElementType;
@@ -6304,6 +8216,7 @@ var require_lib = __commonJS({
 var require_node = __commonJS({
   "node_modules/domhandler/lib/node.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __extends2 = exports2 && exports2.__extends || /* @__PURE__ */ function() {
       var extendStatics2 = function(d, b) {
         extendStatics2 = Object.setPrototypeOf || { __proto__: [] } instanceof Array && function(d2, b2) {
@@ -6702,6 +8615,7 @@ var require_node = __commonJS({
 var require_lib2 = __commonJS({
   "node_modules/domhandler/lib/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -6875,6 +8789,7 @@ var require_lib2 = __commonJS({
 var require_decode2 = __commonJS({
   "node_modules/entities/lib/decode.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -6937,6 +8852,7 @@ var require_decode2 = __commonJS({
 var require_encode = __commonJS({
   "node_modules/entities/lib/encode.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -7030,6 +8946,7 @@ var require_encode = __commonJS({
 var require_lib3 = __commonJS({
   "node_modules/entities/lib/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.decodeXMLStrict = exports2.decodeHTML5Strict = exports2.decodeHTML4Strict = exports2.decodeHTML5 = exports2.decodeHTML4 = exports2.decodeHTMLStrict = exports2.decodeHTML = exports2.decodeXML = exports2.encodeHTML5 = exports2.encodeHTML4 = exports2.escapeUTF8 = exports2.escape = exports2.encodeNonAsciiHTML = exports2.encodeHTML = exports2.encodeXML = exports2.encode = exports2.decodeStrict = exports2.decode = void 0;
     var decode_1 = require_decode2();
@@ -7100,6 +9017,7 @@ var require_lib3 = __commonJS({
 var require_foreignNames = __commonJS({
   "node_modules/dom-serializer/lib/foreignNames.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.attributeNames = exports2.elementNames = void 0;
     exports2.elementNames = /* @__PURE__ */ new Map([
@@ -7209,6 +9127,7 @@ var require_foreignNames = __commonJS({
 var require_lib4 = __commonJS({
   "node_modules/dom-serializer/lib/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __assign2 = exports2 && exports2.__assign || function() {
       __assign2 = Object.assign || function(t) {
         for (var s, i = 1, n = arguments.length; i < n; i++) {
@@ -7402,6 +9321,7 @@ var require_lib4 = __commonJS({
 var require_stringify = __commonJS({
   "node_modules/domutils/lib/stringify.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -7461,6 +9381,7 @@ var require_stringify = __commonJS({
 var require_traversal = __commonJS({
   "node_modules/domutils/lib/traversal.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.prevElementSibling = exports2.nextElementSibling = exports2.getName = exports2.hasAttrib = exports2.getAttributeValue = exports2.getSiblings = exports2.getParent = exports2.getChildren = void 0;
     var domhandler_1 = require_lib2();
@@ -7528,6 +9449,7 @@ var require_traversal = __commonJS({
 var require_manipulation = __commonJS({
   "node_modules/domutils/lib/manipulation.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.prepend = exports2.prependChild = exports2.append = exports2.appendChild = exports2.replaceElement = exports2.removeElement = void 0;
     function removeElement(elem) {
@@ -7625,6 +9547,7 @@ var require_manipulation = __commonJS({
 var require_querying = __commonJS({
   "node_modules/domutils/lib/querying.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.findAll = exports2.existsOne = exports2.findOne = exports2.findOneChild = exports2.find = exports2.filter = void 0;
     var domhandler_1 = require_lib2();
@@ -7711,6 +9634,7 @@ var require_querying = __commonJS({
 var require_legacy2 = __commonJS({
   "node_modules/domutils/lib/legacy.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.getElementsByTagType = exports2.getElementsByTagName = exports2.getElementById = exports2.getElements = exports2.testElement = void 0;
     var domhandler_1 = require_lib2();
@@ -7820,6 +9744,7 @@ var require_legacy2 = __commonJS({
 var require_helpers = __commonJS({
   "node_modules/domutils/lib/helpers.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.uniqueSort = exports2.compareDocumentPosition = exports2.removeSubsets = void 0;
     var domhandler_1 = require_lib2();
@@ -7904,6 +9829,7 @@ var require_helpers = __commonJS({
 var require_feeds = __commonJS({
   "node_modules/domutils/lib/feeds.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.getFeed = void 0;
     var stringify_1 = require_stringify();
@@ -8045,6 +9971,7 @@ var require_feeds = __commonJS({
 var require_lib5 = __commonJS({
   "node_modules/domutils/lib/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -8096,6 +10023,7 @@ var require_lib5 = __commonJS({
 var require_FeedHandler = __commonJS({
   "node_modules/htmlparser2/lib/FeedHandler.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __extends2 = exports2 && exports2.__extends || /* @__PURE__ */ function() {
       var extendStatics2 = function(d, b) {
         extendStatics2 = Object.setPrototypeOf || { __proto__: [] } instanceof Array && function(d2, b2) {
@@ -8347,6 +10275,7 @@ var require_FeedHandler = __commonJS({
 var require_lib6 = __commonJS({
   "node_modules/htmlparser2/lib/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -8430,6 +10359,7 @@ var require_lib6 = __commonJS({
 var require_html = __commonJS({
   "node_modules/telegram/extensions/html.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.HTMLParser = void 0;
     var htmlparser2_1 = require_lib6();
@@ -8626,6 +10556,7 @@ var require_html = __commonJS({
 var require_messageParse = __commonJS({
   "node_modules/telegram/client/messageParse.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -8803,6 +10734,7 @@ var require_messageParse = __commonJS({
 var require_markdown = __commonJS({
   "node_modules/telegram/extensions/markdown.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.MarkdownParser = void 0;
     var messageParse_1 = require_messageParse();
@@ -8883,6 +10815,7 @@ var require_markdown = __commonJS({
 var require_markdownv2 = __commonJS({
   "node_modules/telegram/extensions/markdownv2.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.MarkdownV2Parser = void 0;
     var html_1 = require_html();
@@ -8921,6 +10854,7 @@ var require_markdownv2 = __commonJS({
 var require_Utils = __commonJS({
   "node_modules/telegram/Utils.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -9776,6 +11710,7 @@ var require_Utils = __commonJS({
 var require_forward = __commonJS({
   "node_modules/telegram/tl/custom/forward.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Forward = void 0;
     var chatGetter_1 = require_chatGetter();
@@ -9827,6 +11762,7 @@ var require_forward = __commonJS({
 var require_file = __commonJS({
   "node_modules/telegram/tl/custom/file.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.File = void 0;
     var api_1 = require_api();
@@ -9899,6 +11835,7 @@ var require_file = __commonJS({
 var require_Logger = __commonJS({
   "node_modules/telegram/extensions/Logger.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Logger = exports2.LogLevel = void 0;
     var platform_1 = require_platform();
@@ -10020,6 +11957,7 @@ var require_Logger = __commonJS({
 var require_Deferred = __commonJS({
   "node_modules/telegram/extensions/Deferred.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     var Deferred = class _Deferred {
       constructor() {
@@ -10042,6 +11980,7 @@ var require_Deferred = __commonJS({
 var require_RequestState = __commonJS({
   "node_modules/telegram/network/RequestState.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -10082,6 +12021,7 @@ var require_RequestState = __commonJS({
 var require_users = __commonJS({
   "node_modules/telegram/client/users.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -10517,6 +12457,7 @@ var require_users = __commonJS({
 var require_button = __commonJS({
   "node_modules/telegram/tl/custom/button.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Button = void 0;
     var api_1 = require_api();
@@ -10597,6 +12538,7 @@ var require_button = __commonJS({
 var require_Password = __commonJS({
   "node_modules/telegram/Password.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -11004,6 +12946,7 @@ var require_Password = __commonJS({
 var require_messageButton = __commonJS({
   "node_modules/telegram/tl/custom/messageButton.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.MessageButton = void 0;
     var api_1 = require_api();
@@ -11152,6 +13095,7 @@ var require_messageButton = __commonJS({
 var require_message = __commonJS({
   "node_modules/telegram/tl/custom/message.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -11853,6 +13797,7 @@ var require_message = __commonJS({
 var require_patched = __commonJS({
   "node_modules/telegram/tl/patched/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.patchAll = patchAll;
     var api_1 = require_api();
@@ -11932,6 +13877,7 @@ var require_patched = __commonJS({
 var require_tl = __commonJS({
   "node_modules/telegram/tl/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.serializeDate = exports2.serializeBytes = exports2.Api = void 0;
     var api_1 = require_api();
@@ -11954,6 +13900,7 @@ var require_tl = __commonJS({
 var require_TLMessage = __commonJS({
   "node_modules/telegram/tl/core/TLMessage.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.TLMessage = void 0;
     var TLMessage = class {
@@ -11974,6 +13921,7 @@ var require_TLMessage = __commonJS({
 var require_RPCResult = __commonJS({
   "node_modules/telegram/tl/core/RPCResult.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.RPCResult = void 0;
     var api_1 = require_api();
@@ -12011,6 +13959,7 @@ var require_RPCResult = __commonJS({
 var require_MessageContainer = __commonJS({
   "node_modules/telegram/tl/core/MessageContainer.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.MessageContainer = void 0;
     var TLMessage_1 = require_TLMessage();
@@ -12050,6 +13999,7 @@ var require_MessageContainer = __commonJS({
 var require_trees = __commonJS({
   "node_modules/pako/lib/zlib/trees.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var Z_FIXED = 4;
     var Z_BINARY = 0;
     var Z_TEXT = 1;
@@ -12688,6 +14638,7 @@ var require_trees = __commonJS({
 var require_adler32 = __commonJS({
   "node_modules/pako/lib/zlib/adler32.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var adler32 = (adler, buf, len, pos) => {
       let s1 = adler & 65535 | 0, s2 = adler >>> 16 & 65535 | 0, n = 0;
       while (len !== 0) {
@@ -12710,6 +14661,7 @@ var require_adler32 = __commonJS({
 var require_crc32 = __commonJS({
   "node_modules/pako/lib/zlib/crc32.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var makeTable = () => {
       let c, table = [];
       for (var n = 0; n < 256; n++) {
@@ -12739,6 +14691,7 @@ var require_crc32 = __commonJS({
 var require_messages = __commonJS({
   "node_modules/pako/lib/zlib/messages.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     module2.exports = {
       2: "need dictionary",
       /* Z_NEED_DICT       2  */
@@ -12766,6 +14719,7 @@ var require_messages = __commonJS({
 var require_constants = __commonJS({
   "node_modules/pako/lib/zlib/constants.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     module2.exports = {
       /* Allowed flush values; see deflate() and inflate() below for details */
       Z_NO_FLUSH: 0,
@@ -12813,6 +14767,7 @@ var require_constants = __commonJS({
 var require_deflate = __commonJS({
   "node_modules/pako/lib/zlib/deflate.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var { _tr_init, _tr_stored_block, _tr_flush_block, _tr_tally, _tr_align } = require_trees();
     var adler32 = require_adler32();
     var crc32 = require_crc32();
@@ -13953,6 +15908,7 @@ var require_deflate = __commonJS({
 var require_common = __commonJS({
   "node_modules/pako/lib/utils/common.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var _has = (obj, key) => {
       return Object.prototype.hasOwnProperty.call(obj, key);
     };
@@ -13994,6 +15950,7 @@ var require_common = __commonJS({
 var require_strings = __commonJS({
   "node_modules/pako/lib/utils/strings.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var STR_APPLY_UIA_OK = true;
     try {
       String.fromCharCode.apply(null, new Uint8Array(1));
@@ -14123,6 +16080,7 @@ var require_strings = __commonJS({
 var require_zstream = __commonJS({
   "node_modules/pako/lib/zlib/zstream.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     function ZStream() {
       this.input = null;
       this.next_in = 0;
@@ -14145,6 +16103,7 @@ var require_zstream = __commonJS({
 var require_deflate2 = __commonJS({
   "node_modules/pako/lib/deflate.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var zlib_deflate = require_deflate();
     var utils = require_common();
     var strings = require_strings();
@@ -14309,6 +16268,7 @@ var require_deflate2 = __commonJS({
 var require_inffast = __commonJS({
   "node_modules/pako/lib/zlib/inffast.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var BAD = 16209;
     var TYPE = 16191;
     module2.exports = function inflate_fast(strm, start) {
@@ -14537,6 +16497,7 @@ var require_inffast = __commonJS({
 var require_inftrees = __commonJS({
   "node_modules/pako/lib/zlib/inftrees.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var MAXBITS = 15;
     var ENOUGH_LENS = 852;
     var ENOUGH_DISTS = 592;
@@ -14849,6 +16810,7 @@ var require_inftrees = __commonJS({
 var require_inflate = __commonJS({
   "node_modules/pako/lib/zlib/inflate.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var adler32 = require_adler32();
     var crc32 = require_crc32();
     var inflate_fast = require_inffast();
@@ -16077,6 +18039,7 @@ var require_inflate = __commonJS({
 var require_gzheader = __commonJS({
   "node_modules/pako/lib/zlib/gzheader.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     function GZheader() {
       this.text = 0;
       this.time = 0;
@@ -16097,6 +18060,7 @@ var require_gzheader = __commonJS({
 var require_inflate2 = __commonJS({
   "node_modules/pako/lib/inflate.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var zlib_inflate = require_inflate();
     var utils = require_common();
     var strings = require_strings();
@@ -16279,6 +18243,7 @@ var require_inflate2 = __commonJS({
 var require_pako = __commonJS({
   "node_modules/pako/index.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var { Deflate, deflate, deflateRaw, gzip } = require_deflate2();
     var { Inflate, inflate, inflateRaw, ungzip } = require_inflate2();
     var constants = require_constants();
@@ -16298,6 +18263,7 @@ var require_pako = __commonJS({
 var require_GZIPPacked = __commonJS({
   "node_modules/telegram/tl/core/GZIPPacked.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.GZIPPacked = void 0;
     var __1 = require_tl();
@@ -16361,6 +18327,7 @@ var require_GZIPPacked = __commonJS({
 var require_core = __commonJS({
   "node_modules/telegram/tl/core/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.GZIPPacked = exports2.MessageContainer = exports2.TLMessage = exports2.RPCResult = exports2.coreObjects = void 0;
     var TLMessage_1 = require_TLMessage();
@@ -16391,14 +18358,15 @@ var require_core = __commonJS({
 var require_BinaryWriter = __commonJS({
   "node_modules/telegram/extensions/BinaryWriter.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.BinaryWriter = void 0;
     var BinaryWriter = class {
       constructor(stream) {
         this._buffers = [stream];
       }
-      write(buffer) {
-        this._buffers.push(buffer);
+      write(buffer2) {
+        this._buffers.push(buffer2);
       }
       getValue() {
         return Buffer.concat(this._buffers);
@@ -16411,6 +18379,7 @@ var require_BinaryWriter = __commonJS({
 // node_modules/ts-custom-error/dist/custom-error.js
 var require_custom_error = __commonJS({
   "node_modules/ts-custom-error/dist/custom-error.js"(exports2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     function fixProto(target, prototype) {
       var setPrototypeOf = Object.setPrototypeOf;
       setPrototypeOf ? setPrototypeOf(target, prototype) : target.__proto__ = prototype;
@@ -16514,6 +18483,7 @@ var require_custom_error = __commonJS({
 var require_RPCBaseErrors = __commonJS({
   "node_modules/telegram/errors/RPCBaseErrors.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.TimedOutError = exports2.ServerError = exports2.FloodError = exports2.AuthKeyError = exports2.NotFoundError = exports2.ForbiddenError = exports2.UnauthorizedError = exports2.BadRequestError = exports2.InvalidDCError = exports2.RPCError = void 0;
     var ts_custom_error_1 = require_custom_error();
@@ -16611,6 +18581,7 @@ var require_RPCBaseErrors = __commonJS({
 var require_RPCErrorList = __commonJS({
   "node_modules/telegram/errors/RPCErrorList.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.rpcErrorRe = exports2.MsgWaitError = exports2.EmailUnconfirmedError = exports2.NetworkMigrateError = exports2.FileMigrateError = exports2.FloodTestPhoneWaitError = exports2.FloodWaitError = exports2.SlowModeWaitError = exports2.PhoneMigrateError = exports2.UserMigrateError = void 0;
     var RPCBaseErrors_1 = require_RPCBaseErrors();
@@ -16712,6 +18683,7 @@ var require_RPCErrorList = __commonJS({
 var require_Common = __commonJS({
   "node_modules/telegram/errors/Common.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.BadMessageError = exports2.CdnFileTamperedError = exports2.SecurityError = exports2.InvalidBufferError = exports2.InvalidChecksumError = exports2.TypeNotFoundError = exports2.ReadCancelledError = void 0;
     var ReadCancelledError = class extends Error {
@@ -16800,6 +18772,7 @@ var require_Common = __commonJS({
 var require_errors = __commonJS({
   "node_modules/telegram/errors/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -16844,6 +18817,7 @@ var require_errors = __commonJS({
 var require_AllTLObjects = __commonJS({
   "node_modules/telegram/tl/AllTLObjects.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.tlobjects = exports2.LAYER = void 0;
     exports2.LAYER = 198;
@@ -16866,6 +18840,7 @@ var require_AllTLObjects = __commonJS({
 var require_BinaryReader = __commonJS({
   "node_modules/telegram/extensions/BinaryReader.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.BinaryReader = void 0;
     var errors_1 = require_errors();
@@ -16933,8 +18908,8 @@ var require_BinaryReader = __commonJS({
        * @param signed {Boolean}
        */
       readLargeInt(bits, signed = true) {
-        const buffer = this.read(Math.floor(bits / 8));
-        return (0, Helpers_1.readBigIntFromBuffer)(buffer, true, signed);
+        const buffer2 = this.read(Math.floor(bits / 8));
+        return (0, Helpers_1.readBigIntFromBuffer)(buffer2, true, signed);
       }
       /**
        * Read the given amount of bytes, or -1 to read all remaining.
@@ -17093,6 +19068,7 @@ var require_BinaryReader = __commonJS({
 // src/pkjs/pgjs/shims/websocket.js
 var require_websocket = __commonJS({
   "src/pkjs/pgjs/shims/websocket.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     function W3CWebSocket(uri, protocols) {
       var root2 = typeof globalThis !== "undefined" ? globalThis : typeof window !== "undefined" ? window : global;
       var NativeWebSocket = root2.WebSocket || root2.MozWebSocket;
@@ -17610,6 +19586,7 @@ function __rewriteRelativeImportExtension(path, preserveJsx) {
 var extendStatics, __assign, __createBinding, __setModuleDefault, ownKeys, _SuppressedError, tslib_es6_default;
 var init_tslib_es6 = __esm({
   "node_modules/tslib/tslib.es6.mjs"() {
+    init_define_PGJS_BUILTIN_CONFIG();
     extendStatics = function(d, b) {
       extendStatics = Object.setPrototypeOf || { __proto__: [] } instanceof Array && function(d2, b2) {
         d2.__proto__ = b2;
@@ -17707,6 +19684,7 @@ var init_tslib_es6 = __esm({
 var require_errors2 = __commonJS({
   "node_modules/async-mutex/lib/errors.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.E_CANCELED = exports2.E_ALREADY_LOCKED = exports2.E_TIMEOUT = void 0;
     exports2.E_TIMEOUT = new Error("timeout while waiting for mutex to become available");
@@ -17719,6 +19697,7 @@ var require_errors2 = __commonJS({
 var require_Semaphore = __commonJS({
   "node_modules/async-mutex/lib/Semaphore.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
     var errors_1 = require_errors2();
@@ -17846,6 +19825,7 @@ var require_Semaphore = __commonJS({
 var require_Mutex = __commonJS({
   "node_modules/async-mutex/lib/Mutex.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
     var Semaphore_1 = require_Semaphore();
@@ -17897,6 +19877,7 @@ var require_Mutex = __commonJS({
 var require_withTimeout = __commonJS({
   "node_modules/async-mutex/lib/withTimeout.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.withTimeout = void 0;
     var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
@@ -18016,6 +19997,7 @@ var require_withTimeout = __commonJS({
 var require_tryAcquire = __commonJS({
   "node_modules/async-mutex/lib/tryAcquire.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.tryAcquire = void 0;
     var errors_1 = require_errors2();
@@ -18034,6 +20016,7 @@ var require_tryAcquire = __commonJS({
 var require_lib7 = __commonJS({
   "node_modules/async-mutex/lib/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.tryAcquire = exports2.withTimeout = exports2.Semaphore = exports2.Mutex = void 0;
     var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
@@ -18061,6 +20044,7 @@ var require_lib7 = __commonJS({
 var require_PromisedWebSockets = __commonJS({
   "node_modules/telegram/extensions/PromisedWebSockets.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.PromisedWebSockets = void 0;
     var websocket_1 = require_websocket();
@@ -18208,6 +20192,7 @@ var require_PromisedWebSockets = __commonJS({
 // src/pkjs/pgjs/shims/empty.js
 var require_empty = __commonJS({
   "src/pkjs/pgjs/shims/empty.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     module2.exports = {};
   }
 });
@@ -18216,6 +20201,7 @@ var require_empty = __commonJS({
 var require_net = __commonJS({
   "node_modules/telegram/extensions/net.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -18245,6 +20231,7 @@ var require_net = __commonJS({
 var require_socks = __commonJS({
   "node_modules/telegram/extensions/socks.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -18274,6 +20261,7 @@ var require_socks = __commonJS({
 var require_PromisedNetSockets = __commonJS({
   "node_modules/telegram/extensions/PromisedNetSockets.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -18478,6 +20466,7 @@ var require_PromisedNetSockets = __commonJS({
 var require_MessagePacker = __commonJS({
   "node_modules/telegram/extensions/MessagePacker.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.MessagePacker = void 0;
     var core_1 = require_core();
@@ -18575,7 +20564,7 @@ var require_MessagePacker = __commonJS({
             return void 0;
           }
           let data;
-          let buffer = new BinaryWriter_1.BinaryWriter(Buffer.alloc(0));
+          let buffer2 = new BinaryWriter_1.BinaryWriter(Buffer.alloc(0));
           const batch = [];
           let size = 0;
           while (this._queue.length && batch.length <= core_1.MessageContainer.MAXIMUM_LENGTH) {
@@ -18592,7 +20581,7 @@ var require_MessagePacker = __commonJS({
               if (state.after) {
                 afterId = state.after.msgId;
               }
-              state.msgId = yield this._state.writeDataAsMessage(buffer, state.data, state.request.classType === "request", afterId);
+              state.msgId = yield this._state.writeDataAsMessage(buffer2, state.data, state.request.classType === "request", afterId);
               this._log.debug(`Assigned msgId = ${state.msgId} to ${state.request.className || state.request.constructor.name}`);
               batch.push(state);
               continue;
@@ -18612,14 +20601,14 @@ var require_MessagePacker = __commonJS({
             const b = Buffer.alloc(8);
             b.writeUInt32LE(core_1.MessageContainer.CONSTRUCTOR_ID, 0);
             b.writeInt32LE(batch.length, 4);
-            data = Buffer.concat([b, buffer.getValue()]);
-            buffer = new BinaryWriter_1.BinaryWriter(Buffer.alloc(0));
-            const containerId = yield this._state.writeDataAsMessage(buffer, data, false);
+            data = Buffer.concat([b, buffer2.getValue()]);
+            buffer2 = new BinaryWriter_1.BinaryWriter(Buffer.alloc(0));
+            const containerId = yield this._state.writeDataAsMessage(buffer2, data, false);
             for (const s of batch) {
               s.containerId = containerId;
             }
           }
-          data = buffer.getValue();
+          data = buffer2.getValue();
           return { batch, data };
         });
       }
@@ -18632,6 +20621,7 @@ var require_MessagePacker = __commonJS({
 var require_AsyncQueue = __commonJS({
   "node_modules/telegram/extensions/AsyncQueue.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.AsyncQueue = void 0;
     var AsyncQueue = class {
@@ -18676,6 +20666,7 @@ var require_AsyncQueue = __commonJS({
 var require_extensions = __commonJS({
   "node_modules/telegram/extensions/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.AsyncQueue = exports2.MessagePacker = exports2.PromisedNetSockets = exports2.PromisedWebSockets = exports2.BinaryReader = exports2.BinaryWriter = exports2.Logger = void 0;
     var Logger_1 = require_Logger();
@@ -18713,6 +20704,7 @@ var require_extensions = __commonJS({
 var require_aes_min = __commonJS({
   "node_modules/@cryptography/aes/dist/cjs/aes.min.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     var t = new Uint8Array(256);
     var e = new Uint8Array(256);
@@ -18833,6 +20825,7 @@ var require_aes_min = __commonJS({
 var require_IGE = __commonJS({
   "node_modules/telegram/crypto/IGE.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.IGE = void 0;
     var Helpers = require_Helpers();
@@ -18873,6 +20866,7 @@ var require_IGE = __commonJS({
 var require_MTProtoState = __commonJS({
   "node_modules/telegram/network/MTProtoState.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -18976,7 +20970,7 @@ var require_MTProtoState = __commonJS({
        * @param contentRelated
        * @param afterId
        */
-      writeDataAsMessage(buffer, data, contentRelated, afterId) {
+      writeDataAsMessage(buffer2, data, contentRelated, afterId) {
         return __async(this, null, function* () {
           const msgId = this._getNewMsgId();
           const seqNo = this._getSeqNo(contentRelated);
@@ -18998,8 +20992,8 @@ var require_MTProtoState = __commonJS({
           const b = Buffer.alloc(4);
           b.writeInt32LE(body.length, 0);
           const m = (0, Helpers_1.toSignedLittleBuffer)(msgId, 8);
-          buffer.write(Buffer.concat([m, s, b]));
-          buffer.write(body);
+          buffer2.write(Buffer.concat([m, s, b]));
+          buffer2.write(body);
           return msgId;
         });
       }
@@ -19138,6 +21132,7 @@ var require_MTProtoState = __commonJS({
 var require_MTProtoPlainSender = __commonJS({
   "node_modules/telegram/network/MTProtoPlainSender.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -19203,6 +21198,7 @@ var require_MTProtoPlainSender = __commonJS({
 var require_Factorizator = __commonJS({
   "node_modules/telegram/crypto/Factorizator.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -19283,6 +21279,7 @@ var require_Factorizator = __commonJS({
 var require_RSA = __commonJS({
   "node_modules/telegram/crypto/RSA.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __rest2 = exports2 && exports2.__rest || function(s, e) {
       var t = {};
       for (var p in s)
@@ -19340,6 +21337,7 @@ var require_RSA = __commonJS({
 var require_AuthKey = __commonJS({
   "node_modules/telegram/crypto/AuthKey.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.AuthKey = void 0;
     var Helpers_1 = require_Helpers();
@@ -19424,6 +21422,7 @@ var require_AuthKey = __commonJS({
 var require_Authenticator = __commonJS({
   "node_modules/telegram/network/Authenticator.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -19614,6 +21613,7 @@ var require_Authenticator = __commonJS({
 var require_PendingState = __commonJS({
   "node_modules/telegram/extensions/PendingState.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.PendingState = void 0;
     var PendingState = class {
@@ -19649,6 +21649,7 @@ var require_PendingState = __commonJS({
 var require_MTProtoSender = __commonJS({
   "node_modules/telegram/network/MTProtoSender.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -20441,6 +22442,7 @@ var require_MTProtoSender = __commonJS({
 var require_Connection = __commonJS({
   "node_modules/telegram/network/connection/Connection.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ObfuscatedConnection = exports2.PacketCodec = exports2.Connection = void 0;
     var extensions_1 = require_extensions();
@@ -20614,6 +22616,7 @@ var require_Connection = __commonJS({
 var require_TCPFull = __commonJS({
   "node_modules/telegram/network/connection/TCPFull.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ConnectionTCPFull = exports2.FullPacketCodec = void 0;
     var Connection_1 = require_Connection();
@@ -20677,6 +22680,7 @@ var require_TCPFull = __commonJS({
 var require_TCPAbridged = __commonJS({
   "node_modules/telegram/network/connection/TCPAbridged.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -20737,6 +22741,7 @@ var require_TCPAbridged = __commonJS({
 var require_converters = __commonJS({
   "node_modules/telegram/crypto/converters.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ab2i = exports2.i2ab = exports2.isBigEndian = void 0;
     exports2.i2abLow = i2abLow;
@@ -20779,6 +22784,7 @@ var require_converters = __commonJS({
 var require_words = __commonJS({
   "node_modules/telegram/crypto/words.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.s2i = s2i;
     exports2.getWords = getWords;
@@ -20819,6 +22825,7 @@ var require_words = __commonJS({
 var require_crypto2 = __commonJS({
   "node_modules/telegram/crypto/crypto.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -20938,6 +22945,7 @@ var require_crypto2 = __commonJS({
 var require_CTR = __commonJS({
   "node_modules/telegram/crypto/CTR.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -20992,6 +23000,7 @@ var require_CTR = __commonJS({
 var require_TCPObfuscated = __commonJS({
   "node_modules/telegram/network/connection/TCPObfuscated.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ConnectionTCPObfuscated = void 0;
     var Helpers_1 = require_Helpers();
@@ -21076,6 +23085,7 @@ var require_TCPObfuscated = __commonJS({
 var require_connection = __commonJS({
   "node_modules/telegram/network/connection/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ConnectionTCPObfuscated = exports2.ConnectionTCPAbridged = exports2.ConnectionTCPFull = exports2.Connection = void 0;
     var Connection_1 = require_Connection();
@@ -21101,6 +23111,7 @@ var require_connection = __commonJS({
 var require_network = __commonJS({
   "node_modules/telegram/network/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ConnectionTCPObfuscated = exports2.ConnectionTCPAbridged = exports2.ConnectionTCPFull = exports2.Connection = exports2.UpdateConnectionState = exports2.MTProtoSender = exports2.doAuthentication = exports2.MTProtoPlainSender = void 0;
     var MTProtoPlainSender_1 = require_MTProtoPlainSender();
@@ -21144,6 +23155,7 @@ var require_network = __commonJS({
 var require_Version = __commonJS({
   "node_modules/telegram/Version.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.version = void 0;
     exports2.version = "2.26.21";
@@ -21154,6 +23166,7 @@ var require_Version = __commonJS({
 var require_Abstract = __commonJS({
   "node_modules/telegram/sessions/Abstract.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Session = void 0;
     var Session = class {
@@ -21166,6 +23179,7 @@ var require_Abstract = __commonJS({
 var require_Memory = __commonJS({
   "node_modules/telegram/sessions/Memory.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -21417,6 +23431,7 @@ var require_Memory = __commonJS({
 var require_StringSession = __commonJS({
   "node_modules/telegram/sessions/StringSession.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.StringSession = void 0;
     var Memory_1 = require_Memory();
@@ -21517,6 +23532,7 @@ var require_StringSession = __commonJS({
 // node_modules/store2/dist/store2.js
 var require_store2 = __commonJS({
   "node_modules/store2/dist/store2.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     (function(window2, define2) {
       var _ = {
         version: "2.14.4",
@@ -21856,6 +23872,7 @@ var require_store2 = __commonJS({
 // src/pkjs/pgjs/shims/path.js
 var require_path = __commonJS({
   "src/pkjs/pgjs/shims/path.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     module2.exports = {
       join: function() {
         return Array.prototype.slice.call(arguments).join("/");
@@ -21874,6 +23891,7 @@ var require_path = __commonJS({
 // src/pkjs/pgjs/shims/events.js
 var require_events = __commonJS({
   "src/pkjs/pgjs/shims/events.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     function EventEmitter() {
     }
     EventEmitter.prototype.on = function() {
@@ -21897,6 +23915,7 @@ var require_events = __commonJS({
 // node_modules/graceful-fs/polyfills.js
 var require_polyfills = __commonJS({
   "node_modules/graceful-fs/polyfills.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     var constants = require_empty();
     var origCwd = process.cwd;
     var cwd = null;
@@ -21991,30 +24010,30 @@ var require_polyfills = __commonJS({
         }(fs.rename);
       }
       fs.read = typeof fs.read !== "function" ? fs.read : function(fs$read) {
-        function read(fd, buffer, offset, length, position, callback_) {
+        function read(fd, buffer2, offset, length, position, callback_) {
           var callback;
           if (callback_ && typeof callback_ === "function") {
             var eagCounter = 0;
             callback = function(er, _, __) {
               if (er && er.code === "EAGAIN" && eagCounter < 10) {
                 eagCounter++;
-                return fs$read.call(fs, fd, buffer, offset, length, position, callback);
+                return fs$read.call(fs, fd, buffer2, offset, length, position, callback);
               }
               callback_.apply(this, arguments);
             };
           }
-          return fs$read.call(fs, fd, buffer, offset, length, position, callback);
+          return fs$read.call(fs, fd, buffer2, offset, length, position, callback);
         }
         if (Object.setPrototypeOf)
           Object.setPrototypeOf(read, fs$read);
         return read;
       }(fs.read);
       fs.readSync = typeof fs.readSync !== "function" ? fs.readSync : /* @__PURE__ */ function(fs$readSync) {
-        return function(fd, buffer, offset, length, position) {
+        return function(fd, buffer2, offset, length, position) {
           var eagCounter = 0;
           while (true) {
             try {
-              return fs$readSync.call(fs, fd, buffer, offset, length, position);
+              return fs$readSync.call(fs, fd, buffer2, offset, length, position);
             } catch (er) {
               if (er.code === "EAGAIN" && eagCounter < 10) {
                 eagCounter++;
@@ -22213,6 +24232,7 @@ var require_polyfills = __commonJS({
 // src/pkjs/pgjs/shims/stream.js
 var require_stream = __commonJS({
   "src/pkjs/pgjs/shims/stream.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     function Stream() {
     }
     module2.exports = {
@@ -22227,6 +24247,7 @@ var require_stream = __commonJS({
 // node_modules/graceful-fs/legacy-streams.js
 var require_legacy_streams = __commonJS({
   "node_modules/graceful-fs/legacy-streams.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     var Stream = require_stream().Stream;
     module2.exports = legacy;
     function legacy(fs) {
@@ -22327,6 +24348,7 @@ var require_legacy_streams = __commonJS({
 var require_clone = __commonJS({
   "node_modules/graceful-fs/clone.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     module2.exports = clone;
     var getPrototypeOf = Object.getPrototypeOf || function(obj) {
       return obj.__proto__;
@@ -22349,6 +24371,7 @@ var require_clone = __commonJS({
 // node_modules/graceful-fs/graceful-fs.js
 var require_graceful_fs = __commonJS({
   "node_modules/graceful-fs/graceful-fs.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     var fs = require_empty();
     var polyfills = require_polyfills();
     var legacy = require_legacy_streams();
@@ -22719,6 +24742,7 @@ var require_graceful_fs = __commonJS({
 // node_modules/slide/lib/async-map.js
 var require_async_map = __commonJS({
   "node_modules/slide/lib/async-map.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     module2.exports = asyncMap;
     function asyncMap() {
       var steps = Array.prototype.slice.call(arguments), list = steps.shift() || [], cb_ = steps.pop();
@@ -22768,6 +24792,7 @@ var require_async_map = __commonJS({
 // node_modules/slide/lib/bind-actor.js
 var require_bind_actor = __commonJS({
   "node_modules/slide/lib/bind-actor.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     module2.exports = bindActor;
     function bindActor() {
       var args = Array.prototype.slice.call(arguments), obj = null, fn;
@@ -22788,6 +24813,7 @@ var require_bind_actor = __commonJS({
 // node_modules/slide/lib/chain.js
 var require_chain = __commonJS({
   "node_modules/slide/lib/chain.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     module2.exports = chain;
     var bindActor = require_bind_actor();
     chain.first = {};
@@ -22821,6 +24847,7 @@ var require_chain = __commonJS({
 // node_modules/slide/lib/slide.js
 var require_slide = __commonJS({
   "node_modules/slide/lib/slide.js"(exports2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     exports2.asyncMap = require_async_map();
     exports2.bindActor = require_bind_actor();
     exports2.chain = require_chain();
@@ -22830,6 +24857,7 @@ var require_slide = __commonJS({
 // node_modules/imurmurhash/imurmurhash.js
 var require_imurmurhash = __commonJS({
   "node_modules/imurmurhash/imurmurhash.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     (function() {
       var cache;
       function MurmurHash3(key, seed) {
@@ -22929,6 +24957,7 @@ var require_imurmurhash = __commonJS({
 var require_write_file_atomic = __commonJS({
   "node_modules/write-file-atomic/index.js"(exports2, module2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     module2.exports = writeFile;
     module2.exports.sync = writeFileSync;
     module2.exports._getTmpname = getTmpname;
@@ -23053,6 +25082,7 @@ var require_write_file_atomic = __commonJS({
 // node_modules/node-localstorage/LocalStorage.js
 var require_LocalStorage = __commonJS({
   "node_modules/node-localstorage/LocalStorage.js"(exports2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     (function() {
       var JSONStorage, KEY_FOR_EMPTY_STRING, LocalStorage, MetaKey, QUOTA_EXCEEDED_ERR, StorageEvent, _emptyDirectory, _escapeKey, _rm, createMap, events, fs, path, writeSync, extend = function(child, parent) {
         for (var key in parent) {
@@ -23379,6 +25409,7 @@ var require_LocalStorage = __commonJS({
 var require_localStorage = __commonJS({
   "node_modules/telegram/sessions/localStorage.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.LocalStorage = void 0;
     exports2.LocalStorage = require_LocalStorage().LocalStorage;
@@ -23389,6 +25420,7 @@ var require_localStorage = __commonJS({
 var require_StoreSession = __commonJS({
   "node_modules/telegram/sessions/StoreSession.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -23473,6 +25505,7 @@ var require_StoreSession = __commonJS({
 var require_sessions = __commonJS({
   "node_modules/telegram/sessions/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Session = exports2.StoreSession = exports2.StringSession = exports2.MemorySession = void 0;
     var Memory_1 = require_Memory();
@@ -23498,6 +25531,7 @@ var require_sessions = __commonJS({
 var require_fa = __commonJS({
   "node_modules/telegram/client/2fa.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.updateTwoFaSettings = updateTwoFaSettings;
     var Helpers_1 = require_Helpers();
@@ -23569,6 +25603,7 @@ var require_fa = __commonJS({
 var require_auth = __commonJS({
   "node_modules/telegram/client/auth.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -23931,6 +25966,7 @@ var require_auth = __commonJS({
 var require_inlineResult = __commonJS({
   "node_modules/telegram/tl/custom/inlineResult.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.InlineResult = void 0;
     var api_1 = require_api();
@@ -24022,6 +26058,7 @@ var require_inlineResult = __commonJS({
 var require_inlineResults = __commonJS({
   "node_modules/telegram/tl/custom/inlineResults.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.InlineResults = void 0;
     var inlineResult_1 = require_inlineResult();
@@ -24054,6 +26091,7 @@ var require_inlineResults = __commonJS({
 var require_bots = __commonJS({
   "node_modules/telegram/client/bots.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.inlineQuery = inlineQuery;
     var tl_1 = require_tl();
@@ -24083,6 +26121,7 @@ var require_bots = __commonJS({
 var require_buttons = __commonJS({
   "node_modules/telegram/client/buttons.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.buildReplyMarkup = buildReplyMarkup;
     var tl_1 = require_tl();
@@ -24166,6 +26205,7 @@ var require_buttons = __commonJS({
 var require_requestIter = __commonJS({
   "node_modules/telegram/requestIter.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __asyncValues2 = exports2 && exports2.__asyncValues || function(o) {
       if (!Symbol.asyncIterator)
         throw new TypeError("Symbol.asyncIterator is not defined.");
@@ -24300,6 +26340,7 @@ var require_requestIter = __commonJS({
 var require_chats = __commonJS({
   "node_modules/telegram/client/chats.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -24648,6 +26689,7 @@ var require_chats = __commonJS({
 var require_draft = __commonJS({
   "node_modules/telegram/tl/custom/draft.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Draft = void 0;
     var Utils_1 = require_Utils();
@@ -24700,6 +26742,7 @@ var require_draft = __commonJS({
 var require_dialog = __commonJS({
   "node_modules/telegram/tl/custom/dialog.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Dialog = void 0;
     var api_1 = require_api();
@@ -24744,6 +26787,7 @@ var require_dialog = __commonJS({
 var require_dialogs = __commonJS({
   "node_modules/telegram/client/dialogs.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -24901,6 +26945,7 @@ var require_dialogs = __commonJS({
 var require_fs = __commonJS({
   "node_modules/telegram/client/fs.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -24930,6 +26975,7 @@ var require_fs = __commonJS({
 var require_path2 = __commonJS({
   "node_modules/telegram/client/path.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -24943,6 +26989,7 @@ var require_path2 = __commonJS({
 var require_downloads = __commonJS({
   "node_modules/telegram/client/downloads.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -25477,6 +27524,7 @@ var require_downloads = __commonJS({
 var require_uploads = __commonJS({
   "node_modules/telegram/client/uploads.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -25496,11 +27544,11 @@ var require_uploads = __commonJS({
     var messages_1 = require_messages2();
     var big_integer_1 = __importDefault2(require_BigInteger());
     var CustomFile = class {
-      constructor(name, size, path, buffer) {
+      constructor(name, size, path, buffer2) {
         this.name = name;
         this.size = size;
         this.path = path;
-        this.buffer = buffer;
+        this.buffer = buffer2;
       }
     };
     exports2.CustomFile = CustomFile;
@@ -25513,9 +27561,9 @@ var require_uploads = __commonJS({
       }
       slice(begin, end) {
         return __async(this, null, function* () {
-          const { buffer, filePath } = this.options;
-          if (buffer) {
-            return buffer.slice(begin, end);
+          const { buffer: buffer2, filePath } = this.options;
+          if (buffer2) {
+            return buffer2.slice(begin, end);
           } else if (filePath) {
             const buffSize = end - begin;
             const buff = Buffer.alloc(buffSize);
@@ -25554,7 +27602,7 @@ var require_uploads = __commonJS({
         const isLarge = size > LARGE_FILE_THRESHOLD;
         const partSize = (0, Utils_1.getAppropriatedPartSize)((0, big_integer_1.default)(size)) * KB_TO_BYTES;
         const partCount = Math.floor((size + partSize - 1) / partSize);
-        const buffer = yield getFileBuffer(file, size, fileParams.maxBufferSize || BUFFER_SIZE_20MB - 1);
+        const buffer2 = yield getFileBuffer(file, size, fileParams.maxBufferSize || BUFFER_SIZE_20MB - 1);
         yield client2.getSender(client2.session.dcId);
         if (!workers || !size) {
           workers = 1;
@@ -25580,7 +27628,7 @@ var require_uploads = __commonJS({
             if (endPart == j * partSize) {
               break;
             }
-            const bytes = yield buffer.slice(j * partSize, endPart);
+            const bytes = yield buffer2.slice(j * partSize, endPart);
             sendingParts.push(((jMemo, bytesMemo) => __async(this, null, function* () {
               while (true) {
                 let sender;
@@ -25957,6 +28005,7 @@ var require_uploads = __commonJS({
 var require_messages2 = __commonJS({
   "node_modules/telegram/client/messages.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __asyncValues2 = exports2 && exports2.__asyncValues || function(o) {
       if (!Symbol.asyncIterator)
         throw new TypeError("Symbol.asyncIterator is not defined.");
@@ -26735,6 +28784,7 @@ var require_messages2 = __commonJS({
 var require_custom = __commonJS({
   "node_modules/telegram/tl/custom/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ChatGetter = void 0;
     var chatGetter_1 = require_chatGetter();
@@ -26748,6 +28798,7 @@ var require_custom = __commonJS({
 var require_common2 = __commonJS({
   "node_modules/telegram/events/common.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -26887,6 +28938,7 @@ var require_common2 = __commonJS({
 var require_Raw = __commonJS({
   "node_modules/telegram/events/Raw.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Raw = void 0;
     var common_1 = require_common2();
@@ -26927,6 +28979,7 @@ var require_Raw = __commonJS({
 var require_updates = __commonJS({
   "node_modules/telegram/client/updates.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.StopPropagation = void 0;
     exports2.on = on;
@@ -27150,6 +29203,7 @@ var require_updates = __commonJS({
 var require_client = __commonJS({
   "node_modules/telegram/client/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -27219,6 +29273,7 @@ var require_client = __commonJS({
 var require_telegram = __commonJS({
   "node_modules/telegram/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -27295,6 +29350,7 @@ var require_telegram = __commonJS({
 // src/pkjs/pgjs/shims/os.js
 var require_os = __commonJS({
   "src/pkjs/pgjs/shims/os.js"(exports2, module2) {
+    init_define_PGJS_BUILTIN_CONFIG();
     function value(text) {
       return function() {
         return text;
@@ -27325,6 +29381,7 @@ var require_os = __commonJS({
 var require_os2 = __commonJS({
   "node_modules/telegram/client/os.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -27367,6 +29424,7 @@ var require_os2 = __commonJS({
 var require_entityCache = __commonJS({
   "node_modules/telegram/entityCache.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -27449,6 +29507,7 @@ var require_entityCache = __commonJS({
 var require_TCPMTProxy = __commonJS({
   "node_modules/telegram/network/connection/TCPMTProxy.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ConnectionTCPMTProxyAbridged = exports2.TCPMTProxy = void 0;
     var Connection_1 = require_Connection();
@@ -27573,6 +29632,7 @@ var require_TCPMTProxy = __commonJS({
 var require_telegramBaseClient = __commonJS({
   "node_modules/telegram/client/telegramBaseClient.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __importDefault2 = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -27946,6 +30006,7 @@ var require_telegramBaseClient = __commonJS({
 var require_NewMessage = __commonJS({
   "node_modules/telegram/events/NewMessage.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.NewMessageEvent = exports2.NewMessage = void 0;
     var common_1 = require_common2();
@@ -28101,6 +30162,7 @@ var require_NewMessage = __commonJS({
 var require_events2 = __commonJS({
   "node_modules/telegram/events/index.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.NewMessageEvent = exports2.NewMessage = exports2.Raw = void 0;
     var Raw_1 = require_Raw();
@@ -28121,6 +30183,7 @@ var require_events2 = __commonJS({
 var require_TelegramClient = __commonJS({
   "node_modules/telegram/client/TelegramClient.js"(exports2) {
     "use strict";
+    init_define_PGJS_BUILTIN_CONFIG();
     var __createBinding2 = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -29335,24 +31398,222 @@ var require_TelegramClient = __commonJS({
 });
 
 // tools/pgjs-gramjs-entry.js
+init_define_PGJS_BUILTIN_CONFIG();
 var root = typeof globalThis !== "undefined" ? globalThis : typeof global !== "undefined" ? global : exports;
+var buffer = require_buffer();
+var BUILTIN_CONFIG = define_PGJS_BUILTIN_CONFIG_default;
+if (!root.self) {
+  root.self = root;
+}
 if (!root.window) {
   root.window = root;
 }
 if (!root.window.location) {
-  root.window.location = { protocol: "https:" };
+  root.window.location = { protocol: "http:" };
 }
 if (!root.window.addEventListener) {
   root.window.addEventListener = function() {
   };
 }
+if (!root.window.removeEventListener) {
+  root.window.removeEventListener = function() {
+  };
+}
+if (!root.navigator) {
+  root.navigator = {
+    onLine: true,
+    userAgent: "Pebblegram PKJS"
+  };
+}
+if (!root.window.navigator) {
+  root.window.navigator = root.navigator;
+}
+if (!root.Buffer) {
+  root.Buffer = buffer.Buffer;
+}
+if (!root.window.Buffer) {
+  root.window.Buffer = root.Buffer;
+}
+if (!root.crypto) {
+  root.crypto = {};
+}
+if (!root.crypto.getRandomValues) {
+  root.crypto.getRandomValues = function(values) {
+    var index;
+    for (index = 0; index < values.length; index += 1) {
+      values[index] = Math.floor(Math.random() * 256);
+    }
+    return values;
+  };
+}
+if (!root.window.crypto) {
+  root.window.crypto = root.crypto;
+}
+if (!root.Response) {
+  root.Response = function(body) {
+    this._body = body;
+  };
+  root.Response.prototype.arrayBuffer = function() {
+    var body = this._body;
+    var view;
+    var bytes;
+    var index;
+    if (body === void 0 || body === null) {
+      return Promise.resolve(new ArrayBuffer(0));
+    }
+    if (body instanceof ArrayBuffer || String(body) === "[object ArrayBuffer]") {
+      return Promise.resolve(body);
+    }
+    if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView && ArrayBuffer.isView(body)) {
+      view = new Uint8Array(body.buffer, body.byteOffset || 0, body.byteLength || body.length || 0);
+      return Promise.resolve(view.slice().buffer);
+    }
+    if (typeof body.length === "number") {
+      bytes = new Uint8Array(body.length);
+      for (index = 0; index < body.length; index += 1) {
+        bytes[index] = body[index] & 255;
+      }
+      return Promise.resolve(bytes.buffer);
+    }
+    return Promise.resolve(new ArrayBuffer(0));
+  };
+}
+if (!root.window.Response) {
+  root.window.Response = root.Response;
+}
+if (typeof root.WebSocket === "function" && root.WebSocket.__pebblegramWrapped !== true) {
+  (function() {
+    var NativeWebSocket = root.WebSocket;
+    function WebSocketWrapper(url, protocols) {
+      var socket = protocols ? new NativeWebSocket(url, protocols) : new NativeWebSocket(url);
+      var listeners = { open: [], message: [], error: [], close: [] };
+      var pending = [];
+      var wrapper = {};
+      function hasListeners(kind) {
+        return typeof wrapper["on" + kind] === "function" || listeners[kind].length > 0;
+      }
+      function emit(kind, event) {
+        var handler = wrapper["on" + kind];
+        var index;
+        if (typeof handler === "function") {
+          handler.call(wrapper, event || { type: kind });
+        }
+        for (index = 0; index < listeners[kind].length; index += 1) {
+          listeners[kind][index].call(wrapper, event || { type: kind });
+        }
+      }
+      function flush(kind) {
+        var next = [];
+        var index;
+        var entry;
+        for (index = 0; index < pending.length; index += 1) {
+          entry = pending[index];
+          if ((!kind || entry.kind === kind) && hasListeners(entry.kind)) {
+            emit(entry.kind, entry.event);
+          } else {
+            next.push(entry);
+          }
+        }
+        pending = next;
+      }
+      function dispatch(kind, event) {
+        if (!hasListeners(kind)) {
+          pending.push({ kind, event });
+          return;
+        }
+        emit(kind, event);
+      }
+      socket.onopen = function(event) {
+        dispatch("open", event);
+      };
+      socket.onmessage = function(event) {
+        dispatch("message", event);
+      };
+      socket.onerror = function(event) {
+        dispatch("error", event);
+      };
+      socket.onclose = function(event) {
+        dispatch("close", event);
+      };
+      wrapper.send = function(data) {
+        return socket.send(data);
+      };
+      wrapper.close = function(code, reason) {
+        return socket.close(code, reason);
+      };
+      wrapper.addEventListener = function(kind, listener) {
+        if (listeners[kind] && typeof listener === "function") {
+          listeners[kind].push(listener);
+          flush(kind);
+        }
+      };
+      wrapper.removeEventListener = function(kind, listener) {
+        var index;
+        if (!listeners[kind] || typeof listener !== "function") {
+          return;
+        }
+        for (index = listeners[kind].length - 1; index >= 0; index -= 1) {
+          if (listeners[kind][index] === listener) {
+            listeners[kind].splice(index, 1);
+          }
+        }
+      };
+      Object.defineProperty(wrapper, "readyState", { get: function() {
+        return socket.readyState;
+      } });
+      Object.defineProperty(wrapper, "bufferedAmount", { get: function() {
+        return socket.bufferedAmount;
+      } });
+      Object.defineProperty(wrapper, "binaryType", {
+        get: function() {
+          return socket.binaryType;
+        },
+        set: function(value) {
+          socket.binaryType = value;
+        }
+      });
+      ["open", "message", "error", "close"].forEach(function(kind) {
+        Object.defineProperty(wrapper, "on" + kind, {
+          get: function() {
+            return wrapper["__on" + kind] || null;
+          },
+          set: function(listener) {
+            wrapper["__on" + kind] = listener;
+            flush(kind);
+          }
+        });
+      });
+      return wrapper;
+    }
+    ["CONNECTING", "OPEN", "CLOSING", "CLOSED"].forEach(function(name) {
+      if (NativeWebSocket[name] !== void 0) {
+        WebSocketWrapper[name] = NativeWebSocket[name];
+      }
+    });
+    WebSocketWrapper.__pebblegramWrapped = true;
+    root.WebSocket = WebSocketWrapper;
+    root.window.WebSocket = WebSocketWrapper;
+  })();
+}
 var client = require_TelegramClient();
 var stringSession = require_StringSession();
 module.exports = {
   TelegramClient: client.TelegramClient,
-  StringSession: stringSession.StringSession
+  StringSession: stringSession.StringSession,
+  runtimeConfig: BUILTIN_CONFIG
 };
 /*! Bundled license information:
+
+ieee754/index.js:
+  (*! ieee754. BSD-3-Clause License. Feross Aboukhadijeh <https://feross.org/opensource> *)
+
+buffer/index.js:
+  (*!
+   * The buffer module from node.js, for the browser.
+   *
+   * @author   Feross Aboukhadijeh <https://feross.org>
+   * @license  MIT
+   *)
 
 store2/dist/store2.js:
   (*! store2 - v2.14.4 - 2024-12-26

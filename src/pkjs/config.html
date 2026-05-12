@@ -83,16 +83,9 @@
     <h1>Pebblegram</h1>
     <p class="lede">PGJS signs in from the Pebble phone app. No helper server is required.</p>
 
-    <label for="apiId">Telegram API ID</label>
-    <input id="apiId" type="number" inputmode="numeric" placeholder="123456">
-    <div class="hint">Create Telegram API credentials at https://my.telegram.org/apps.</div>
-
-    <label for="apiHash">Telegram API hash</label>
-    <input id="apiHash" type="text" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="0123456789abcdef0123456789abcdef">
-
     <label for="phone">Phone number</label>
     <input id="phone" type="tel" placeholder="+15551234567">
-    <div class="hint">Save once with API credentials and phone number to request the Telegram login code.</div>
+    <div class="hint">Save once with your phone number to request the Telegram login code.</div>
 
     <label for="code">Telegram login code</label>
     <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="12345">
@@ -132,8 +125,6 @@
     }
 
     var query = params();
-    var apiId = document.getElementById('apiId');
-    var apiHash = document.getElementById('apiHash');
     var phone = document.getElementById('phone');
     var code = document.getElementById('code');
     var password = document.getElementById('password');
@@ -141,8 +132,6 @@
     var status = document.getElementById('status');
     var resetSession = false;
 
-    apiId.value = query.apiId || '';
-    apiHash.value = query.apiHash || '';
     phone.value = query.phone || '';
     cannedReplies.value = query.cannedReplies || 'Yes|No|On my way|Call you later|Thanks';
 
@@ -150,8 +139,10 @@
       status.textContent = 'Telegram session saved.';
     } else if (query.authStage === 'password') {
       status.textContent = 'Enter your Telegram cloud password.';
+      password.focus();
     } else if (query.authStage === 'code') {
       status.textContent = 'Enter the Telegram login code.';
+      code.focus();
     }
 
     function closeWith(data) {
@@ -168,16 +159,14 @@
     document.getElementById('save').addEventListener('click', function() {
       var data = {
         mode: 'pgjs',
-        apiId: apiId.value.trim(),
-        apiHash: apiHash.value.trim(),
         phone: phone.value.trim(),
         code: code.value.trim(),
         password: password.value,
         cannedReplies: cannedReplies.value.trim(),
         resetSession: resetSession
       };
-      if (!data.apiId || !data.apiHash || !data.phone) {
-        status.textContent = 'Enter API ID, API hash, and phone number.';
+      if (!data.phone) {
+        status.textContent = 'Enter your phone number.';
         return;
       }
       closeWith(data);

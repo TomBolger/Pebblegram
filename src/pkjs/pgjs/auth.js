@@ -2,35 +2,8 @@ var cache = require('./cache');
 
 var clientPromise = null;
 
-function installResponseShim(root) {
-  if (root.Response) {
-    return;
-  }
-  root.Response = function(data) {
-    this._data = data;
-  };
-  root.Response.prototype.arrayBuffer = function() {
-    var data = this._data;
-    if (data instanceof ArrayBuffer) {
-      return Promise.resolve(data);
-    }
-    if (data && data.buffer instanceof ArrayBuffer) {
-      return Promise.resolve(data.buffer.slice(data.byteOffset || 0, (data.byteOffset || 0) + data.byteLength));
-    }
-    if (typeof data === 'string') {
-      var bytes = new Uint8Array(data.length);
-      for (var i = 0; i < data.length; i += 1) {
-        bytes[i] = data.charCodeAt(i) & 0xff;
-      }
-      return Promise.resolve(bytes.buffer);
-    }
-    return Promise.reject(new Error('Unsupported WebSocket payload type.'));
-  };
-}
-
 function loadGramJs() {
   var root = typeof global !== 'undefined' ? global : this;
-  installResponseShim(root);
   if (root.PebblegramGramJS) {
     return root.PebblegramGramJS;
   }
@@ -41,9 +14,22 @@ function loadGramJs() {
   throw new Error('PGJS GramJS bundle pending: add a PebbleKit-compatible GramJS bundle.');
 }
 
-function missingCredentials(creds) {
-  if (!creds.apiId || !creds.apiHash || !creds.phone) {
-    return 'Open settings: enter Telegram API ID, API hash, and phone.';
+function runtimeConfig(gram, creds) {
+  var embedded = gram.runtimeConfig || {};
+  return {
+    apiId: embedded.apiId || creds.apiId || 0,
+    apiHash: embedded.apiHash || creds.apiHash || '',
+    forceWSS: embedded.forceWSS === true,
+    testServers: embedded.testServers === true
+  };
+}
+
+function missingCredentials(config, creds) {
+  if (!config.apiId || !config.apiHash) {
+    return 'PGJS build missing Telegram API credentials.';
+  }
+  if (!creds.phone) {
+    return 'Open settings: enter your phone number.';
   }
   return '';
 }
@@ -51,8 +37,6 @@ function missingCredentials(creds) {
 function authState() {
   var creds = cache.credentials();
   return {
-    apiId: creds.apiId ? String(creds.apiId) : '',
-    apiHash: creds.apiHash || '',
     phone: creds.phone || '',
     hasSession: !!creds.session,
     authStage: creds.authStage || ''
@@ -71,17 +55,30 @@ function getClient() {
 
   clientPromise = new Promise(function(resolve, reject) {
     var creds = cache.credentials();
-    var missing = missingCredentials(creds);
+    var gram = loadGramJs();
+    var config = runtimeConfig(gram, creds);
+    var missing = missingCredentials(config, creds);
     if (missing) {
       reject(new Error(missing));
       return;
     }
 
-    var gram = loadGramJs();
     var session = new gram.StringSession(creds.session || '');
-    var client = new gram.TelegramClient(session, creds.apiId, creds.apiHash, {
-      connectionRetries: 3
+    var client = new gram.TelegramClient(session, config.apiId, config.apiHash, {
+      connectionRetries: 3,
+      requestRetries: 3,
+      reconnectRetries: 0,
+      useWSS: config.forceWSS === true,
+      testServers: config.testServers === true,
+      deviceModel: 'Pebblegram',
+      systemVersion: 'Pebble PKJS',
+      appVersion: 'PGJS',
+      langCode: 'en',
+      systemLangCode: 'en'
     });
+
+    var requestedCode = false;
+    var requestedPassword = false;
 
     client.start({
       phoneNumber: function() {
@@ -89,6 +86,7 @@ function getClient() {
       },
       phoneCode: function() {
         if (!creds.code) {
+          requestedCode = true;
           cache.set('authStage', 'code');
           throw new Error('Open settings: enter the Telegram login code.');
         }
@@ -96,6 +94,7 @@ function getClient() {
       },
       password: function() {
         if (!creds.password) {
+          requestedPassword = true;
           cache.set('authStage', 'password');
           throw new Error('Open settings: enter your Telegram cloud password.');
         }
@@ -103,12 +102,21 @@ function getClient() {
       },
       onError: function(err) {
         console.log('PGJS login error: ' + (err && err.message ? err.message : err));
+        return true;
       }
     }).then(function() {
       cache.setSession(client.session.save());
       resolve(client);
     }).catch(function(err) {
       clientPromise = null;
+      if (err && err.message === 'AUTH_USER_CANCEL' && requestedCode) {
+        reject(new Error('Open settings: enter the Telegram login code.'));
+        return;
+      }
+      if (err && err.message === 'AUTH_USER_CANCEL' && requestedPassword) {
+        reject(new Error('Open settings: enter your Telegram cloud password.'));
+        return;
+      }
       reject(err);
     });
   });

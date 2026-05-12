@@ -8,8 +8,6 @@ function create(options) {
       var state = auth.authState();
       return baseUrl +
         '?mode=pgjs' +
-        '&apiId=' + encodeURIComponent(state.apiId) +
-        '&apiHash=' + encodeURIComponent(state.apiHash) +
         '&phone=' + encodeURIComponent(state.phone) +
         '&hasSession=' + encodeURIComponent(state.hasSession ? '1' : '0') +
         '&authStage=' + encodeURIComponent(state.authStage || '') +
