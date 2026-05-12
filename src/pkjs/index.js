@@ -8,6 +8,7 @@ var OLDER_MESSAGE_ROWS = 6;
 var MAX_MESSAGE_ROWS = 10;
 var MAX_MESSAGE_TEXT = 300;
 var IMAGE_SIZE = 120;
+var IMAGE_WIDTH = 130;
 var IMAGE_COLORS = 64;
 var IMAGE_CHUNK_SIZE = 500;
 var REQUEST_TIMEOUT_MS = 15000;
@@ -70,6 +71,7 @@ function configureForPlatform() {
     MAX_MESSAGE_ROWS = 24;
     MAX_MESSAGE_TEXT = 520;
     IMAGE_SIZE = 156;
+    IMAGE_WIDTH = 170;
     IMAGE_CHUNK_SIZE = 500;
   } else if (info && info.platform === 'gabbro') {
     INITIAL_MESSAGE_ROWS = 12;
@@ -77,12 +79,15 @@ function configureForPlatform() {
     MAX_MESSAGE_ROWS = 24;
     MAX_MESSAGE_TEXT = 520;
     IMAGE_SIZE = 118;
+    IMAGE_WIDTH = 128;
     IMAGE_CHUNK_SIZE = 500;
   } else if (info && info.platform === 'diorite') {
     IMAGE_SIZE = 96;
+    IMAGE_WIDTH = 102;
     IMAGE_COLORS = 4;
   } else if (info && info.platform === 'basalt') {
     IMAGE_SIZE = 120;
+    IMAGE_WIDTH = 130;
   }
 }
 
@@ -412,7 +417,8 @@ function deleteMessage(chatId, messageId) {
 
 function sendImage(chatId, messageId) {
   var url = bridgeUrl() + '/v1/chats/' + encodeURIComponent(chatId) + '/messages/' +
-    encodeURIComponent(messageId) + '/image?size=' + IMAGE_SIZE + '&colors=' + IMAGE_COLORS;
+    encodeURIComponent(messageId) + '/image?size=' + IMAGE_SIZE +
+    '&width=' + IMAGE_WIDTH + '&height=' + IMAGE_SIZE + '&colors=' + IMAGE_COLORS;
   xhrBinary('GET', url, function(err, buffer) {
     if (err || !buffer) {
       var failed = {};

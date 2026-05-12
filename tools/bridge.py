@@ -111,7 +111,7 @@ class Backend:
     async def messages(self, chat_id: str, limit: int, before_id: str | None = None) -> list[dict[str, Any]]:
         raise NotImplementedError
 
-    async def image_png(self, chat_id: str, message_id: str, size: int, colors: int = 64) -> bytes:
+    async def image_png(self, chat_id: str, message_id: str, width: int, height: int, colors: int = 64) -> bytes:
         raise NotImplementedError
 
     async def send_message(self, chat_id: str, text: str, reply_to: str | None) -> None:
@@ -134,10 +134,10 @@ class MockBackend(Backend):
             return []
         return messages[-limit:]
 
-    async def image_png(self, chat_id: str, message_id: str, size: int, colors: int = 64) -> bytes:
+    async def image_png(self, chat_id: str, message_id: str, width: int, height: int, colors: int = 64) -> bytes:
         if MOCK_PHOTO_PATH.exists():
-            return make_thumbnail_png(MOCK_PHOTO_PATH.read_bytes(), size, colors)
-        return make_mock_photo_png(size, colors)
+            return make_thumbnail_png(MOCK_PHOTO_PATH.read_bytes(), width, height, colors)
+        return make_mock_photo_png(width, height, colors)
 
     async def send_message(self, chat_id: str, text: str, reply_to: str | None) -> None:
         messages = MOCK_MESSAGES.setdefault(chat_id, [])
@@ -261,8 +261,8 @@ class TelethonBackend(Backend):
             )
         return rows
 
-    async def image_png(self, chat_id: str, message_id: str, size: int, colors: int = 64) -> bytes:
-        cache_key = (chat_id, message_id, size, colors)
+    async def image_png(self, chat_id: str, message_id: str, width: int, height: int, colors: int = 64) -> bytes:
+        cache_key = (chat_id, message_id, width, height, colors)
         if cache_key in self._image_cache:
             return self._image_cache[cache_key]
         await self._ensure_connected()
@@ -275,7 +275,7 @@ class TelethonBackend(Backend):
             raw = await self._client.download_media(message, bytes)
         if not raw:
             raise RuntimeError("failed to download photo")
-        png = make_thumbnail_png(raw, size, colors)
+        png = make_thumbnail_png(raw, width, height, colors)
         self._image_cache[cache_key] = png
         return png
 
@@ -349,7 +349,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
         limit = min(int(query.get("limit", ["20"])[0]), 32)
-        image_size = min(int(query.get("size", ["72"])[0]), 192)
+        image_size = min(max(int(query.get("size", ["72"])[0]), 1), 192)
+        image_width = min(max(int(query.get("width", [str(image_size)])[0]), 1), 192)
+        image_height = min(max(int(query.get("height", [str(image_size)])[0]), 1), 192)
         image_colors = min(max(int(query.get("colors", ["64"])[0]), 2), 64)
         before_id = query.get("before_id", [None])[0]
 
@@ -371,7 +373,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 parts = parsed.path.split("/")
                 chat_id = unquote(parts[3])
                 message_id = unquote(parts[5])
-                png = self._run(self.backend.image_png(chat_id, message_id, image_size, image_colors))
+                png = self._run(self.backend.image_png(chat_id, message_id, image_width, image_height, image_colors))
                 self._send_bytes(png, content_type="image/png")
                 return
             if parsed.path.startswith("/v1/chats/") and parsed.path.endswith("/messages"):
@@ -520,16 +522,16 @@ def quantize_for_platform(image: Any, colors: int) -> Any:
     return quantize_for_pebble(image)
 
 
-def make_thumbnail_png(raw: bytes, size: int, colors: int = 64) -> bytes:
+def make_thumbnail_png(raw: bytes, width: int, height: int, colors: int = 64) -> bytes:
     _require_pillow()
     with Image.open(io.BytesIO(raw)) as source:
         image = source.convert("RGBA")
         if ImageOps is not None:
-            canvas = ImageOps.fit(image, (size, size), Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+            canvas = ImageOps.fit(image, (width, height), Image.Resampling.LANCZOS, centering=(0.5, 0.5))
         else:
-            image.thumbnail((size, size), Image.Resampling.LANCZOS)
-            canvas = Image.new("RGBA", (size, size), (255, 255, 255, 255))
-            offset = ((size - image.width) // 2, (size - image.height) // 2)
+            image.thumbnail((width, height), Image.Resampling.LANCZOS)
+            canvas = Image.new("RGBA", (width, height), (255, 255, 255, 255))
+            offset = ((width - image.width) // 2, (height - image.height) // 2)
             canvas.alpha_composite(image, offset)
         canvas = quantize_for_platform(canvas, colors)
         output = io.BytesIO()
@@ -540,33 +542,34 @@ def make_thumbnail_png(raw: bytes, size: int, colors: int = 64) -> bytes:
         return output.getvalue()
 
 
-def make_mock_photo_png(size: int, colors: int = 64) -> bytes:
+def make_mock_photo_png(width: int, height: int, colors: int = 64) -> bytes:
     _require_pillow()
-    canvas = Image.new("RGBA", (size, size), (95, 170, 220, 255))
+    canvas = Image.new("RGBA", (width, height), (95, 170, 220, 255))
     draw = ImageDraw.Draw(canvas)
 
-    for y in range(size):
-        ratio = y / max(1, size - 1)
+    for y in range(height):
+        ratio = y / max(1, height - 1)
         r = int(74 + 110 * ratio)
         g = int(155 - 65 * ratio)
         b = int(220 - 120 * ratio)
-        draw.line((0, y, size, y), fill=(r, g, b, 255))
+        draw.line((0, y, width, y), fill=(r, g, b, 255))
 
-    sun_r = max(8, size // 9)
-    sun_x = int(size * 0.72)
-    sun_y = int(size * 0.28)
+    short_side = min(width, height)
+    sun_r = max(8, short_side // 9)
+    sun_x = int(width * 0.72)
+    sun_y = int(height * 0.28)
     draw.ellipse((sun_x - sun_r, sun_y - sun_r, sun_x + sun_r, sun_y + sun_r), fill=(255, 220, 120, 255))
     draw.polygon(
-        [(0, int(size * 0.78)), (int(size * 0.34), int(size * 0.43)), (int(size * 0.72), int(size * 0.78))],
+        [(0, int(height * 0.78)), (int(width * 0.34), int(height * 0.43)), (int(width * 0.72), int(height * 0.78))],
         fill=(35, 100, 115, 255),
     )
     draw.polygon(
-        [(int(size * 0.18), int(size * 0.82)), (int(size * 0.62), int(size * 0.50)), (size, int(size * 0.82))],
+        [(int(width * 0.18), int(height * 0.82)), (int(width * 0.62), int(height * 0.50)), (width, int(height * 0.82))],
         fill=(28, 80, 105, 255),
     )
-    draw.rectangle((0, int(size * 0.78), size, size), fill=(34, 120, 116, 255))
-    for x in range(0, size, max(5, size // 12)):
-        draw.line((x, int(size * 0.84), x + int(size * 0.18), size), fill=(78, 160, 145, 255), width=1)
+    draw.rectangle((0, int(height * 0.78), width, height), fill=(34, 120, 116, 255))
+    for x in range(0, width, max(5, width // 12)):
+        draw.line((x, int(height * 0.84), x + int(width * 0.18), height), fill=(78, 160, 145, 255), width=1)
 
     canvas = quantize_for_platform(canvas, colors)
     output = io.BytesIO()
