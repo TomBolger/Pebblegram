@@ -52,6 +52,9 @@ helper-backed release line; this work lives on `experiment/pgjs`.
 - The GramJS entry bootstrap now creates a minimal browser-like `window`
   before loading Telegram modules so GramJS selects its WebSocket path instead
   of the Node TCP socket path inside PebbleKit JS.
+- Closing PGJS settings now runs the auth attempt directly and leaves the
+  resulting success/error status visible before any chat refresh starts. This
+  is required to diagnose phone-side auth failures without relying on JS logs.
 - The PGJS branch uses a branch-hosted settings URL instead of the stable 1.7
   GitHub Pages settings page. Pebble config pages are opened by URL and are not
   bundled into the PBW.

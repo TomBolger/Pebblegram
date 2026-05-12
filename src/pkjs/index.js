@@ -632,6 +632,16 @@ Pebble.addEventListener('webviewclosed', function(event) {
     localStorage.setItem('cannedReplies', data.cannedReplies);
   }
   sendSettings();
+  if (data.mode === 'pgjs') {
+    status('Requesting Telegram login...');
+    activePgjs().ready().then(function() {
+      status('Telegram connected');
+      getChats();
+    }).catch(function(err) {
+      promiseError('PGJS auth failed', err);
+    });
+    return;
+  }
   status('Settings saved');
   getChats();
 });
