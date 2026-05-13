@@ -111,6 +111,11 @@
     <label for="code">Telegram login code</label>
     <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="12345">
 
+    <div id="passwordBlock" hidden>
+      <label for="password">Two-step password</label>
+      <input id="password" type="password" placeholder="Telegram cloud password">
+    </div>
+
     <label>Canned replies</label>
     <div id="cannedReplies"></div>
     <button id="addReply" class="inline" type="button">Add a canned message</button>
@@ -148,6 +153,8 @@
     var apiHash = document.getElementById('apiHash');
     var phone = document.getElementById('phone');
     var code = document.getElementById('code');
+    var passwordBlock = document.getElementById('passwordBlock');
+    var password = document.getElementById('password');
     var cannedReplies = document.getElementById('cannedReplies');
     var addReply = document.getElementById('addReply');
     var status = document.getElementById('status');
@@ -202,6 +209,10 @@
     } else if (query.authStage === 'code') {
       status.textContent = 'Enter the Telegram login code.';
       code.focus();
+    } else if (query.authStage === 'password') {
+      passwordBlock.hidden = false;
+      status.textContent = 'Enter your Telegram two-step password.';
+      password.focus();
     }
 
     function closeWith(data) {
@@ -216,6 +227,8 @@
       apiHash.disabled = false;
       phone.disabled = false;
       code.disabled = false;
+      passwordBlock.hidden = true;
+      password.value = '';
       status.textContent = 'You will be logged out when you save.';
     });
 
@@ -229,6 +242,7 @@
         apiId: apiId.value.trim(),
         phone: phone.value.trim(),
         code: code.value.trim(),
+        password: passwordBlock.hidden ? '' : password.value,
         cannedReplies: replyValues().join('|'),
         resetSession: resetSession
       };

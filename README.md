@@ -31,6 +31,7 @@ Pebblegram brings Telegram to Pebble watches with a PebbleKit JS Telegram client
 3. Enter your Telegram API ID, API hash, and phone number.
 4. Save once to request a Telegram login code.
 5. Reopen settings, enter the login code, and save again.
+6. If Telegram asks for two-step verification, reopen settings, enter your Telegram cloud password, and save again.
 
 Create Telegram API credentials at [my.telegram.org/apps](https://my.telegram.org/apps).
 
@@ -65,7 +66,7 @@ For local testing with embedded API credentials, keep them in an ignored environ
 
 - Do not commit `.env`, `.env.*`, Telegram session files, generated personal PBWs, ngrok configs, or account tokens.
 - Public release builds must not embed a personal Telegram API ID or API hash.
-- Telegram two-step verification is not supported yet.
+- Telegram API ID/hash are required by Telegram's MTProto API. The public PBW does not embed a personal API ID/hash.
 
 ## Status
 

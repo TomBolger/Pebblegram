@@ -126,6 +126,7 @@ static char s_pending_text[MAX_TEXT];
 static char s_current_chat_id[MAX_ID];
 static char s_current_chat_title[48];
 static char s_status_text[64];
+static char s_loading_text[96] = "Loading...";
 
 static int s_chat_count;
 static int s_message_count;
@@ -140,6 +141,7 @@ static int s_chat_content_height;
 static ViewState s_view_state;
 static bool s_bridge_ready;
 static bool s_chats_loading;
+static bool s_loading_error;
 static bool s_chat_view_pending;
 static bool s_loading_older_messages;
 static bool s_older_move_to_previous;
@@ -169,6 +171,7 @@ static void render_messages(void);
 static void show_chat_view_timer(void *data);
 static void message_timeout_timer_callback(void *data);
 static void show_status(const char *message);
+static void show_loading_text(const char *message, bool is_error);
 static void click_config_provider(void *context);
 static void copy_cstr(char *dest, size_t dest_size, const char *src);
 static void action_click_config_provider(void *context);
@@ -565,6 +568,14 @@ static void show_status(const char *message) {
   }
 }
 
+static void show_loading_text(const char *message, bool is_error) {
+  copy_cstr(s_loading_text, sizeof(s_loading_text), message && message[0] ? message : "Loading...");
+  s_loading_error = is_error;
+  if (s_chat_menu) {
+    menu_layer_reload_data(s_chat_menu);
+  }
+}
+
 static int progress_percent(int current, int total) {
   if (total <= 0) {
     return current > 0 ? 100 : 0;
@@ -613,15 +624,23 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
     char progress_text[24];
     snprintf(progress_text, sizeof(progress_text), "%d%%", percent);
     graphics_context_set_text_color(ctx, GColorBlack);
-    graphics_draw_text(ctx, "Loading...", fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
+    graphics_draw_text(ctx, s_loading_error ? "Login needs attention" : s_loading_text,
+                       fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
                        GRect(safe.origin.x, (bounds.size.h / 2) - 48, safe.size.w, 32),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
-    int bar_w = PG_MIN(safe.size.w - 24, 112);
-    GRect bar = GRect(safe.origin.x + ((safe.size.w - bar_w) / 2), (bounds.size.h / 2) - 8, bar_w, 14);
-    draw_loading_bar(ctx, bar, percent);
-    graphics_draw_text(ctx, progress_text, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
-                       GRect(safe.origin.x, bar.origin.y + 16, safe.size.w, 24),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+                       s_loading_error ? GTextOverflowModeWordWrap : GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentCenter, NULL);
+    if (s_loading_error) {
+      graphics_draw_text(ctx, s_loading_text, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                         GRect(safe.origin.x + 4, (bounds.size.h / 2) - 6, safe.size.w - 8, 72),
+                         GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+    } else {
+      int bar_w = PG_MIN(safe.size.w - 24, 112);
+      GRect bar = GRect(safe.origin.x + ((safe.size.w - bar_w) / 2), (bounds.size.h / 2) - 8, bar_w, 14);
+      draw_loading_bar(ctx, bar, percent);
+      graphics_draw_text(ctx, progress_text, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                         GRect(safe.origin.x, bar.origin.y + 16, safe.size.w, 24),
+                         GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+    }
     return;
   }
   if (selected) {
@@ -1031,6 +1050,8 @@ static void show_chat_view_timer(void *data) {
 
 static void render_chat_list(void) {
   s_view_state = ViewStateChatList;
+  s_chats_loading = false;
+  s_loading_error = false;
   window_set_click_config_provider(s_main_window, click_config_provider);
   destroy_chat_view();
   if (s_chat_menu) {
@@ -1047,6 +1068,7 @@ static void request_chats(void) {
   s_expected_rows = 0;
   s_bridge_ready = false;
   s_chats_loading = true;
+  show_loading_text("Loading...", false);
   show_status("Pebblegram");
   if (s_chat_menu) {
     menu_layer_reload_data(s_chat_menu);
@@ -1269,6 +1291,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     if (status) {
       if (strcmp(status, "Loading...") == 0 && s_view_state != ViewStateChat) {
         s_chats_loading = true;
+        show_loading_text("Loading...", false);
         if (s_chat_menu) {
           menu_layer_reload_data(s_chat_menu);
         }
@@ -1290,13 +1313,13 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     char *error = tuple_cstring(iter, MESSAGE_KEY_Error);
     cancel_message_timeout();
     cancel_message_retry();
-    show_status(error ? error : "Bridge error");
     if (s_view_state != ViewStateChat) {
       s_bridge_ready = false;
-      s_chats_loading = false;
-      if (s_chat_menu) {
-        menu_layer_reload_data(s_chat_menu);
-      }
+      s_chats_loading = true;
+      show_loading_text(error ? error : "Login failed", true);
+      show_status("Pebblegram");
+    } else {
+      show_status(error ? error : "Error");
     }
     return;
   }
@@ -1311,6 +1334,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     }
     s_bridge_ready = true;
     s_chats_loading = false;
+    s_loading_error = false;
     if (s_chat_count > count) {
       s_chat_count = count;
     }
@@ -1396,6 +1420,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
       s_chat_count = index + 1;
     }
     s_bridge_ready = true;
+    s_loading_error = false;
     if (s_chat_menu) {
       menu_layer_reload_data(s_chat_menu);
     }

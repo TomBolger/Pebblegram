@@ -57,6 +57,7 @@ function telegramErrorCode(err) {
 
 function authErrorMessage(err) {
   var code = telegramErrorCode(err);
+  var waitMatch;
   if (code === 'PHONE_CODE_INVALID') {
     return 'Bad code. Save phone again.';
   }
@@ -73,7 +74,8 @@ function authErrorMessage(err) {
     return 'Bad phone number.';
   }
   if (code.indexOf('FLOOD_WAIT') === 0) {
-    return 'Rate limited. Wait.';
+    waitMatch = code.match(/FLOOD_WAIT_?(\d+)/);
+    return waitMatch ? 'Telegram rate limited login. Wait ' + waitMatch[1] + ' seconds.' : 'Telegram rate limited login. Wait before retrying.';
   }
   return err && err.message ? err.message : String(err || 'Telegram auth failed.');
 }
@@ -211,8 +213,8 @@ function signInWithCode(gram, config, creds) {
             return client;
           });
         }
-        cache.clearCodeRequest();
-        throw new Error('Two-step verification is not supported yet.');
+        cache.set('authStage', 'password');
+        throw new Error('Enter two-step password in settings.');
       }
       if (shouldClearCodeRequest(err)) {
         cache.clearCodeRequest();
