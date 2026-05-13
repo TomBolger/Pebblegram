@@ -123,7 +123,7 @@
 <body>
   <main>
     <h1>Pebblegram</h1>
-    <p class="lede">Please carefully read the instructions to get started. Note that you may need to return here and tap "Save" up to three times to get logged in.</p>
+    <p class="lede">Please carefully read the instructions to get started. Most users will need to return here and tap "Save" twice to get logged in.</p>
 
     <section class="instructions">
       <h2>Login setup</h2>
@@ -133,28 +133,33 @@
         <li>Copy the <strong>App api_id</strong> into Telegram API ID, then copy the <strong>App api_hash</strong> into Telegram API hash.</li>
         <li>Enter your phone number in international format, including the plus sign and country code, such as <strong>+15551234567</strong>.</li>
         <li>Tap <strong>Save</strong>. Telegram should send a login code in the Telegram app or by SMS.</li>
-        <li>Open settings again, enter the Telegram login code, then tap <strong>Save</strong> again.</li>
-        <li>If Telegram asks for two-step verification, open settings again, enter your Telegram cloud password, and tap <strong>Save</strong> once more.</li>
+        <li>Open settings again, enter the Telegram login code. If you use Telegram two-step verification, enter your Telegram cloud password too.</li>
+        <li>Tap <strong>Save</strong> again to finish login. If Telegram still asks for a password, return here one more time and enter it.</li>
       </ol>
     </section>
 
-    <label for="apiId">Telegram API ID</label>
-    <input id="apiId" type="text" inputmode="numeric" placeholder="12345">
+    <div id="credentialsBlock">
+      <label for="apiId">Telegram API ID</label>
+      <input id="apiId" type="text" inputmode="numeric" placeholder="12345">
 
-    <label for="apiHash">Telegram API hash</label>
-    <input id="apiHash" type="password" placeholder="Required for first setup">
+      <label for="apiHash">Telegram API hash</label>
+      <input id="apiHash" type="password" placeholder="Required for first setup">
 
-    <label for="phone">Phone number</label>
-    <input id="phone" type="tel" placeholder="+15551234567">
-    <div class="hint">Save once with the above fields filled out, then return here to enter the login code.</div>
+      <label for="phone">Phone number</label>
+      <input id="phone" type="tel" placeholder="+15551234567">
+      <div class="hint">Save with API ID, API hash, and phone number to request your Telegram login code.</div>
+    </div>
 
-    <label for="code">Telegram login code</label>
-    <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="12345">
-    <div class="hint">Save again once you have received and entered your login code. If you have two-step verification enabled, come back here one more time to enter your Telegram password.</div>
+    <div id="codeBlock">
+      <label for="code">Telegram login code</label>
+      <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="12345">
+      <div class="hint">Enter the Telegram login code. If you use Telegram two-step verification, enter your Telegram password too, then Save.</div>
+    </div>
 
-    <div id="passwordBlock" hidden>
-      <label for="password">Two-step password</label>
+    <div id="passwordBlock">
+      <label for="password">Two-step password <span id="passwordOptional">(optional)</span></label>
       <input id="password" type="password" placeholder="Telegram cloud password">
+      <div id="passwordHint" class="hint">Only needed if you enabled Telegram two-step verification.</div>
     </div>
 
     <label>Canned replies</label>
@@ -195,11 +200,15 @@
     }
 
     var query = params();
+    var credentialsBlock = document.getElementById('credentialsBlock');
     var apiId = document.getElementById('apiId');
     var apiHash = document.getElementById('apiHash');
     var phone = document.getElementById('phone');
+    var codeBlock = document.getElementById('codeBlock');
     var code = document.getElementById('code');
     var passwordBlock = document.getElementById('passwordBlock');
+    var passwordOptional = document.getElementById('passwordOptional');
+    var passwordHint = document.getElementById('passwordHint');
     var password = document.getElementById('password');
     var cannedReplies = document.getElementById('cannedReplies');
     var addReply = document.getElementById('addReply');
@@ -212,6 +221,28 @@
       apiHash.placeholder = 'Saved';
     }
     phone.value = query.phone || '';
+
+    function showInitialStage() {
+      credentialsBlock.hidden = false;
+      codeBlock.hidden = true;
+      passwordBlock.hidden = true;
+    }
+
+    function showCodeStage() {
+      credentialsBlock.hidden = true;
+      codeBlock.hidden = false;
+      passwordBlock.hidden = false;
+      passwordOptional.hidden = false;
+      passwordHint.textContent = 'Only needed if you enabled Telegram two-step verification.';
+    }
+
+    function showPasswordStage() {
+      credentialsBlock.hidden = true;
+      codeBlock.hidden = true;
+      passwordBlock.hidden = false;
+      passwordOptional.hidden = true;
+      passwordHint.textContent = 'Telegram requires your two-step password. Enter it and Save again.';
+    }
 
     function replyValues() {
       return Array.prototype.map.call(cannedReplies.querySelectorAll('input'), function(input) {
@@ -248,17 +279,23 @@
 
     if (query.hasSession === '1') {
       status.textContent = 'Telegram session saved.';
+      credentialsBlock.hidden = false;
+      codeBlock.hidden = true;
+      passwordBlock.hidden = true;
       apiId.disabled = true;
       apiHash.disabled = true;
       phone.disabled = true;
       code.disabled = true;
     } else if (query.authStage === 'code') {
-      status.textContent = 'Enter the Telegram login code.';
+      showCodeStage();
+      status.textContent = 'Enter the Telegram login code and optional two-step password.';
       code.focus();
     } else if (query.authStage === 'password') {
-      passwordBlock.hidden = false;
+      showPasswordStage();
       status.textContent = 'Enter your Telegram two-step password.';
       password.focus();
+    } else {
+      showInitialStage();
     }
 
     function closeWith(data) {
@@ -273,7 +310,7 @@
       apiHash.disabled = false;
       phone.disabled = false;
       code.disabled = false;
-      passwordBlock.hidden = true;
+      showInitialStage();
       password.value = '';
       status.textContent = 'You will be logged out when you save.';
     });
@@ -287,24 +324,36 @@
         mode: 'pgjs',
         apiId: apiId.value.trim(),
         phone: phone.value.trim(),
-        code: code.value.trim(),
-        password: passwordBlock.hidden ? '' : password.value,
         cannedReplies: replyValues().join('|'),
         resetSession: resetSession
       };
+      if (!codeBlock.hidden) {
+        data.code = code.value.trim();
+      }
+      if (!passwordBlock.hidden) {
+        data.password = password.value;
+      }
       if (apiHash.value.trim()) {
         data.apiHash = apiHash.value.trim();
       }
-      if (query.hasSession !== '1' && !data.apiId) {
+      if (!credentialsBlock.hidden && query.hasSession !== '1' && !data.apiId) {
         status.textContent = 'Enter your Telegram API ID.';
         return;
       }
-      if (query.hasSession !== '1' && query.hasApiHash !== '1' && !data.apiHash) {
+      if (!credentialsBlock.hidden && query.hasSession !== '1' && query.hasApiHash !== '1' && !data.apiHash) {
         status.textContent = 'Enter your Telegram API hash.';
         return;
       }
-      if (query.hasSession !== '1' && !data.phone) {
+      if (!credentialsBlock.hidden && query.hasSession !== '1' && !data.phone) {
         status.textContent = 'Enter your phone number.';
+        return;
+      }
+      if (!codeBlock.hidden && !data.code) {
+        status.textContent = 'Enter the Telegram login code.';
+        return;
+      }
+      if (query.authStage === 'password' && !data.password) {
+        status.textContent = 'Enter your Telegram two-step password.';
         return;
       }
       closeWith(data);
