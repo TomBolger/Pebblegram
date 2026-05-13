@@ -126,7 +126,7 @@ static char s_pending_text[MAX_TEXT];
 static char s_current_chat_id[MAX_ID];
 static char s_current_chat_title[48];
 static char s_status_text[64];
-static char s_loading_text[96] = "Loading...";
+static char s_loading_text[160] = "Loading...";
 
 static int s_chat_count;
 static int s_message_count;
