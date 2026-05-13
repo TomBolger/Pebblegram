@@ -47,16 +47,23 @@ function missingCredentials(config, creds) {
 
 function timeout(promise, message) {
   var timer = null;
+  var started = Date.now();
+  var heartbeat = null;
   var timeoutPromise = new Promise(function(resolve, reject) {
     timer = setTimeout(function() {
       reject(new Error(message));
     }, AUTH_TIMEOUT_MS);
+    heartbeat = setInterval(function() {
+      reportStatus('PGJS waiting ' + Math.round((Date.now() - started) / 1000) + 's...');
+    }, 5000);
   });
   return Promise.race([promise, timeoutPromise]).then(function(value) {
     clearTimeout(timer);
+    clearInterval(heartbeat);
     return value;
   }, function(err) {
     clearTimeout(timer);
+    clearInterval(heartbeat);
     throw err;
   });
 }
@@ -91,12 +98,17 @@ function requestCode(gram, config, creds) {
       return client.connect();
     }).then(function() {
       reportStatus('PGJS sending code...');
-      return client.sendCode({
+      return client.invoke(new gram.Api.auth.SendCode({
+        phoneNumber: creds.phone,
         apiId: config.apiId,
-        apiHash: config.apiHash
-      }, creds.phone, false);
+        apiHash: config.apiHash,
+        settings: new gram.Api.CodeSettings({})
+      }));
     }).then(function(result) {
       if (!result || typeof result.phoneCodeHash !== 'string') {
+        if (result && result.className === 'auth.SentCodeSuccess') {
+          throw new Error('Telegram reports this session is already authorized.');
+        }
         throw new Error('Telegram did not return a login code hash.');
       }
       reportStatus('PGJS code requested.');
