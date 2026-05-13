@@ -27,6 +27,33 @@
       font-size: 14px;
       line-height: 1.4;
     }
+    .instructions, .help {
+      margin: 14px 0 18px;
+      padding: 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .instructions h2, .help h2 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+    .instructions ol {
+      margin: 0;
+      padding-left: 20px;
+    }
+    .instructions li + li {
+      margin-top: 7px;
+    }
+    .help p {
+      margin: 0;
+    }
+    a {
+      color: #1683d8;
+      font-weight: 700;
+    }
     label {
       display: block;
       margin: 16px 0 6px;
@@ -98,6 +125,19 @@
     <h1>Pebblegram</h1>
     <p class="lede">Sign in with your Telegram API credentials and phone number, then enter the login code.</p>
 
+    <section class="instructions">
+      <h2>Login setup</h2>
+      <ol>
+        <li>Open <a href="https://my.telegram.org/" target="_blank" rel="noopener">my.telegram.org</a> and sign in with your Telegram phone number.</li>
+        <li>Choose <strong>API development tools</strong>. If Telegram asks you to create an app, fill in the required fields and submit it.</li>
+        <li>Copy the <strong>App api_id</strong> into Telegram API ID, then copy the <strong>App api_hash</strong> into Telegram API hash.</li>
+        <li>Enter your phone number in international format, including the plus sign and country code, such as <strong>+15551234567</strong>.</li>
+        <li>Tap <strong>Save</strong>. Telegram should send a login code in the Telegram app or by SMS.</li>
+        <li>Open settings again, enter the Telegram login code, then tap <strong>Save</strong> again.</li>
+        <li>If Telegram asks for two-step verification, open settings again, enter your Telegram cloud password, and tap <strong>Save</strong> once more.</li>
+      </ol>
+    </section>
+
     <label for="apiId">Telegram API ID</label>
     <input id="apiId" type="text" inputmode="numeric" placeholder="12345">
 
@@ -125,6 +165,11 @@
       <button id="save" type="button">Save</button>
     </div>
     <div id="status" class="status"></div>
+
+    <section class="help">
+      <h2>Can't log in? Need help?</h2>
+      <p>Leave feedback or report login issues on the <a href="https://github.com/TomBolger/Pebblegram/issues" target="_blank" rel="noopener">Pebblegram GitHub issues page</a>. Include your Pebble model, phone OS, what step failed, and the exact message shown on the watch if you can read it.</p>
+    </section>
   </main>
 
   <script>
