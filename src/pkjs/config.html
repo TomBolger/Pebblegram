@@ -41,9 +41,16 @@
       font: inherit;
       background: #fff;
     }
+    input:disabled {
+      color: #64748b;
+      background: #e5e7eb;
+    }
     textarea {
       min-height: 92px;
       resize: vertical;
+    }
+    .reply-row {
+      margin-top: 8px;
     }
     .hint {
       margin-top: 6px;
@@ -76,12 +83,26 @@
       background: #e2e8f0;
       color: #0f172a;
     }
+    button.inline {
+      width: 100%;
+      margin-top: 10px;
+      background: #0f172a;
+    }
+    button:disabled {
+      opacity: 0.55;
+    }
   </style>
 </head>
 <body>
   <main>
     <h1>Pebblegram</h1>
-    <p class="lede">PGJS signs in from the Pebble phone app. No helper server is required.</p>
+    <p class="lede">Sign in with your Telegram API credentials and phone number, then enter the login code.</p>
+
+    <label for="apiId">Telegram API ID</label>
+    <input id="apiId" type="text" inputmode="numeric" placeholder="12345">
+
+    <label for="apiHash">Telegram API hash</label>
+    <input id="apiHash" type="password" placeholder="Required for first setup">
 
     <label for="phone">Phone number</label>
     <input id="phone" type="tel" placeholder="+15551234567">
@@ -90,14 +111,12 @@
     <label for="code">Telegram login code</label>
     <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="12345">
 
-    <label for="password">Cloud password</label>
-    <input id="password" type="password" placeholder="Only if Telegram asks for it">
-
-    <label for="cannedReplies">Canned replies</label>
-    <textarea id="cannedReplies" placeholder="Yes|No|On my way|Call you later|Thanks"></textarea>
+    <label>Canned replies</label>
+    <div id="cannedReplies"></div>
+    <button id="addReply" class="inline" type="button">Add a canned message</button>
 
     <div class="row">
-      <button id="reset" class="secondary" type="button">Reset session</button>
+      <button id="reset" class="secondary" type="button">Log out</button>
       <button id="save" type="button">Save</button>
     </div>
     <div id="status" class="status"></div>
@@ -125,21 +144,61 @@
     }
 
     var query = params();
+    var apiId = document.getElementById('apiId');
+    var apiHash = document.getElementById('apiHash');
     var phone = document.getElementById('phone');
     var code = document.getElementById('code');
-    var password = document.getElementById('password');
     var cannedReplies = document.getElementById('cannedReplies');
+    var addReply = document.getElementById('addReply');
     var status = document.getElementById('status');
     var resetSession = false;
+    var maxReplies = 10;
 
+    apiId.value = query.apiId || '';
+    if (query.hasApiHash === '1') {
+      apiHash.placeholder = 'Saved';
+    }
     phone.value = query.phone || '';
-    cannedReplies.value = query.cannedReplies || 'Yes|No|On my way|Call you later|Thanks';
+
+    function replyValues() {
+      return Array.prototype.map.call(cannedReplies.querySelectorAll('input'), function(input) {
+        return input.value.trim();
+      }).filter(function(value) {
+        return value.length > 0;
+      });
+    }
+
+    function updateAddButton() {
+      addReply.disabled = cannedReplies.querySelectorAll('input').length >= maxReplies;
+    }
+
+    function addReplyField(value) {
+      if (cannedReplies.querySelectorAll('input').length >= maxReplies) {
+        return;
+      }
+      var input = document.createElement('input');
+      input.className = 'reply-row';
+      input.type = 'text';
+      input.maxLength = 39;
+      input.placeholder = 'Canned message';
+      input.value = value || '';
+      cannedReplies.appendChild(input);
+      updateAddButton();
+    }
+
+    (query.cannedReplies || 'Yes|No|On my way|Call you later|Thanks').split('|').slice(0, maxReplies).forEach(function(value) {
+      addReplyField(value);
+    });
+    while (cannedReplies.querySelectorAll('input').length < 5) {
+      addReplyField('');
+    }
 
     if (query.hasSession === '1') {
       status.textContent = 'Telegram session saved.';
-    } else if (query.authStage === 'password') {
-      status.textContent = 'Enter your Telegram cloud password.';
-      password.focus();
+      apiId.disabled = true;
+      apiHash.disabled = true;
+      phone.disabled = true;
+      code.disabled = true;
     } else if (query.authStage === 'code') {
       status.textContent = 'Enter the Telegram login code.';
       code.focus();
@@ -153,19 +212,38 @@
 
     document.getElementById('reset').addEventListener('click', function() {
       resetSession = true;
-      status.textContent = 'Session will be reset when you save.';
+      apiId.disabled = false;
+      apiHash.disabled = false;
+      phone.disabled = false;
+      code.disabled = false;
+      status.textContent = 'You will be logged out when you save.';
+    });
+
+    addReply.addEventListener('click', function() {
+      addReplyField('');
     });
 
     document.getElementById('save').addEventListener('click', function() {
       var data = {
         mode: 'pgjs',
+        apiId: apiId.value.trim(),
         phone: phone.value.trim(),
         code: code.value.trim(),
-        password: password.value,
-        cannedReplies: cannedReplies.value.trim(),
+        cannedReplies: replyValues().join('|'),
         resetSession: resetSession
       };
-      if (!data.phone) {
+      if (apiHash.value.trim()) {
+        data.apiHash = apiHash.value.trim();
+      }
+      if (query.hasSession !== '1' && !data.apiId) {
+        status.textContent = 'Enter your Telegram API ID.';
+        return;
+      }
+      if (query.hasSession !== '1' && query.hasApiHash !== '1' && !data.apiHash) {
+        status.textContent = 'Enter your Telegram API hash.';
+        return;
+      }
+      if (query.hasSession !== '1' && !data.phone) {
         status.textContent = 'Enter your phone number.';
         return;
       }

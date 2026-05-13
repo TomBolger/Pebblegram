@@ -3,7 +3,7 @@ var pgjsBackend = require('./pgjs/backend');
 
 var DEFAULT_BRIDGE_URL = 'http://127.0.0.1:8765';
 var SETTINGS_PAGE_URL = 'https://tombolger.github.io/Pebblegram/config.html';
-var PGJS_SETTINGS_PAGE_URL = 'https://tombolger.github.io/Pebblegram/pgjs/config.html';
+var TELEGRAM_SETTINGS_PAGE_URL = 'https://tombolger.github.io/Pebblegram/pgjs/config.html';
 var DEFAULT_BACKEND_MODE = 'pgjs';
 var MAX_ROWS = 20;
 var INITIAL_MESSAGE_ROWS = 8;
@@ -13,6 +13,7 @@ var MAX_MESSAGE_TEXT = 300;
 var IMAGE_SIZE = 120;
 var IMAGE_WIDTH = 130;
 var IMAGE_COLORS = 64;
+var IMAGE_MAX_BYTES = 10000;
 var IMAGE_CHUNK_SIZE = 500;
 var REQUEST_TIMEOUT_MS = 15000;
 var PREFETCH_CHAT_COUNT = 4;
@@ -65,7 +66,7 @@ function normalizeBridgeUrl(value) {
 
 function settingsPageUrl() {
   if (usingPgjs()) {
-    return activePgjs().settingsPageUrl(PGJS_SETTINGS_PAGE_URL);
+    return activePgjs().settingsPageUrl(TELEGRAM_SETTINGS_PAGE_URL);
   }
   return SETTINGS_PAGE_URL +
     '?mode=helper' +
@@ -98,6 +99,7 @@ function configureForPlatform() {
     MAX_MESSAGE_TEXT = 520;
     IMAGE_SIZE = 156;
     IMAGE_WIDTH = 170;
+    IMAGE_MAX_BYTES = 20000;
     IMAGE_CHUNK_SIZE = 500;
   } else if (info && info.platform === 'gabbro') {
     INITIAL_MESSAGE_ROWS = 12;
@@ -106,14 +108,17 @@ function configureForPlatform() {
     MAX_MESSAGE_TEXT = 520;
     IMAGE_SIZE = 118;
     IMAGE_WIDTH = 128;
+    IMAGE_MAX_BYTES = 20000;
     IMAGE_CHUNK_SIZE = 500;
   } else if (info && info.platform === 'diorite') {
     IMAGE_SIZE = 96;
     IMAGE_WIDTH = 102;
     IMAGE_COLORS = 4;
+    IMAGE_MAX_BYTES = 6000;
   } else if (info && info.platform === 'basalt') {
     IMAGE_SIZE = 120;
     IMAGE_WIDTH = 130;
+    IMAGE_MAX_BYTES = 10000;
   }
 }
 
@@ -360,16 +365,16 @@ function prefetchTopChats(chats) {
 
 function getChats() {
   if (usingPgjs()) {
-    status('Loading');
+    status('Loading...');
     activePgjs().chats(MAX_ROWS).then(function(chats) {
       sendChatRows(chats || []);
       done('chats_done', Math.min((chats || []).length, MAX_ROWS));
     }).catch(function(err) {
-      promiseError('PGJS chats failed', err);
+      promiseError('Chats failed', err);
     });
     return;
   }
-  status('Loading');
+  status('Loading...');
   xhrJson('GET', bridgeUrl() + '/v1/chats?limit=' + MAX_ROWS, null, function(err, data) {
     if (err) {
       console.log('Bridge unavailable: ' + err.message);
@@ -394,7 +399,7 @@ function getMessages(chatId) {
       sendMessageRows(messages || []);
       done('messages_done', Math.min((messages || []).length, INITIAL_MESSAGE_ROWS));
     }).catch(function(err) {
-      promiseError('PGJS messages failed', err);
+      promiseError('Messages failed', err);
     });
     return;
   }
@@ -436,7 +441,7 @@ function getOlderMessages(chatId, beforeId) {
       sendMessageRows(messageStore[chatId]);
       done('messages_done', Math.min(messageStore[chatId].length, MAX_MESSAGE_ROWS));
     }).catch(function(err) {
-      promiseError('PGJS older failed', err);
+      promiseError('Older failed', err);
     });
     return;
   }
@@ -472,7 +477,7 @@ function sendMessage(chatId, text, replyTo) {
       payload[MessageKeys.Type] = 'sent';
       sendToWatch(payload);
     }).catch(function(err) {
-      promiseError('PGJS send failed', err);
+      promiseError('Send failed', err);
     });
     return;
   }
@@ -497,7 +502,7 @@ function deleteMessage(chatId, messageId) {
       payload[MessageKeys.Type] = 'deleted';
       sendToWatch(payload);
     }).catch(function(err) {
-      promiseError('PGJS delete failed', err);
+      promiseError('Delete failed', err);
     });
     return;
   }
@@ -516,10 +521,10 @@ function deleteMessage(chatId, messageId) {
 
 function sendImage(chatId, messageId) {
   if (usingPgjs()) {
-    activePgjs().imageBytes(chatId, messageId).then(function(bytes) {
+    activePgjs().imageBytes(chatId, messageId, IMAGE_WIDTH, IMAGE_SIZE, IMAGE_COLORS, IMAGE_MAX_BYTES).then(function(bytes) {
       sendImageBytes(messageId, bytes);
     }).catch(function(err) {
-      console.log('PGJS image failed: ' + (err && err.message ? err.message : err));
+      console.log('Image failed: ' + (err && err.message ? err.message : err));
       var failed = {};
       failed[MessageKeys.Type] = 'image_error';
       failed[MessageKeys.MessageId] = String(messageId || '');
@@ -639,7 +644,8 @@ Pebble.addEventListener('webviewclosed', function(event) {
       status('Telegram connected');
       getChats();
     }).catch(function(err) {
-      promiseError('PGJS auth failed', err);
+      console.log('Auth failed: ' + (err && err.message ? err.message : String(err || 'unknown error')));
+      error(err && err.message ? err.message : 'Auth failed');
     });
     return;
   }

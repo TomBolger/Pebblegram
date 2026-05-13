@@ -18,7 +18,7 @@
 #define BW_UI PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 0, 0, 0, 1, 0, 0, 0)
 #define ROUND_UI PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 0, 0, 0, 0, 0, 0, 1)
 #define STATUS_H PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 24, 24, 24, 24, 24, 24, 22)
-#define MAX_CANNED 5
+#define MAX_CANNED 10
 #define CANNED_TEXT_LEN 40
 #define PG_MIN(a, b) ((a) < (b) ? (a) : (b))
 #define PG_MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -115,7 +115,12 @@ static char s_canned[MAX_CANNED][CANNED_TEXT_LEN] = {
   "No",
   "On my way",
   "Call you later",
-  "Thanks"
+  "Thanks",
+  "",
+  "",
+  "",
+  "",
+  ""
 };
 static char s_pending_text[MAX_TEXT];
 static char s_current_chat_id[MAX_ID];
@@ -134,6 +139,7 @@ static int s_chat_scroll_step;
 static int s_chat_content_height;
 static ViewState s_view_state;
 static bool s_bridge_ready;
+static bool s_chats_loading;
 static bool s_chat_view_pending;
 static bool s_loading_older_messages;
 static bool s_older_move_to_previous;
@@ -184,6 +190,9 @@ static void update_canned_replies(const char *packed) {
 
   char buffer[MAX_CANNED * CANNED_TEXT_LEN];
   copy_cstr(buffer, sizeof(buffer), packed);
+  for (int i = 0; i < MAX_CANNED; i++) {
+    s_canned[i][0] = '\0';
+  }
 
   char *cursor = buffer;
   for (int i = 0; i < MAX_CANNED; i++) {
@@ -199,6 +208,16 @@ static void update_canned_replies(const char *packed) {
     }
     cursor = separator + 1;
   }
+}
+
+static int canned_reply_count(void) {
+  int count = 0;
+  for (int i = 0; i < MAX_CANNED; i++) {
+    if (s_canned[i][0]) {
+      count++;
+    }
+  }
+  return PG_MAX(1, count);
 }
 
 // Pebble's string helpers do not consistently protect callers from NULL input.
@@ -539,8 +558,31 @@ static bool send_command(const char *command, const char *chat_id, const char *t
 
 static void show_status(const char *message) {
   if (s_status_layer) {
-    copy_cstr(s_status_text, sizeof(s_status_text), message);
+    copy_cstr(s_status_text, sizeof(s_status_text), s_chats_loading ? "Pebblegram" : message);
     text_layer_set_text(s_status_layer, s_status_text);
+    text_layer_set_text_color(s_status_layer, GColorWhite);
+    text_layer_set_background_color(s_status_layer, APP_COLOR);
+  }
+}
+
+static int progress_percent(int current, int total) {
+  if (total <= 0) {
+    return current > 0 ? 100 : 0;
+  }
+  return PG_MAX(0, PG_MIN(100, (current * 100) / total));
+}
+
+static void draw_loading_bar(GContext *ctx, GRect rect, int percent) {
+  percent = PG_MAX(0, PG_MIN(100, percent));
+  graphics_context_set_stroke_color(ctx, GColorBlack);
+  graphics_draw_round_rect(ctx, rect, 2);
+  if (percent > 0) {
+    int pad = 3;
+    int fill_w = ((rect.size.w - (pad * 2)) * percent) / 100;
+    GRect fill = GRect(rect.origin.x + pad, rect.origin.y + pad,
+                      PG_MAX(1, fill_w), rect.size.h - (pad * 2));
+    graphics_context_set_fill_color(ctx, APP_COLOR);
+    graphics_fill_rect(ctx, fill, 1, GCornersAll);
   }
 }
 
@@ -549,6 +591,9 @@ static uint16_t chat_menu_get_num_sections_callback(MenuLayer *menu_layer, void 
 }
 
 static uint16_t chat_menu_get_num_rows_callback(MenuLayer *menu_layer, uint16_t section_index, void *data) {
+  if (s_chats_loading) {
+    return 1;
+  }
   return s_chat_count > 0 ? s_chat_count : 1;
 }
 
@@ -563,6 +608,22 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
 
   graphics_context_set_fill_color(ctx, CHAT_BG);
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+  if (s_chats_loading) {
+    int percent = progress_percent(s_chat_count, s_expected_rows);
+    char progress_text[24];
+    snprintf(progress_text, sizeof(progress_text), "%d%%", percent);
+    graphics_context_set_text_color(ctx, GColorBlack);
+    graphics_draw_text(ctx, "Loading...", fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
+                       GRect(safe.origin.x, (bounds.size.h / 2) - 48, safe.size.w, 32),
+                       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+    int bar_w = PG_MIN(safe.size.w - 24, 112);
+    GRect bar = GRect(safe.origin.x + ((safe.size.w - bar_w) / 2), (bounds.size.h / 2) - 8, bar_w, 14);
+    draw_loading_bar(ctx, bar, percent);
+    graphics_draw_text(ctx, progress_text, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                       GRect(safe.origin.x, bar.origin.y + 16, safe.size.w, 24),
+                       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+    return;
+  }
   if (selected) {
     graphics_context_set_fill_color(ctx, APP_COLOR_LIGHT);
     graphics_fill_rect(ctx, GRect(safe.origin.x - 4, 1, safe.size.w + 8, bounds.size.h - 3),
@@ -574,7 +635,7 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
 
   graphics_context_set_text_color(ctx, selected ? GColorWhite : GColorBlack);
   if (s_chat_count == 0) {
-    graphics_draw_text(ctx, s_bridge_ready ? "No chats yet" : "Loading",
+    graphics_draw_text(ctx, s_bridge_ready ? "No chats yet" : "Loading...",
                        fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
                        GRect(safe.origin.x, (bounds.size.h - 40) / 2, safe.size.w, 40), GTextOverflowModeTrailingEllipsis,
                        GTextAlignmentCenter, NULL);
@@ -592,7 +653,7 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
 }
 
 static int16_t chat_menu_get_cell_height_callback(struct MenuLayer *menu_layer, MenuIndex *cell_index, void *data) {
-  if (s_chat_count == 0) {
+  if (s_chats_loading || s_chat_count == 0) {
     Layer *layer = menu_layer_get_layer(menu_layer);
     return layer_get_bounds(layer).size.h;
   }
@@ -600,6 +661,9 @@ static int16_t chat_menu_get_cell_height_callback(struct MenuLayer *menu_layer, 
 }
 
 static void chat_menu_select_callback(struct MenuLayer *menu_layer, MenuIndex *cell_index, void *data) {
+  if (s_chats_loading) {
+    return;
+  }
   if (s_chat_count == 0) {
     request_chats();
     return;
@@ -877,15 +941,26 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
                                 PG_MIN(image_rect.size.h, bitmap_bounds.size.h));
         graphics_draw_bitmap_in_rect(ctx, message->image_bitmap, draw_rect);
       } else {
+        int image_percent = 0;
+        bool is_active_image = strcmp(message->image_token, s_image_message_id) == 0;
+        if (message->image_requested && is_active_image) {
+          image_percent = progress_percent(s_image_received, s_image_size);
+        }
         const char *label = message->image_failed ? "Photo failed" :
-                            (message->image_requested ? "Loading photo" : "Photo");
+                            (message->image_requested ? "Loading Image..." : "Photo");
         graphics_context_set_stroke_color(ctx, BW_UI ? GColorBlack : GColorLightGray);
         graphics_draw_round_rect(ctx, image_rect, 4);
-        graphics_context_set_text_color(ctx, GColorDarkGray);
+        graphics_context_set_text_color(ctx, GColorBlack);
         graphics_draw_text(ctx, label, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
-                           GRect(image_rect.origin.x + 4, image_rect.origin.y + 20,
+                           GRect(image_rect.origin.x + 4, image_rect.origin.y + 18,
                                  image_rect.size.w - 8, 30),
                            GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+        if (message->image_requested) {
+          int bar_w = PG_MIN(image_rect.size.w - 20, 112);
+          GRect bar = GRect(image_rect.origin.x + ((image_rect.size.w - bar_w) / 2),
+                            image_rect.origin.y + 52, bar_w, 10);
+          draw_loading_bar(ctx, bar, image_percent);
+        }
       }
     }
   }
@@ -971,7 +1046,8 @@ static void request_chats(void) {
   s_chat_count = 0;
   s_expected_rows = 0;
   s_bridge_ready = false;
-  show_status("Loading");
+  s_chats_loading = true;
+  show_status("Pebblegram");
   if (s_chat_menu) {
     menu_layer_reload_data(s_chat_menu);
   }
@@ -1191,6 +1267,12 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   if (strcmp(type, "status") == 0) {
     char *status = tuple_cstring(iter, MESSAGE_KEY_Status);
     if (status) {
+      if (strcmp(status, "Loading...") == 0 && s_view_state != ViewStateChat) {
+        s_chats_loading = true;
+        if (s_chat_menu) {
+          menu_layer_reload_data(s_chat_menu);
+        }
+      }
       if (strcmp(status, "Loading messages...") == 0) {
         cancel_message_retry();
       }
@@ -1211,6 +1293,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     show_status(error ? error : "Bridge error");
     if (s_view_state != ViewStateChat) {
       s_bridge_ready = false;
+      s_chats_loading = false;
       if (s_chat_menu) {
         menu_layer_reload_data(s_chat_menu);
       }
@@ -1227,6 +1310,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
       s_view_state = ViewStateChatList;
     }
     s_bridge_ready = true;
+    s_chats_loading = false;
     if (s_chat_count > count) {
       s_chat_count = count;
     }
@@ -1385,6 +1469,9 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     copy_cstr(s_image_message_id, sizeof(s_image_message_id), message_id);
     s_image_size = image_size;
     s_image_received = 0;
+    if (s_messages_root) {
+      layer_mark_dirty(s_messages_root);
+    }
     return;
   }
 
@@ -1398,6 +1485,9 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     }
     memcpy(s_image_buffer + offset, data->value->data, data->length);
     s_image_received = PG_MAX(s_image_received, offset + data->length);
+    if (s_messages_root) {
+      layer_mark_dirty(s_messages_root);
+    }
     return;
   }
 
@@ -1501,7 +1591,7 @@ static int action_item_count(void) {
       }
       return selected_message_is_truncated() ? 5 : 4;
     case ActionMenuCanned:
-      return MAX_CANNED;
+      return canned_reply_count();
     case ActionMenuConfirm:
       return 2;
     case ActionMenuFullText:
@@ -1555,7 +1645,7 @@ static const char *action_item_title(int index) {
     }
   }
   if (s_action_mode == ActionMenuCanned) {
-    return s_canned[index];
+    return s_canned[index][0] ? s_canned[index] : "Canned message";
   }
   return confirm_items[index];
 }
@@ -1905,6 +1995,7 @@ static void main_window_appear(Window *window) {
 static void init(void) {
   s_view_state = ViewStateLoading;
   s_selected_message = -1;
+  s_chats_loading = true;
   light_enable(false);
 
   app_message_register_inbox_received(inbox_received_callback);

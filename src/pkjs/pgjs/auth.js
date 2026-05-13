@@ -2,6 +2,11 @@ var cache = require('./cache');
 
 var clientPromise = null;
 var AUTH_TIMEOUT_MS = 30000;
+var CODE_TIMEOUT_MS = 90000;
+var AUTH_DC = {
+  id: 1,
+  host: 'pluto.web.telegram.org'
+};
 var statusHandler = function() {};
 
 function setStatusHandler(handler) {
@@ -9,7 +14,6 @@ function setStatusHandler(handler) {
 }
 
 function reportStatus(message) {
-  console.log('PGJS auth: ' + message);
   statusHandler(message);
 }
 
@@ -22,7 +26,7 @@ function loadGramJs() {
   if (bundled && bundled.TelegramClient && bundled.StringSession) {
     return bundled;
   }
-  throw new Error('PGJS GramJS bundle pending: add a PebbleKit-compatible GramJS bundle.');
+  throw new Error('Telegram engine is not available.');
 }
 
 function runtimeConfig(gram, creds) {
@@ -37,33 +41,64 @@ function runtimeConfig(gram, creds) {
 
 function missingCredentials(config, creds) {
   if (!config.apiId || !config.apiHash) {
-    return 'PGJS build missing Telegram API credentials.';
+    return 'Build missing Telegram API credentials.';
   }
   if (!creds.phone) {
-    return 'Open settings: enter your phone number.';
+    return 'Enter phone in settings.';
   }
   return '';
 }
 
-function timeout(promise, message) {
+function telegramErrorCode(err) {
+  var text = err && (err.errorMessage || err.message) ? (err.errorMessage || err.message) : String(err || '');
+  var match = text.match(/[A-Z][A-Z0-9_]+/g);
+  return match && match.length ? match[match.length - 1] : text;
+}
+
+function authErrorMessage(err) {
+  var code = telegramErrorCode(err);
+  if (code === 'PHONE_CODE_INVALID') {
+    return 'Bad code. Save phone again.';
+  }
+  if (code === 'PHONE_CODE_EXPIRED') {
+    return 'Code expired. Save phone.';
+  }
+  if (code === 'PHONE_CODE_EMPTY') {
+    return 'Enter Telegram code.';
+  }
+  if (code === 'PHONE_CODE_HASH_EMPTY' || code === 'PHONE_CODE_HASH_INVALID') {
+    return 'Code stale. Save phone.';
+  }
+  if (code === 'PHONE_NUMBER_INVALID') {
+    return 'Bad phone number.';
+  }
+  if (code.indexOf('FLOOD_WAIT') === 0) {
+    return 'Rate limited. Wait.';
+  }
+  return err && err.message ? err.message : String(err || 'Telegram auth failed.');
+}
+
+function shouldClearCodeRequest(err) {
+  var code = telegramErrorCode(err);
+  return code === 'PHONE_CODE_INVALID' ||
+         code === 'PHONE_CODE_EXPIRED' ||
+         code === 'PHONE_CODE_HASH_EMPTY' ||
+         code === 'PHONE_CODE_HASH_INVALID';
+}
+
+function timeout(promise, message, timeoutMs) {
   var timer = null;
-  var started = Date.now();
-  var heartbeat = null;
+  var duration = timeoutMs || AUTH_TIMEOUT_MS;
   var timeoutPromise = new Promise(function(resolve, reject) {
     timer = setTimeout(function() {
       reject(new Error(message));
-    }, AUTH_TIMEOUT_MS);
-    heartbeat = setInterval(function() {
-      reportStatus('PGJS waiting ' + Math.round((Date.now() - started) / 1000) + 's...');
-    }, 5000);
+    }, duration);
   });
   return Promise.race([promise, timeoutPromise]).then(function(value) {
     clearTimeout(timer);
-    clearInterval(heartbeat);
     return value;
   }, function(err) {
     clearTimeout(timer);
-    clearInterval(heartbeat);
     throw err;
   });
 }
@@ -84,20 +119,27 @@ function createClient(gram, config, sessionString) {
     testServers: config.testServers === true,
     deviceModel: 'Pebblegram',
     systemVersion: 'Pebble PKJS',
-    appVersion: 'PGJS',
+    appVersion: 'Pebblegram',
     langCode: 'en',
     systemLangCode: 'en'
   });
 }
 
+function pinAuthDc(client, config) {
+  if (client && client.session && typeof client.session.setDC === 'function') {
+    client.session.setDC(AUTH_DC.id, AUTH_DC.host, config.forceWSS === true ? 443 : 80);
+  }
+}
+
 function requestCode(gram, config, creds) {
   var client = createClient(gram, config, '');
+  pinAuthDc(client, config);
   return timeout(
     Promise.resolve().then(function() {
-      reportStatus('PGJS connecting...');
+      reportStatus('Connecting...');
       return client.connect();
     }).then(function() {
-      reportStatus('PGJS sending code...');
+      reportStatus('Sending code...');
       return client.invoke(new gram.Api.auth.SendCode({
         phoneNumber: creds.phone,
         apiId: config.apiId,
@@ -111,32 +153,38 @@ function requestCode(gram, config, creds) {
         }
         throw new Error('Telegram did not return a login code hash.');
       }
-      reportStatus('PGJS code requested.');
-      cache.setPhoneCodeHash(result.phoneCodeHash);
+      reportStatus('Code requested.');
+      cache.setPhoneCodeRequest(result.phoneCodeHash, client.session.save());
       cache.clearCode();
       return closeClient(client);
     }).then(function(value) {
-      throw new Error('Open settings: enter the Telegram login code.');
+      throw new Error('Enter Telegram code.');
     }, function(err) {
       return closeClient(client).then(function() {
         throw err;
       });
     }),
-    'Telegram code request timed out.'
+    'Telegram code request timed out.',
+    CODE_TIMEOUT_MS
   );
 }
 
 function signInWithCode(gram, config, creds) {
-  var client = createClient(gram, config, '');
+  var client = createClient(gram, config, creds.pendingSession || '');
+  pinAuthDc(client, config);
   return timeout(
     Promise.resolve().then(function() {
-      reportStatus('PGJS connecting...');
+      reportStatus('Connecting...');
       return client.connect();
     }).then(function() {
       if (!creds.phoneCodeHash) {
-        throw new Error('Open settings: save your phone number again to request a new code.');
+        throw new Error('Save phone for new code.');
       }
-      reportStatus('PGJS signing in...');
+      if (!creds.pendingSession) {
+        cache.clearCodeRequest();
+        throw new Error('Code stale. Save phone.');
+      }
+      reportStatus('Signing in...');
       return client.invoke(new gram.Api.auth.SignIn({
         phoneNumber: creds.phone,
         phoneCodeHash: creds.phoneCodeHash,
@@ -163,10 +211,13 @@ function signInWithCode(gram, config, creds) {
             return client;
           });
         }
-        cache.set('authStage', 'password');
-        throw new Error('Open settings: enter your Telegram cloud password.');
+        cache.clearCodeRequest();
+        throw new Error('Two-step verification is not supported yet.');
       }
-      throw err;
+      if (shouldClearCodeRequest(err)) {
+        cache.clearCodeRequest();
+      }
+      throw new Error(authErrorMessage(err));
     }),
     'Telegram sign-in timed out.'
   );
@@ -175,6 +226,8 @@ function signInWithCode(gram, config, creds) {
 function authState() {
   var creds = cache.credentials();
   return {
+    apiId: creds.apiId || '',
+    hasApiHash: !!creds.apiHash,
     phone: creds.phone || '',
     hasSession: !!creds.session,
     authStage: creds.authStage || ''
@@ -219,7 +272,7 @@ function getClient() {
 
     var client = createClient(gram, config, creds.session);
     timeout(Promise.resolve().then(function() {
-      reportStatus('PGJS connecting...');
+      reportStatus('Connecting...');
       return client.connect();
     }).then(function() {
       resolve(client);

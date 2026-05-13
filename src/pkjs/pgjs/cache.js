@@ -24,6 +24,7 @@ function clearSession() {
   localStorage.removeItem(PREFIX + 'code');
   localStorage.removeItem(PREFIX + 'password');
   localStorage.removeItem(PREFIX + 'phoneCodeHash');
+  localStorage.removeItem(PREFIX + 'pendingSession');
 }
 
 function credentials() {
@@ -34,12 +35,19 @@ function credentials() {
     code: get('code', ''),
     password: get('password', ''),
     phoneCodeHash: get('phoneCodeHash', ''),
+    pendingSession: get('pendingSession', ''),
     session: get('session', ''),
     authStage: get('authStage', '')
   };
 }
 
 function saveSettings(data) {
+  if (data.apiId !== undefined) {
+    set('apiId', String(data.apiId).trim());
+  }
+  if (data.apiHash !== undefined) {
+    set('apiHash', String(data.apiHash).trim());
+  }
   if (data.phone !== undefined) {
     if (get('phone', '') !== String(data.phone).trim()) {
       clearSession();
@@ -61,8 +69,16 @@ function clearCode() {
   localStorage.removeItem(PREFIX + 'code');
 }
 
-function setPhoneCodeHash(hash) {
+function clearCodeRequest() {
+  localStorage.removeItem(PREFIX + 'code');
+  localStorage.removeItem(PREFIX + 'phoneCodeHash');
+  localStorage.removeItem(PREFIX + 'pendingSession');
+  localStorage.removeItem(PREFIX + 'authStage');
+}
+
+function setPhoneCodeRequest(hash, pendingSession) {
   set('phoneCodeHash', hash);
+  set('pendingSession', pendingSession);
   set('authStage', 'code');
 }
 
@@ -71,6 +87,8 @@ function setSession(session) {
   set('authStage', 'complete');
   localStorage.removeItem(PREFIX + 'code');
   localStorage.removeItem(PREFIX + 'password');
+  localStorage.removeItem(PREFIX + 'phoneCodeHash');
+  localStorage.removeItem(PREFIX + 'pendingSession');
 }
 
 module.exports = {
@@ -80,6 +98,7 @@ module.exports = {
   saveSettings: saveSettings,
   setSession: setSession,
   clearCode: clearCode,
-  setPhoneCodeHash: setPhoneCodeHash,
+  clearCodeRequest: clearCodeRequest,
+  setPhoneCodeRequest: setPhoneCodeRequest,
   clearSession: clearSession
 };

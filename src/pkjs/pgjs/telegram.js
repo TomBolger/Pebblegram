@@ -35,7 +35,7 @@ function messageText(message) {
 }
 
 function hasPhoto(message) {
-  return !!(message && (message.photo || message.media));
+  return !!(message && message.photo);
 }
 
 function senderName(message) {
@@ -63,7 +63,10 @@ function normalizeMessage(message) {
 
 function chats(limit) {
   return auth.getClient().then(function(client) {
-    return client.getDialogs({limit: limit}).then(function(dialogs) {
+    return client.getDialogs({limit: limit * 3, folder: 0}).then(function(dialogs) {
+      dialogs = dialogs.filter(function(dialog) {
+        return dialog.folderId !== 1;
+      }).slice(0, limit);
       return dialogs.map(function(dialog) {
         var entity = dialog.entity || {};
         var preview = dialog.message ? messageText(dialog.message) : '';
@@ -116,7 +119,12 @@ function downloadMedia(chatId, messageId) {
       if (!message || !hasPhoto(message)) {
         throw new Error('message has no photo');
       }
-      return client.downloadMedia(message, {workers: 1});
+      return client.downloadMedia(message, {}).then(function(bytes) {
+        if (bytes && bytes.length) {
+          return bytes;
+        }
+        return client.downloadMedia(message.media, {});
+      });
     });
   });
 }
