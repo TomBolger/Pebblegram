@@ -6,7 +6,7 @@ var MAX_ROWS = 20;
 var INITIAL_MESSAGE_ROWS = 8;
 var OLDER_MESSAGE_ROWS = 6;
 var MAX_MESSAGE_ROWS = 10;
-var MAX_MESSAGE_TEXT = 300;
+var MAX_MESSAGE_TEXT = 340;
 var IMAGE_SIZE = 120;
 var IMAGE_WIDTH = 130;
 var IMAGE_COLORS = 64;
@@ -68,7 +68,7 @@ function configureForPlatform() {
     INITIAL_MESSAGE_ROWS = 12;
     OLDER_MESSAGE_ROWS = 8;
     MAX_MESSAGE_ROWS = 24;
-    MAX_MESSAGE_TEXT = 520;
+    MAX_MESSAGE_TEXT = 536;
     IMAGE_SIZE = 156;
     IMAGE_WIDTH = 170;
     IMAGE_MAX_BYTES = 20000;
@@ -77,7 +77,7 @@ function configureForPlatform() {
     INITIAL_MESSAGE_ROWS = 12;
     OLDER_MESSAGE_ROWS = 8;
     MAX_MESSAGE_ROWS = 24;
-    MAX_MESSAGE_TEXT = 520;
+    MAX_MESSAGE_TEXT = 536;
     IMAGE_SIZE = 118;
     IMAGE_WIDTH = 128;
     IMAGE_MAX_BYTES = 20000;
@@ -262,6 +262,65 @@ function rememberMessages(chatId, messages) {
   messageStore[chatId] = messages.slice(Math.max(0, messages.length - MAX_MESSAGE_ROWS));
 }
 
+function mergeMessages(existing, incoming, allowAppend, trimNewest) {
+  var byId = {};
+  var merged = [];
+  var changed = false;
+
+  existing.forEach(function(message) {
+    byId[message.id] = message;
+    merged.push(message);
+  });
+
+  incoming.forEach(function(message) {
+    var previous = byId[message.id];
+    if (previous) {
+      if (messageSignature([previous]) !== messageSignature([message])) {
+        for (var i = 0; i < merged.length; i += 1) {
+          if (merged[i].id === message.id) {
+            merged[i] = message;
+            changed = true;
+            break;
+          }
+        }
+      }
+      return;
+    }
+    if (!allowAppend) {
+      return;
+    }
+    byId[message.id] = message;
+    merged.push(message);
+    changed = true;
+  });
+
+  if (trimNewest && merged.length > MAX_MESSAGE_ROWS) {
+    merged = merged.slice(merged.length - MAX_MESSAGE_ROWS);
+    changed = true;
+  }
+
+  return {
+    messages: merged,
+    changed: changed
+  };
+}
+
+function storedWindowTouchesNewestTail(existing, latest) {
+  if (!existing || existing.length === 0) {
+    return true;
+  }
+  if (!latest || latest.length === 0) {
+    return false;
+  }
+  var newestKnownId = existing[existing.length - 1].id;
+  for (var i = 0; i < latest.length; i += 1) {
+    if (latest[i].id === newestKnownId) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function sendStoredMessages(chatId) {
   var messages = messageStore[chatId];
   if (!messages || messages.length === 0) {
@@ -361,10 +420,19 @@ function refreshOpenChat() {
       return;
     }
     currentChatSignature = signature;
-    rememberMessages(chatId, messages || []);
-    markRead(chatId);
-    sendMessageRows(messages);
-    done('messages_done', Math.min(messages.length, INITIAL_MESSAGE_ROWS));
+    var existing = messageStore[chatId] || [];
+    var attachedToNewest = storedWindowTouchesNewestTail(existing, messages);
+    var merged = mergeMessages(existing, messages, attachedToNewest, attachedToNewest);
+    if (attachedToNewest) {
+      messageStore[chatId] = merged.messages;
+      markRead(chatId);
+      sendMessageRows(messageStore[chatId]);
+      done('messages_done', Math.min(messageStore[chatId].length, MAX_MESSAGE_ROWS));
+    } else if (merged.changed) {
+      messageStore[chatId] = merged.messages;
+      sendMessageRows(messageStore[chatId]);
+      done('messages_done', Math.min(messageStore[chatId].length, MAX_MESSAGE_ROWS));
+    }
     scheduleOpenChatRefresh();
   }).catch(function(err) {
     console.log('Open chat refresh failed for ' + chatId + ': ' + (err && err.message ? err.message : err));

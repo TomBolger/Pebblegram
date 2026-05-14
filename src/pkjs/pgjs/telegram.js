@@ -109,6 +109,20 @@ function hasDocumentAttribute(document, name) {
   return null;
 }
 
+function documentDimensions(message) {
+  var document = messageDocument(message);
+  var attrs = documentAttributes(document);
+  for (var i = 0; i < attrs.length; i += 1) {
+    var attr = attrs[i];
+    var width = attr && (attr.w || attr.width);
+    var height = attr && (attr.h || attr.height);
+    if (width && height) {
+      return {width: width, height: height};
+    }
+  }
+  return null;
+}
+
 function isGif(message) {
   var document = messageDocument(message);
   var file = message && message.file;
@@ -236,13 +250,14 @@ function senderName(message) {
 }
 
 function normalizeMessage(message) {
-  var imageDimensions = photoDimensions(message);
+  var gif = isGif(message);
+  var imageDimensions = photoDimensions(message) || (gif ? documentDimensions(message) : null);
   return {
     id: String(message.id),
     sender: senderName(message),
     text: displayChatMessageText(message),
     outgoing: !!message.out,
-    image_token: hasPhoto(message) ? String(message.id) : null,
+    image_token: (hasPhoto(message) || gif) ? String(message.id) : null,
     image_width: imageDimensions ? imageDimensions.width : 0,
     image_height: imageDimensions ? imageDimensions.height : 0
   };
@@ -372,8 +387,8 @@ function downloadMedia(chatId, messageId) {
     return client.getMessages(chatId, {ids: [parseInt(messageId, 10) || messageId]}).then(function(rows) {
       var message = rows && rows[0];
       var photo = messagePhoto(message);
-      if (!message || !hasPhoto(message)) {
-        throw new Error('message has no photo');
+      if (!message || (!hasPhoto(message) && !isGif(message))) {
+        throw new Error('message has no previewable media');
       }
       return client.downloadMedia(message, {}).then(function(bytes) {
         if (bytes && bytes.length) {

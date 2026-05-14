@@ -29,6 +29,8 @@ do not all destabilize the watch message model at once.
   to bottom, refreshes, or otherwise requests the newest view.
 - Reaction-only, edit-only, and media-status updates should update existing rows
   by message id without resetting image loading or scrolling.
+- Increase maximum displayed message length by a few lines now that hold-to-scroll
+  is fast enough to navigate longer bubbles comfortably.
 - Include only low-effort polish that does not add new persistent state, expand
   the message protocol significantly, or increase watch memory pressure.
 

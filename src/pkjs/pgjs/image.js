@@ -5,7 +5,7 @@ var imageCacheOrder = [];
 var MAX_IMAGE_CACHE_ITEMS = 8;
 var MAX_PERSISTENT_IMAGE_CACHE_ITEMS = 4;
 var PERSISTENT_IMAGE_CACHE_ORDER_KEY = 'pgjs.imageCacheOrder';
-var IMAGE_CACHE_VERSION = 'v10';
+var IMAGE_CACHE_VERSION = 'v11';
 
 function toUint8Array(value) {
   if (!value) {
