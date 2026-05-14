@@ -88,6 +88,10 @@ function encodePng(source, width, height, colors) {
   return new Uint8Array(codecs.UPNG.encode([arrayBufferFromBytes(resized)], width, height, colors));
 }
 
+function logDuration(label, startedAt) {
+  console.log(label + ' took ' + (Date.now() - startedAt) + 'ms');
+}
+
 function compactPng(source, width, height, colors, maxBytes) {
   var colorSteps = [colors, 32, 16, 8, 4, 2];
   var scaleSteps = [1, 0.9, 0.8, 0.7, 0.6];
@@ -142,9 +146,13 @@ function imageBytes(chatId, messageId, width, height, colors, maxBytes) {
   maxBytes = maxBytes || 10000;
   key = cacheKey(chatId, messageId, width, height, colors, maxBytes);
   if (imageCache[key]) {
+    console.log('image cache hit ' + messageId);
     return Promise.resolve(imageCache[key]);
   }
+  var downloadStartedAt = Date.now();
   return telegram.downloadMedia(chatId, messageId).then(function(raw) {
+    logDuration('image download ' + messageId, downloadStartedAt);
+    var encodeStartedAt = Date.now();
     var bytes = toUint8Array(raw);
     var source;
     var encoded;
@@ -153,6 +161,7 @@ function imageBytes(chatId, messageId, width, height, colors, maxBytes) {
     }
     source = rgbaBuffer(bytes);
     encoded = compactPng(source, width, height, colors, maxBytes);
+    logDuration('image encode ' + messageId, encodeStartedAt);
     cacheSet(key, encoded);
     return encoded;
   });

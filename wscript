@@ -4,6 +4,7 @@
 # Feel free to customize this to your needs.
 #
 import os.path
+from waflib.TaskGen import after_method, before_method, feature
 
 top = '.'
 out = 'build'
@@ -21,6 +22,14 @@ def configure(ctx):
     Universal configuration: add your change prior to calling ctx.load('pebble_sdk').
     """
     ctx.load('pebble_sdk')
+
+
+@feature('js')
+@after_method('process_js')
+@before_method('make_pbl_bundle')
+def omit_js_source_maps_from_app_bundle(task_gen):
+    task_gen.js = [node for node in getattr(task_gen, 'js', [])
+                   if not node.name.endswith('.js.map')]
 
 
 def build(ctx):

@@ -583,6 +583,22 @@ static int progress_percent(int current, int total) {
   return PG_MAX(0, PG_MIN(100, (current * 100) / total));
 }
 
+static int chat_loading_percent(void) {
+  if (s_expected_rows > 0) {
+    return 20 + ((PG_MAX(0, PG_MIN(s_chat_count, s_expected_rows)) * 80) / s_expected_rows);
+  }
+  if (strcmp(s_loading_text, "Connecting...") == 0) {
+    return 10;
+  }
+  if (strcmp(s_loading_text, "Fetching chats...") == 0) {
+    return 20;
+  }
+  if (strcmp(s_loading_text, "Sending chats...") == 0) {
+    return 25;
+  }
+  return 5;
+}
+
 static void draw_loading_bar(GContext *ctx, GRect rect, int percent) {
   percent = PG_MAX(0, PG_MIN(100, percent));
   graphics_context_set_stroke_color(ctx, GColorBlack);
@@ -620,11 +636,8 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
   graphics_context_set_fill_color(ctx, CHAT_BG);
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
   if (s_chats_loading) {
-    int percent = progress_percent(s_chat_count, s_expected_rows);
-    char progress_text[24];
-    snprintf(progress_text, sizeof(progress_text), "%d%%", percent);
     graphics_context_set_text_color(ctx, GColorBlack);
-    graphics_draw_text(ctx, s_loading_error ? "Login needs attention" : s_loading_text,
+    graphics_draw_text(ctx, s_loading_error ? "Login needs attention" : "Loading...",
                        fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
                        GRect(safe.origin.x, (bounds.size.h / 2) - 48, safe.size.w, 32),
                        s_loading_error ? GTextOverflowModeWordWrap : GTextOverflowModeTrailingEllipsis,
@@ -634,11 +647,12 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
                          GRect(safe.origin.x + 4, (bounds.size.h / 2) - 6, safe.size.w - 8, 72),
                          GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
     } else {
+      int percent = chat_loading_percent();
       int bar_w = PG_MIN(safe.size.w - 24, 112);
       GRect bar = GRect(safe.origin.x + ((safe.size.w - bar_w) / 2), (bounds.size.h / 2) - 8, bar_w, 14);
       draw_loading_bar(ctx, bar, percent);
-      graphics_draw_text(ctx, progress_text, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
-                         GRect(safe.origin.x, bar.origin.y + 16, safe.size.w, 24),
+      graphics_draw_text(ctx, s_loading_text, fonts_get_system_font(FONT_KEY_GOTHIC_18),
+                         GRect(safe.origin.x, bar.origin.y + 15, safe.size.w, 22),
                          GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
     }
     return;
@@ -1289,12 +1303,9 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   if (strcmp(type, "status") == 0) {
     char *status = tuple_cstring(iter, MESSAGE_KEY_Status);
     if (status) {
-      if (strcmp(status, "Loading...") == 0 && s_view_state != ViewStateChat) {
+      if (s_chats_loading && s_view_state != ViewStateChat) {
         s_chats_loading = true;
-        show_loading_text("Loading...", false);
-        if (s_chat_menu) {
-          menu_layer_reload_data(s_chat_menu);
-        }
+        show_loading_text(status, false);
       }
       if (strcmp(status, "Loading messages...") == 0) {
         cancel_message_retry();

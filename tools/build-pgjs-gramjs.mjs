@@ -23,6 +23,9 @@ await build({
   format: "cjs",
   target: "es2015",
   outfile: "src/pkjs/pgjs/gramjs.bundle.js",
+  minify: true,
+  sourcemap: false,
+  legalComments: "none",
   logLevel: "info",
   define: {
     __PGJS_BUILTIN_CONFIG__: JSON.stringify(runtimeConfig)

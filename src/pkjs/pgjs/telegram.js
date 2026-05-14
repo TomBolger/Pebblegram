@@ -63,10 +63,7 @@ function normalizeMessage(message) {
 
 function chats(limit) {
   return auth.getClient().then(function(client) {
-    return client.getDialogs({limit: limit * 3, folder: 0}).then(function(dialogs) {
-      dialogs = dialogs.filter(function(dialog) {
-        return dialog.folderId !== 1;
-      }).slice(0, limit);
+    return client.getDialogs({limit: limit, folder: 0}).then(function(dialogs) {
       return dialogs.map(function(dialog) {
         var entity = dialog.entity || {};
         var preview = dialog.message ? messageText(dialog.message) : '';
