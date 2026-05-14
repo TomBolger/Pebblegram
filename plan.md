@@ -1,73 +1,88 @@
-# Pebblegram 2.2 Release Plan
+# Pebblegram Roadmap Plan
 
 ## Summary
 
-Focus 2.2 on image quality, image loading stability, aspect-ratio-aware photo
-layout, GIF support, and release validation. Completed 2.1 trimming and earlier
-polish work are no longer active plan items.
+Current `main` is the stable 2.2 release line. New product work should happen on
+experimental branches and merge back only after device testing. The next releases
+are intentionally staged so media loading, reactions, quotes, and notifications
+do not all destabilize the watch message model at once.
 
-## 2.2 Image Pipeline
+## 2.3: GIF Preview Support, Live Updates, And Low-Effort Polish
 
-- Move image quality work to the PGJS phone-side image processing path, not watch
-  rendering.
-- Preserve available platform colors unless testing proves a lower palette looks
-  better; color reduction should not be the main quality strategy.
-- Improve tone mapping before PNG quantization to reduce crushed blacks and harsh
-  gradient banding.
-- Prefer contain-fit photo resizing over crop-fit for chat photos.
-- Keep avatar processing as square cover-cropped circles.
-- Bump `IMAGE_CACHE_VERSION` whenever tone mapping, sizing, palette, or aspect
-  behavior changes.
+- Target GIF preview support as the primary 2.3 feature.
+- Keep `[GIF]` in chat snippets and chat view until a preview image successfully
+  loads.
+- Load GIF previews through an isolated media-preview path that cannot leave
+  regular photo loading blocked after success, failure, retry, or cancellation.
+- Reuse the proven single-active-image transfer discipline from the 2.2 photo
+  loader; do not introduce parallel image transfers for GIFs.
+- Prefer a first-frame or Telegram-provided still preview at the same byte and
+  heap limits as photos. If quality or stability is poor, keep GIFs text-only for
+  2.3 rather than risking image-loader regressions.
+- Add live incoming message handling as the other core 2.3 feature.
+- Incoming messages should update the active chat without moving the selected
+  message or viewport when the user is reading older or middle messages.
+- If the user is at the compose/bottom position, new incoming messages may append
+  and keep the view pinned to the bottom.
+- If the user is browsing above the newest loaded window, preserve the current
+  message id and scroll offset; surface new messages only when the user returns
+  to bottom, refreshes, or otherwise requests the newest view.
+- Reaction-only, edit-only, and media-status updates should update existing rows
+  by message id without resetting image loading or scrolling.
+- Include only low-effort polish that does not add new persistent state, expand
+  the message protocol significantly, or increase watch memory pressure.
 
-## 2.2 Image Loading Stability
+## 2.4: View Reactions
 
-- Ensure each image request reaches a terminal state: loaded, failed, or retry
-  scheduled.
-- Prevent stale active transfers from blocking the visible photo while scrolling.
-- Preserve visible-photo priority over offscreen active transfers.
-- Validate Basalt with a reduced image target because failures are likely
-  heap-related.
+- Normalize Telegram `MessageReactions` into compact display text, limited to the
+  top two or three emoji/count pairs.
+- Add a small reaction summary field to the message payload and watch `Message`
+  model.
+- Draw reactions as a compact one-line footer in message bubbles.
+- Update message signatures so reaction-only changes can refresh visible rows.
+- Do not add reaction submission in 2.4.
 
-## 2.2 Aspect-Ratio Photo Layout
+## 2.5: Send Reactions
 
-- Add image width/height metadata to message payloads.
-- Store image dimensions in the watch `Message` model.
-- Size photo placeholders and loaded images dynamically from the source aspect
-  ratio, constrained by each platform's max image frame.
-- Draw photos centered with no cropping.
-- Expected effort: medium-high because this touches AppMessage keys, PGJS
-  normalization, image encoding, watch layout, scrolling math, and placeholders.
+- Add a selected-message `React` action.
+- Add a fixed emoji picker for common reactions: thumbs up, heart, laughing,
+  surprised, sad, and pray/thanks.
+- Send the selected reaction through a new PKJS command and Telegram/GramJS
+  reaction call.
+- Refresh the affected message or visible message window after submission.
+- Handle unsupported reactions by showing a short watch status and leaving the
+  existing message state unchanged.
 
-## 2.2 GIF Support
+## 2.6: Quote Logic
 
-- Keep `[GIF]` labels in snippets and chat view.
-- Revisit one-frame GIF previews with a higher-quality source than the previous
-  Telegram thumbnail attempt.
-- GIF previews must not block or share fragile state with regular photo loading.
-- If preview quality or stability is not acceptable, keep GIFs text-only for 2.2.
+- Add reply/quote metadata to Telegram normalization and AppMessage payloads.
+- Draw a one-line quote snippet above the message body.
+- Add `View Full Quote` to the selected-message action menu.
+- Add `Go To Quote` with older-history lookup and stable viewport anchoring.
+- Reuse the message metadata, action-menu, and layout plumbing created for
+  reaction display where practical.
 
-## 2.2 Release Validation
+## 2.7: Notifications
 
-- Test photo loading on Emery, Gabbro, Basalt, and Diorite.
-- Test many consecutive photos, YouTube/link previews, mixed media messages, and
-  older-message scrolling.
-- Confirm photos do not get stuck forever on `Photo`, `Loading Image...`, or
-  repeated retry states.
-- Compare Emery/Gabbro gradient quality against the helper-service baseline.
-- Build all targets and confirm PBW size remains acceptable.
+- Do not attempt to suppress stock Telegram notifications from Pebblegram. Users
+  can disable or filter those through the Pebble phone app notification settings.
+- Research whether Pebblegram PKJS can reliably observe Telegram updates while
+  the watch app is not foregrounded.
+- If background observation is reliable, generate Pebblegram-owned notifications
+  for new messages and store the target chat id so launching Pebblegram opens the
+  relevant chat.
+- If background observation is unreliable, document the limitation and keep
+  notifications out of the release rather than shipping inconsistent behavior.
 
-## Earmarked for v3.0
+## Shared Implementation Notes
 
-- Reply quotes remain v3.0 scope because the AppMessage protocol and watch
-  `Message` struct do not yet carry quote fields.
-- `View Full Quote` stays with the v3.0 quote work.
-- `Go To Quote` stays v3.0 because fetching older history until the quoted
-  message is found needs careful scroll-position handling.
-- Notification suppression remains v3.0 research because Pebblegram likely
-  cannot suppress notifications generated by the separate Telegram phone app.
-
-## Assumptions
-
-- The "backend" for image processing means the PGJS phone-side pipeline, not a
-  return to the old helper service.
-- 2.2 prioritizes release stability over adding large new product features.
+- Reactions and quotes both expand per-message metadata, AppMessage keys, bubble
+  layout, and selected-message actions. Keep each field compact because every
+  added byte is multiplied by the platform message row count.
+- GIF previews and photos must share one coherent transfer scheduler so stale
+  media transfers cannot block visible selected media.
+- Live updates must merge rows by Telegram message id. Avoid full-window
+  replacement except for explicit refreshes, opening a chat, and older-history
+  pagination.
+- Every release should build all targets and include device testing on
+  image-heavy chats before merging back to `main`.
