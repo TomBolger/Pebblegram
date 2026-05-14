@@ -41,7 +41,8 @@ function create(options) {
     deleteChat: telegram.deleteChat,
     muteChat: telegram.muteChat,
     markUnread: telegram.markUnread,
-    imageBytes: image.imageBytes
+    imageBytes: image.imageBytes,
+    avatarBytes: image.avatarBytes
   };
 }
 

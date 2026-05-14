@@ -12,6 +12,11 @@ var IMAGE_WIDTH = 130;
 var IMAGE_COLORS = 64;
 var IMAGE_MAX_BYTES = 10000;
 var IMAGE_CHUNK_SIZE = 500;
+var AVATAR_SIZE = 28;
+var AVATAR_COLORS = 16;
+var AVATAR_MAX_BYTES = 3000;
+var AVATAR_CHUNK_SIZE = 500;
+var AVATAR_ROWS = MAX_ROWS;
 var PREFETCH_CHAT_COUNT = 4;
 var sendQueue = [];
 var sending = false;
@@ -19,7 +24,14 @@ var messageStore = {};
 var prefetching = {};
 var pgjs = null;
 var currentChatId = null;
+var currentChatSignature = '';
 var refreshTimer = null;
+var avatarChats = [];
+var avatarIndex = 0;
+var avatarTimer = null;
+var imageTransferSeq = 0;
+var avatarTransferSeq = 0;
+var imageRequestSeq = 0;
 
 function getSetting(name, fallback) {
   var value = localStorage.getItem(name);
@@ -74,10 +86,14 @@ function configureForPlatform() {
     IMAGE_WIDTH = 102;
     IMAGE_COLORS = 4;
     IMAGE_MAX_BYTES = 6000;
+    AVATAR_SIZE = 24;
+    AVATAR_COLORS = 4;
+    AVATAR_MAX_BYTES = 2200;
   } else if (info && info.platform === 'basalt') {
-    IMAGE_SIZE = 120;
-    IMAGE_WIDTH = 130;
-    IMAGE_MAX_BYTES = 10000;
+    IMAGE_SIZE = 96;
+    IMAGE_WIDTH = 104;
+    IMAGE_COLORS = 16;
+    IMAGE_MAX_BYTES = 6500;
   }
 }
 
@@ -101,6 +117,25 @@ function timed(label, promise) {
 function sendToWatch(payload) {
   sendQueue.push({payload: payload, queuedAt: Date.now()});
   flushQueue();
+}
+
+function isAvatarTransferPayload(payload) {
+  var type = payload && payload[MessageKeys.Type];
+  return type === 'avatar_start' || type === 'avatar' || type === 'avatar_done';
+}
+
+function cancelQueuedImageTransfers() {
+  imageRequestSeq += 1;
+}
+
+function cancelQueuedAvatarTransfers() {
+  if (avatarTimer) {
+    clearTimeout(avatarTimer);
+    avatarTimer = null;
+  }
+  sendQueue = sendQueue.filter(function(entry, index) {
+    return index === 0 && sending ? true : !isAvatarTransferPayload(entry.payload);
+  });
 }
 
 function flushQueue() {
@@ -205,6 +240,10 @@ function sendMessageRows(messages) {
     payload[MessageKeys.IsOutgoing] = message.outgoing ? 1 : 0;
     if (message.image_token) {
       payload[MessageKeys.ImageToken] = String(message.image_token);
+      if (message.image_width && message.image_height) {
+        payload[MessageKeys.ImageWidth] = message.image_width;
+        payload[MessageKeys.ImageHeight] = message.image_height;
+      }
     }
     sendToWatch(payload);
   });
@@ -255,6 +294,7 @@ function getChats() {
     chats = chats || [];
     sendChatRows(chats);
     done('chats_done', Math.min(chats.length, MAX_ROWS));
+    queueChatAvatars(chats);
     prefetchTopChats(chats);
   }).catch(function(err) {
     promiseError('Chats failed', err);
@@ -263,6 +303,9 @@ function getChats() {
 
 function getMessages(chatId) {
   currentChatId = chatId;
+  currentChatSignature = '';
+  cancelQueuedAvatarTransfers();
+  cancelQueuedImageTransfers();
   scheduleOpenChatRefresh();
   if (sendStoredMessages(chatId)) {
     return;
@@ -270,6 +313,7 @@ function getMessages(chatId) {
   status('Loading messages...');
   timed('messages load ' + chatId, activePgjs().messages(chatId, INITIAL_MESSAGE_ROWS)).then(function(messages) {
     rememberMessages(chatId, messages || []);
+    currentChatSignature = messageSignature(messages || []);
     markRead(chatId);
     sendMessageRows(messages || []);
     done('messages_done', Math.min((messages || []).length, INITIAL_MESSAGE_ROWS));
@@ -292,13 +336,21 @@ function refreshOpenChat() {
     return;
   }
   activePgjs().messages(chatId, INITIAL_MESSAGE_ROWS).then(function(messages) {
+    var signature;
     if (currentChatId !== chatId) {
       return;
     }
+    messages = messages || [];
+    signature = messageSignature(messages);
+    if (signature === currentChatSignature) {
+      scheduleOpenChatRefresh();
+      return;
+    }
+    currentChatSignature = signature;
     rememberMessages(chatId, messages || []);
     markRead(chatId);
-    sendMessageRows(messages || []);
-    done('messages_done', Math.min((messages || []).length, INITIAL_MESSAGE_ROWS));
+    sendMessageRows(messages);
+    done('messages_done', Math.min(messages.length, INITIAL_MESSAGE_ROWS));
     scheduleOpenChatRefresh();
   }).catch(function(err) {
     console.log('Open chat refresh failed for ' + chatId + ': ' + (err && err.message ? err.message : err));
@@ -309,11 +361,20 @@ function refreshOpenChat() {
 function leaveChat(chatId) {
   if (!chatId || currentChatId === chatId) {
     currentChatId = null;
+    currentChatSignature = '';
+    cancelQueuedImageTransfers();
+    scheduleChatAvatars(300);
   }
   if (refreshTimer) {
     clearTimeout(refreshTimer);
     refreshTimer = null;
   }
+}
+
+function messageSignature(messages) {
+  return messages.map(function(message) {
+    return [message.id, message.text, message.image_token || '', message.outgoing ? '1' : '0'].join('|');
+  }).join('~');
 }
 
 function markRead(chatId) {
@@ -388,6 +449,8 @@ function chatAction(kind, chatId) {
     var payload = {};
     delete messageStore[chatId];
     payload[MessageKeys.Type] = 'chat_action_done';
+    payload[MessageKeys.ChatId] = String(chatId || '');
+    payload[MessageKeys.Text] = kind;
     sendToWatch(payload);
   }).catch(function(err) {
     promiseError('Chat action failed', err);
@@ -396,10 +459,19 @@ function chatAction(kind, chatId) {
 
 function sendImage(chatId, messageId) {
   var startedAt = Date.now();
+  cancelQueuedAvatarTransfers();
+  cancelQueuedImageTransfers();
+  var requestSeq = imageRequestSeq;
   activePgjs().imageBytes(chatId, messageId, IMAGE_WIDTH, IMAGE_SIZE, IMAGE_COLORS, IMAGE_MAX_BYTES).then(function(bytes) {
+    if (requestSeq !== imageRequestSeq || currentChatId !== chatId) {
+      return;
+    }
     logDuration('image prepare ' + messageId, startedAt);
     sendImageBytes(messageId, bytes);
   }).catch(function(err) {
+    if (requestSeq !== imageRequestSeq || currentChatId !== chatId) {
+      return;
+    }
     console.log('Image failed: ' + (err && err.message ? err.message : err));
     var failed = {};
     failed[MessageKeys.Type] = 'image_error';
@@ -410,9 +482,11 @@ function sendImage(chatId, messageId) {
 
 function sendImageBytes(messageId, bytes) {
   var start = {};
+  var transferId = ++imageTransferSeq;
   start[MessageKeys.Type] = 'image_start';
   start[MessageKeys.MessageId] = String(messageId || '');
   start[MessageKeys.ImageSize] = bytes.length;
+  start[MessageKeys.ImageTransferId] = transferId;
   sendToWatch(start);
 
   // PNGs are chunked through AppMessage and reassembled by the C app.
@@ -427,13 +501,91 @@ function sendImageBytes(messageId, bytes) {
     chunk[MessageKeys.MessageId] = String(messageId || '');
     chunk[MessageKeys.Index] = offset;
     chunk[MessageKeys.ImageData] = data;
+    chunk[MessageKeys.ImageTransferId] = transferId;
     sendToWatch(chunk);
   }
 
   var donePayload = {};
   donePayload[MessageKeys.Type] = 'image_done';
   donePayload[MessageKeys.MessageId] = String(messageId || '');
+  donePayload[MessageKeys.ImageTransferId] = transferId;
   sendToWatch(donePayload);
+}
+
+function sendAvatar(chatId, bytes) {
+  var start = {};
+  var transferId = ++avatarTransferSeq;
+  start[MessageKeys.Type] = 'avatar_start';
+  start[MessageKeys.ChatId] = String(chatId || '');
+  start[MessageKeys.ImageSize] = bytes.length;
+  start[MessageKeys.ImageTransferId] = transferId;
+  sendToWatch(start);
+
+  for (var offset = 0; offset < bytes.length; offset += AVATAR_CHUNK_SIZE) {
+    var chunk = {};
+    var slice = bytes.subarray(offset, Math.min(offset + AVATAR_CHUNK_SIZE, bytes.length));
+    var data = [];
+    for (var i = 0; i < slice.length; i++) {
+      data.push(slice[i]);
+    }
+    chunk[MessageKeys.Type] = 'avatar';
+    chunk[MessageKeys.ChatId] = String(chatId || '');
+    chunk[MessageKeys.Index] = offset;
+    chunk[MessageKeys.ImageData] = data;
+    chunk[MessageKeys.ImageTransferId] = transferId;
+    sendToWatch(chunk);
+  }
+
+  var donePayload = {};
+  donePayload[MessageKeys.Type] = 'avatar_done';
+  donePayload[MessageKeys.ChatId] = String(chatId || '');
+  donePayload[MessageKeys.ImageTransferId] = transferId;
+  sendToWatch(donePayload);
+}
+
+function queueChatAvatars(chats) {
+  avatarChats = (chats || []).slice(0, Math.min(MAX_ROWS, AVATAR_ROWS));
+  avatarIndex = 0;
+  scheduleChatAvatars(350);
+}
+
+function scheduleChatAvatars(delay) {
+  if (avatarTimer) {
+    clearTimeout(avatarTimer);
+    avatarTimer = null;
+  }
+  if (currentChatId) {
+    return;
+  }
+  if (avatarIndex >= avatarChats.length) {
+    return;
+  }
+  avatarTimer = setTimeout(function() {
+    avatarTimer = null;
+    sendChatAvatars();
+  }, delay);
+}
+
+function sendChatAvatars() {
+  if (currentChatId) {
+    return;
+  }
+  var chat = avatarChats[avatarIndex];
+  if (!chat) {
+    return;
+  }
+  activePgjs().avatarBytes(chat.id, AVATAR_SIZE, AVATAR_SIZE, AVATAR_COLORS, AVATAR_MAX_BYTES).then(function(bytes) {
+    if (currentChatId) {
+      return;
+    }
+    sendAvatar(chat.id, bytes);
+    avatarIndex++;
+    scheduleChatAvatars(80);
+  }).catch(function(err) {
+    console.log('Avatar failed for ' + chat.id + ': ' + (err && err.message ? err.message : err));
+    avatarIndex++;
+    scheduleChatAvatars(20);
+  });
 }
 
 Pebble.addEventListener('ready', function() {

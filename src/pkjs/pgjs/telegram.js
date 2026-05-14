@@ -36,7 +36,190 @@ function messageText(message) {
 }
 
 function hasPhoto(message) {
-  return !!(message && message.photo);
+  return !!messagePhoto(message);
+}
+
+function objectName(value) {
+  return value && (value.className || value.classType || value.constructorName || (value.constructor && value.constructor.name) || '');
+}
+
+function messagePhoto(message) {
+  var media = message && message.media;
+  var webpage = media && (media.webpage || media.webPage);
+  return (message && message.photo) || (media && media.photo) || (webpage && webpage.photo) || null;
+}
+
+function photoDimensions(message) {
+  var photo = messagePhoto(message);
+  var sizes = (photo && photo.sizes) || [];
+  var best = null;
+  var width = photo && (photo.w || photo.width);
+  var height = photo && (photo.h || photo.height);
+  for (var i = 0; i < sizes.length; i += 1) {
+    var size = sizes[i];
+    var sizeWidth = size && (size.w || size.width);
+    var sizeHeight = size && (size.h || size.height);
+    if (!sizeWidth || !sizeHeight) {
+      continue;
+    }
+    if (!best || (sizeWidth * sizeHeight) > (best.width * best.height)) {
+      best = {width: sizeWidth, height: sizeHeight};
+    }
+  }
+  if (best) {
+    return best;
+  }
+  if (width && height) {
+    return {width: width, height: height};
+  }
+  return null;
+}
+
+function messageDocument(message) {
+  var media = message && message.media;
+  return (message && message.document) || (media && media.document) || null;
+}
+
+function attributeName(attribute) {
+  return objectName(attribute);
+}
+
+function documentAttributes(document) {
+  return (document && document.attributes) || [];
+}
+
+function documentFileName(document) {
+  var attrs = documentAttributes(document);
+  for (var i = 0; i < attrs.length; i += 1) {
+    if ((attributeName(attrs[i]).indexOf('Filename') !== -1 || attrs[i].fileName) && attrs[i].fileName) {
+      return attrs[i].fileName;
+    }
+  }
+  return document && (document.fileName || document.name) || '';
+}
+
+function hasDocumentAttribute(document, name) {
+  var attrs = documentAttributes(document);
+  var propName = name.charAt(0).toLowerCase() + name.slice(1);
+  for (var i = 0; i < attrs.length; i += 1) {
+    if (attributeName(attrs[i]).indexOf(name) !== -1 || attrs[i][propName]) {
+      return attrs[i];
+    }
+  }
+  return null;
+}
+
+function isGif(message) {
+  var document = messageDocument(message);
+  var file = message && message.file;
+  if (document) {
+    return !!(hasDocumentAttribute(document, 'Animated') || document.mimeType === 'image/gif');
+  }
+  return !!(file && file.mimeType === 'image/gif');
+}
+
+function compactMediaLabel(label, detail) {
+  return detail ? '[' + label + '] ' + detail : '[' + label + ']';
+}
+
+function mediaLabel(message) {
+  var media = message && message.media;
+  var mediaName = objectName(media);
+  var document = messageDocument(message);
+  var file = message && message.file;
+  var fileName;
+  var mimeType;
+  var audioAttr;
+
+  if (!message) {
+    return '';
+  }
+  if (hasPhoto(message)) {
+    return compactMediaLabel('photo');
+  }
+  if (media) {
+    if (media.phoneNumber || media.firstName || media.lastName || mediaName.indexOf('Contact') !== -1) {
+      return compactMediaLabel('Contact', [media.firstName, media.lastName].filter(Boolean).join(' ') || media.phoneNumber);
+    }
+    if (media.geo || media.venue || mediaName.indexOf('Geo') !== -1 || mediaName.indexOf('Venue') !== -1) {
+      return compactMediaLabel('Location');
+    }
+    if (media.poll || mediaName.indexOf('Poll') !== -1) {
+      return compactMediaLabel('Poll');
+    }
+    if (media.invoice || mediaName.indexOf('Invoice') !== -1) {
+      return compactMediaLabel('Invoice');
+    }
+    if (media.game || mediaName.indexOf('Game') !== -1) {
+      return compactMediaLabel('Game', media.game && media.game.title);
+    }
+    if (media.webpage || media.webPage || mediaName.indexOf('WebPage') !== -1) {
+      var webpage = media.webpage || media.webPage || {};
+      return compactMediaLabel('Link', webpage.title || webpage.url);
+    }
+  }
+  if (!document) {
+    if (file) {
+      fileName = file.name || '';
+      mimeType = file.mimeType || '';
+      if (mimeType === 'image/gif') {
+        return compactMediaLabel('GIF', fileName);
+      }
+      if (mimeType.indexOf('image/') === 0) {
+        return compactMediaLabel('photo', fileName);
+      }
+      if (mimeType.indexOf('video/') === 0) {
+        return compactMediaLabel('Video', fileName);
+      }
+      if (mimeType.indexOf('audio/') === 0) {
+        return compactMediaLabel('Audio', fileName || file.title);
+      }
+      return compactMediaLabel('File', fileName);
+    }
+    return media ? compactMediaLabel('Media') : '';
+  }
+
+  fileName = documentFileName(document);
+  mimeType = document.mimeType || '';
+  audioAttr = hasDocumentAttribute(document, 'Audio');
+
+  if (hasDocumentAttribute(document, 'Sticker')) {
+    return compactMediaLabel('Sticker');
+  }
+  if (hasDocumentAttribute(document, 'Animated') || mimeType === 'image/gif') {
+    return compactMediaLabel('GIF', fileName);
+  }
+  if (hasDocumentAttribute(document, 'Video') || mimeType.indexOf('video/') === 0) {
+    return compactMediaLabel('Video', fileName);
+  }
+  if (audioAttr || mimeType.indexOf('audio/') === 0) {
+    return compactMediaLabel(audioAttr && audioAttr.voice ? 'Voice' : 'Audio', fileName || (audioAttr && audioAttr.title));
+  }
+  return compactMediaLabel('File', fileName);
+}
+
+function displayMessageText(message) {
+  var text = messageText(message);
+  var label = mediaLabel(message);
+  if (label && text) {
+    return label + ' ' + text;
+  }
+  return text || label;
+}
+
+function displayChatMessageText(message) {
+  if (hasPhoto(message)) {
+    return messageText(message);
+  }
+  return displayMessageText(message);
+}
+
+function dialogUnreadMarked(dialog) {
+  return !!(
+    dialog.unreadMark ||
+    dialog.unread_mark ||
+    (dialog.dialog && (dialog.dialog.unreadMark || dialog.dialog.unread_mark))
+  );
 }
 
 function senderName(message) {
@@ -53,12 +236,15 @@ function senderName(message) {
 }
 
 function normalizeMessage(message) {
+  var imageDimensions = photoDimensions(message);
   return {
     id: String(message.id),
     sender: senderName(message),
-    text: messageText(message),
+    text: displayChatMessageText(message),
     outgoing: !!message.out,
-    image_token: hasPhoto(message) ? String(message.id) : null
+    image_token: hasPhoto(message) ? String(message.id) : null,
+    image_width: imageDimensions ? imageDimensions.width : 0,
+    image_height: imageDimensions ? imageDimensions.height : 0
   };
 }
 
@@ -67,15 +253,13 @@ function chats(limit) {
     return client.getDialogs({limit: limit, folder: 0}).then(function(dialogs) {
       return dialogs.map(function(dialog) {
         var entity = dialog.entity || {};
-        var preview = dialog.message ? messageText(dialog.message) : '';
-        if (!preview && dialog.message && hasPhoto(dialog.message)) {
-          preview = '[photo]';
-        }
+        var id = entityId(entity);
+        var preview = dialog.message ? displayMessageText(dialog.message) : '';
         return {
-          id: entityId(entity),
+          id: id,
           title: displayName(entity),
           preview: preview,
-          unread: !!dialog.unreadCount,
+          unread: !!(dialog.unreadCount || dialogUnreadMarked(dialog)),
           unread_count: dialog.unreadCount || 0
         };
       });
@@ -167,9 +351,18 @@ function deleteChat(chatId) {
     return inputPeer(client, chatId).then(function(peer) {
       return client.invoke(new gram.Api.messages.DeleteHistory({
         peer: peer,
-        maxId: 0,
+        maxId: 2147483647,
+        justClear: false,
         revoke: false
       }));
+    });
+  });
+}
+
+function downloadProfilePhoto(chatId) {
+  return auth.getClient().then(function(client) {
+    return client.getEntity(parseInt(chatId, 10) || chatId).then(function(entity) {
+      return client.downloadProfilePhoto(entity, {isBig: false});
     });
   });
 }
@@ -178,6 +371,7 @@ function downloadMedia(chatId, messageId) {
   return auth.getClient().then(function(client) {
     return client.getMessages(chatId, {ids: [parseInt(messageId, 10) || messageId]}).then(function(rows) {
       var message = rows && rows[0];
+      var photo = messagePhoto(message);
       if (!message || !hasPhoto(message)) {
         throw new Error('message has no photo');
       }
@@ -185,7 +379,7 @@ function downloadMedia(chatId, messageId) {
         if (bytes && bytes.length) {
           return bytes;
         }
-        return client.downloadMedia(message.media, {});
+        return client.downloadMedia(photo || message.media, {});
       });
     });
   });
@@ -202,5 +396,6 @@ module.exports = {
   deleteChat: deleteChat,
   muteChat: muteChat,
   markUnread: markUnread,
+  downloadProfilePhoto: downloadProfilePhoto,
   downloadMedia: downloadMedia
 };

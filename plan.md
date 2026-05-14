@@ -1,108 +1,73 @@
-# Pebblegram Polish and Optimization Pass
+# Pebblegram 2.2 Release Plan
 
 ## Summary
 
-First complete trimming and performance work on the current 2.1 line, then test
-the app once before adding new features. After the lean 2.1 build is validated,
-fork it into an experimental feature branch so polish features do not destabilize
-the working build.
+Focus 2.2 on image quality, image loading stability, aspect-ratio-aware photo
+layout, GIF support, and release validation. Completed 2.1 trimming and earlier
+polish work are no longer active plan items.
 
-## Phase 1: Lean 2.1 Trimming and Optimization
+## 2.2 Image Pipeline
 
-- Stop packaging `pebble-js-app.js.map` in release PBWs; it is currently the
-  largest PBW entry.
-- Build `gramjs.bundle.js` with minification and without debug sourcemap or
-  legal-comment bulk for release builds.
-- Remove mock chat/message data, helper/bridge fallback code, and unused legacy
-  paths now that the app is PGJS-only.
-- Audit GramJS bundle imports for unused surfaces, especially upload, markdown,
-  proxy/TCP, and unused media helpers.
-- Add timing logs for connect, dialog fetch, message fetch, photo download,
-  photo encode, and AppMessage transfer.
-- Improve chat-list loading by reducing over-fetching, warming the Telegram
-  connection early, and sending rows as soon as dialog data is available.
-- Replace the misleading chat-list progress bar with staged real progress:
-  connecting, fetching dialogs, sending rows, complete.
-- Add PGJS-side prefetch for top chat messages after the chat list renders, but
-  do not show stale cached message/chat text first.
+- Move image quality work to the PGJS phone-side image processing path, not watch
+  rendering.
+- Preserve available platform colors unless testing proves a lower palette looks
+  better; color reduction should not be the main quality strategy.
+- Improve tone mapping before PNG quantization to reduce crushed blacks and harsh
+  gradient banding.
+- Prefer contain-fit photo resizing over crop-fit for chat photos.
+- Keep avatar processing as square cover-cropped circles.
+- Bump `IMAGE_CACHE_VERSION` whenever tone mapping, sizing, palette, or aspect
+  behavior changes.
 
-## Phase 2: Validate Lean 2.1
+## 2.2 Image Loading Stability
 
-- Build all target platforms and compare PBW contents before/after; confirm
-  release PBWs omit source maps.
-- Install and test the lean build once before feature work begins.
-- Verify 2.1 still supports login/session restore, chat-list load, chat open,
-  sending, deleting, older messages, and photo loading.
-- Measure cold/warm connect, chat-list load, chat open, older-message fetch,
-  photo load, and cached photo load.
-- If this validation finds regressions, fix them on the 2.1 line before
-  branching.
+- Ensure each image request reaches a terminal state: loaded, failed, or retry
+  scheduled.
+- Prevent stale active transfers from blocking the visible photo while scrolling.
+- Preserve visible-photo priority over offscreen active transfers.
+- Validate Basalt with a reduced image target because failures are likely
+  heap-related.
 
-## Phase 3: Branch for Experimental Features
+## 2.2 Aspect-Ratio Photo Layout
 
-- After the lean 2.1 build passes the single validation round, create an
-  experimental branch from that exact known-good state.
-- Keep the lean 2.1 branch as the stable working build while feature work happens
-  on the experimental branch.
-- Do not merge feature work back until each feature group has been tested on
-  watch hardware or emulator as appropriate.
+- Add image width/height metadata to message payloads.
+- Store image dimensions in the watch `Message` model.
+- Size photo placeholders and loaded images dynamically from the source aspect
+  ratio, constrained by each platform's max image frame.
+- Draw photos centered with no cropping.
+- Expected effort: medium-high because this touches AppMessage keys, PGJS
+  normalization, image encoding, watch layout, scrolling math, and placeholders.
 
-## Experimental Small Effort Features
+## 2.2 GIF Support
 
-- Use a pale Telegram-like yellow background for incoming messages on color
-  watches, preserving Diorite readability.
-- Tune message-scroll animation constants and alignment for a faster Pebble
-  Timeline-style snap.
-- Show unread indicators in the chat list: blue circle with white count for real
-  unread counts, blue dot with no number for manual unread state.
-- Mark a chat as read after its messages open successfully.
+- Keep `[GIF]` labels in snippets and chat view.
+- Revisit one-frame GIF previews with a higher-quality source than the previous
+  Telegram thumbnail attempt.
+- GIF previews must not block or share fragile state with regular photo loading.
+- If preview quality or stability is not acceptable, keep GIFs text-only for 2.2.
 
-## Experimental Medium Effort Features
+## 2.2 Release Validation
 
-- Add circular chat-list avatar placeholders with initials, drawn immediately
-  with the chat rows.
-- Load contact photos asynchronously over the placeholders so chat-list text is
-  never blocked.
-- Cache encoded contact photos only, using a small bounded LRU cache so repeat
-  avatar loads are fast without moving chat rows around.
-- Improve message photo speed by caching encoded photo PNG bytes by
-  chat/message/size/colors.
-- Improve photo tone mapping before PNG quantization with brightness/gamma lift
-  to reduce crushed blacks.
-- Refresh the open chat when new messages arrive using GramJS update events or a
-  lightweight periodic poll if event delivery is unreliable.
-- Add edit-message support to the selected-message action menu. It opens
-  dictation directly, then uses the existing send confirmation flow before
-  calling `client.editMessage`.
-- Add long-press select on the chat list to open actions: `Archive Chat`,
-  `Delete Chat`, `Mute Chat`, `Mark as Unread`, and `Go Back`.
-- Implement chat actions with raw Telegram API calls where GramJS lacks
-  convenience helpers: `folders.EditPeerFolders` for archive,
-  `messages.MarkDialogUnread` for manual unread, `account.UpdateNotifySettings`
-  for mute, and delete-history/delete-chat APIs for delete.
-- Add confirmations for destructive chat delete and message edit/send
-  operations.
+- Test photo loading on Emery, Gabbro, Basalt, and Diorite.
+- Test many consecutive photos, YouTube/link previews, mixed media messages, and
+  older-message scrolling.
+- Confirm photos do not get stuck forever on `Photo`, `Loading Image...`, or
+  repeated retry states.
+- Compare Emery/Gabbro gradient quality against the helper-service baseline.
+- Build all targets and confirm PBW size remains acceptable.
 
-## Earmarked for v3.0: Large Effort Findings
+## Earmarked for v3.0
 
-- Reply quotes remain v3.0 scope. GramJS exposes reply metadata
-  (`message.replyTo.replyToMsgId`), but the current AppMessage protocol and
-  watch `Message` struct do not carry quote fields.
-- `View Full Quote` belongs with the v3.0 quote work. It is straightforward
-  after quote text exists, but fetching quote text is harder because the
-  replied-to message may not be in the loaded window.
-- `Go To Quote` is the hardest v3.0 quote feature. If the quoted message is not
-  loaded, the app must fetch older history until found or give up without
-  disrupting the current scroll position.
-- Notification suppression is v3.0 research. GramJS can mark chats read and
-  receive updates, but Pebblegram likely cannot suppress notifications generated
-  by the separate Telegram phone app.
+- Reply quotes remain v3.0 scope because the AppMessage protocol and watch
+  `Message` struct do not yet carry quote fields.
+- `View Full Quote` stays with the v3.0 quote work.
+- `Go To Quote` stays v3.0 because fetching older history until the quoted
+  message is found needs careful scroll-position handling.
+- Notification suppression remains v3.0 research because Pebblegram likely
+  cannot suppress notifications generated by the separate Telegram phone app.
 
 ## Assumptions
 
-- Helper/bridge fallback support will be removed during Phase 1.
-- Cached media is allowed; cached chat/message text should not be displayed
-  before fresh data.
-- Feature work waits until after the lean 2.1 validation and branch point.
-- 2FA remains out of scope except avoiding changes that would interfere with
-  later 2FA testing.
+- The "backend" for image processing means the PGJS phone-side pipeline, not a
+  return to the old helper service.
+- 2.2 prioritizes release stability over adding large new product features.
