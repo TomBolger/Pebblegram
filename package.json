@@ -37,13 +37,15 @@
       "Text",
       "IsOutgoing",
       "IsUnread",
+      "UnreadCount",
       "BridgeUrl",
       "CannedReplies",
       "Status",
       "Error",
       "ImageToken",
       "ImageData",
-      "ImageSize"
+      "ImageSize",
+      "EditMessageId"
     ],
     "resources": {
       "media": [

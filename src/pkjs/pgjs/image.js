@@ -3,6 +3,8 @@ var codecs = require('./gramjs.bundle');
 var imageCache = {};
 var imageCacheOrder = [];
 var MAX_IMAGE_CACHE_ITEMS = 8;
+var MAX_PERSISTENT_IMAGE_CACHE_ITEMS = 4;
+var PERSISTENT_IMAGE_CACHE_ORDER_KEY = 'pgjs.imageCacheOrder';
 
 function toUint8Array(value) {
   if (!value) {
@@ -70,13 +72,20 @@ function resizeCover(source, width, height) {
       srcX = Math.min(source.width - 1, Math.max(0, Math.floor(startX + x / scale)));
       srcIndex = (srcY * source.width + srcX) * 4;
       dstIndex = (y * width + x) * 4;
-      output[dstIndex] = source.data[srcIndex];
-      output[dstIndex + 1] = source.data[srcIndex + 1];
-      output[dstIndex + 2] = source.data[srcIndex + 2];
+      output[dstIndex] = liftChannel(source.data[srcIndex]);
+      output[dstIndex + 1] = liftChannel(source.data[srcIndex + 1]);
+      output[dstIndex + 2] = liftChannel(source.data[srcIndex + 2]);
       output[dstIndex + 3] = 255;
     }
   }
   return output;
+}
+
+function liftChannel(value) {
+  if (value <= 0) {
+    return 4;
+  }
+  return Math.min(255, Math.round((Math.pow(value / 255, 0.82) * 255) + 4));
 }
 
 function arrayBufferFromBytes(bytes) {
@@ -136,6 +145,58 @@ function cacheSet(key, bytes) {
   while (imageCacheOrder.length > MAX_IMAGE_CACHE_ITEMS) {
     delete imageCache[imageCacheOrder.shift()];
   }
+  persistentCacheSet(key, bytes);
+}
+
+function persistentCacheGet(key) {
+  var raw;
+  var bytes;
+  try {
+    raw = localStorage.getItem('pgjs.imageCache.' + key);
+    if (!raw) {
+      return null;
+    }
+    bytes = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i += 1) {
+      bytes[i] = raw.charCodeAt(i) & 255;
+    }
+    cacheSetMemoryOnly(key, bytes);
+    return bytes;
+  } catch (e) {
+    return null;
+  }
+}
+
+function cacheSetMemoryOnly(key, bytes) {
+  if (!imageCache[key]) {
+    imageCacheOrder.push(key);
+  }
+  imageCache[key] = bytes;
+  while (imageCacheOrder.length > MAX_IMAGE_CACHE_ITEMS) {
+    delete imageCache[imageCacheOrder.shift()];
+  }
+}
+
+function persistentCacheSet(key, bytes) {
+  var order;
+  var encoded = '';
+  try {
+    order = JSON.parse(localStorage.getItem(PERSISTENT_IMAGE_CACHE_ORDER_KEY) || '[]');
+    order = order.filter(function(item) {
+      return item !== key;
+    });
+    order.push(key);
+    for (var i = 0; i < bytes.length; i += 1) {
+      encoded += String.fromCharCode(bytes[i]);
+    }
+    localStorage.setItem('pgjs.imageCache.' + key, encoded);
+    while (order.length > MAX_PERSISTENT_IMAGE_CACHE_ITEMS) {
+      localStorage.removeItem('pgjs.imageCache.' + order.shift());
+    }
+    localStorage.setItem(PERSISTENT_IMAGE_CACHE_ORDER_KEY, JSON.stringify(order));
+  } catch (e) {
+    console.log('Persistent image cache skipped: ' + (e && e.message ? e.message : e));
+  }
 }
 
 function imageBytes(chatId, messageId, width, height, colors, maxBytes) {
@@ -148,6 +209,11 @@ function imageBytes(chatId, messageId, width, height, colors, maxBytes) {
   if (imageCache[key]) {
     console.log('image cache hit ' + messageId);
     return Promise.resolve(imageCache[key]);
+  }
+  var cached = persistentCacheGet(key);
+  if (cached) {
+    console.log('persistent image cache hit ' + messageId);
+    return Promise.resolve(cached);
   }
   var downloadStartedAt = Date.now();
   return telegram.downloadMedia(chatId, messageId).then(function(raw) {

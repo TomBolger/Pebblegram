@@ -18,6 +18,8 @@ var sending = false;
 var messageStore = {};
 var prefetching = {};
 var pgjs = null;
+var currentChatId = null;
+var refreshTimer = null;
 
 function getSetting(name, fallback) {
   var value = localStorage.getItem(name);
@@ -186,6 +188,7 @@ function sendChatRows(chats) {
     payload[MessageKeys.Sender] = clampText(chat.title || 'Untitled', 47);
     payload[MessageKeys.Text] = clampText(chat.preview, 71);
     payload[MessageKeys.IsUnread] = chat.unread ? 1 : 0;
+    payload[MessageKeys.UnreadCount] = chat.unread_count || 0;
     sendToWatch(payload);
   });
 }
@@ -217,6 +220,7 @@ function sendStoredMessages(chatId) {
     return false;
   }
   delete messageStore[chatId];
+  markRead(chatId);
   sendMessageRows(messages);
   done('messages_done', Math.min(messages.length, MAX_MESSAGE_ROWS));
   return true;
@@ -258,16 +262,63 @@ function getChats() {
 }
 
 function getMessages(chatId) {
+  currentChatId = chatId;
+  scheduleOpenChatRefresh();
   if (sendStoredMessages(chatId)) {
     return;
   }
   status('Loading messages...');
   timed('messages load ' + chatId, activePgjs().messages(chatId, INITIAL_MESSAGE_ROWS)).then(function(messages) {
     rememberMessages(chatId, messages || []);
+    markRead(chatId);
     sendMessageRows(messages || []);
     done('messages_done', Math.min((messages || []).length, INITIAL_MESSAGE_ROWS));
   }).catch(function(err) {
     promiseError('Messages failed', err);
+  });
+}
+
+function scheduleOpenChatRefresh() {
+  if (refreshTimer) {
+    return;
+  }
+  refreshTimer = setTimeout(refreshOpenChat, 15000);
+}
+
+function refreshOpenChat() {
+  var chatId = currentChatId;
+  refreshTimer = null;
+  if (!chatId) {
+    return;
+  }
+  activePgjs().messages(chatId, INITIAL_MESSAGE_ROWS).then(function(messages) {
+    if (currentChatId !== chatId) {
+      return;
+    }
+    rememberMessages(chatId, messages || []);
+    markRead(chatId);
+    sendMessageRows(messages || []);
+    done('messages_done', Math.min((messages || []).length, INITIAL_MESSAGE_ROWS));
+    scheduleOpenChatRefresh();
+  }).catch(function(err) {
+    console.log('Open chat refresh failed for ' + chatId + ': ' + (err && err.message ? err.message : err));
+    scheduleOpenChatRefresh();
+  });
+}
+
+function leaveChat(chatId) {
+  if (!chatId || currentChatId === chatId) {
+    currentChatId = null;
+  }
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+    refreshTimer = null;
+  }
+}
+
+function markRead(chatId) {
+  activePgjs().markRead(chatId).catch(function(err) {
+    console.log('Mark read failed for ' + chatId + ': ' + (err && err.message ? err.message : err));
   });
 }
 
@@ -313,6 +364,33 @@ function deleteMessage(chatId, messageId) {
     sendToWatch(payload);
   }).catch(function(err) {
     promiseError('Delete failed', err);
+  });
+}
+
+function editMessage(chatId, messageId, text) {
+  timed('edit message ' + chatId, activePgjs().editMessage(chatId, messageId, text)).then(function() {
+    var payload = {};
+    delete messageStore[chatId];
+    payload[MessageKeys.Type] = 'edited';
+    sendToWatch(payload);
+  }).catch(function(err) {
+    promiseError('Edit failed', err);
+  });
+}
+
+function chatAction(kind, chatId) {
+  var action = activePgjs()[kind];
+  if (typeof action !== 'function') {
+    error('Action unavailable');
+    return;
+  }
+  timed(kind + ' ' + chatId, action(chatId)).then(function() {
+    var payload = {};
+    delete messageStore[chatId];
+    payload[MessageKeys.Type] = 'chat_action_done';
+    sendToWatch(payload);
+  }).catch(function(err) {
+    promiseError('Chat action failed', err);
   });
 }
 
@@ -374,6 +452,7 @@ Pebble.addEventListener('appmessage', function(event) {
   var text = payloadValue(event.payload, 'Text');
   var replyTo = payloadValue(event.payload, 'ReplyTo');
   var messageId = payloadValue(event.payload, 'MessageId');
+  var editMessageId = payloadValue(event.payload, 'EditMessageId');
 
   if (command === 'get_chats') {
     getChats();
@@ -381,10 +460,22 @@ Pebble.addEventListener('appmessage', function(event) {
     getMessages(chatId);
   } else if (command === 'get_older_messages') {
     getOlderMessages(chatId, messageId);
+  } else if (command === 'leave_chat') {
+    leaveChat(chatId);
   } else if (command === 'send_message') {
     sendMessage(chatId, text, replyTo);
   } else if (command === 'delete_message') {
     deleteMessage(chatId, messageId);
+  } else if (command === 'edit_message') {
+    editMessage(chatId, editMessageId || messageId, text);
+  } else if (command === 'archive_chat') {
+    chatAction('archiveChat', chatId);
+  } else if (command === 'delete_chat') {
+    chatAction('deleteChat', chatId);
+  } else if (command === 'mute_chat') {
+    chatAction('muteChat', chatId);
+  } else if (command === 'mark_unread') {
+    chatAction('markUnread', chatId);
   } else if (command === 'get_image') {
     sendImage(chatId, messageId);
   } else {

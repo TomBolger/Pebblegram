@@ -34,7 +34,13 @@ function create(options) {
       return telegram.messages(chatId, limit, beforeId);
     },
     sendMessage: telegram.sendMessage,
+    editMessage: telegram.editMessage,
     deleteMessage: telegram.deleteMessage,
+    markRead: telegram.markRead,
+    archiveChat: telegram.archiveChat,
+    deleteChat: telegram.deleteChat,
+    muteChat: telegram.muteChat,
+    markUnread: telegram.markUnread,
     imageBytes: image.imageBytes
   };
 }
