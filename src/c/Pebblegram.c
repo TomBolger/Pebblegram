@@ -48,6 +48,7 @@
 #define IMAGE_KEEP_SCREEN_MARGIN 48
 #define IMAGE_LOAD_SCREEN_MARGIN 24
 #define IMAGE_TALL_MAX_MULTIPLIER 2
+#define OLDER_REVEAL_PX 18
 
 // Platform constants are centralized here. Basalt/Diorite stay conservative on
 // heap use; Emery/Gabbro can afford longer text and larger image payloads.
@@ -478,6 +479,15 @@ static bool bitmap_has_visible_pixels(GBitmap *bitmap) {
 static void destroy_other_message_images(Message *keep) {
   for (int i = 0; i < MAX_MESSAGES; i++) {
     if (&s_messages[i] != keep) {
+      destroy_message_bitmap(&s_messages[i]);
+    }
+  }
+  refresh_loaded_image_count();
+}
+
+static void destroy_images_except_range(int first, int last) {
+  for (int i = 0; i < s_message_count; i++) {
+    if (i < first || i > last) {
       destroy_message_bitmap(&s_messages[i]);
     }
   }
@@ -1471,6 +1481,9 @@ static void request_next_image(void) {
   if (!s_messages_root || s_message_count == 0) {
     return;
   }
+  if (s_loading_older_messages) {
+    return;
+  }
   recalc_message_layout();
   sync_message_images();
 
@@ -1576,14 +1589,21 @@ static void request_older_messages(bool move_to_previous, bool silent) {
     return;
   }
   recalc_message_layout();
+  clear_active_image_request();
+  if (s_image_retry_timer) {
+    app_timer_cancel(s_image_retry_timer);
+    s_image_retry_timer = NULL;
+  }
   if (s_selected_message >= 0 && s_selected_message < s_message_count) {
     copy_cstr(s_older_anchor_id, sizeof(s_older_anchor_id), s_messages[s_selected_message].id);
     s_older_anchor_y = s_message_y[s_selected_message];
     s_older_anchor_scroll_offset = s_chat_scroll_offset;
+    destroy_images_except_range(s_selected_message, s_selected_message);
   } else {
     s_older_anchor_id[0] = '\0';
     s_older_anchor_y = 0;
     s_older_anchor_scroll_offset = s_chat_scroll_offset;
+    destroy_message_images();
   }
   s_older_move_to_previous = move_to_previous;
   s_loading_older_messages = true;
@@ -1750,8 +1770,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     }
     int preserved_index = find_message_index_by_id(selected_id);
     if (preserved_index >= 0) {
-      s_selected_message = (loading_older && move_to_previous && preserved_index > 0) ?
-                           preserved_index - 1 : preserved_index;
+      s_selected_message = preserved_index;
     } else if (!s_user_scrolled_messages && !loading_older) {
       s_selected_message = s_message_count;
     } else {
@@ -1770,6 +1789,9 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
       recalc_message_layout();
       if (loading_older && preserved_index >= 0) {
         int shifted_offset = s_older_anchor_scroll_offset + (s_message_y[preserved_index] - s_older_anchor_y);
+        if (move_to_previous && preserved_index > 0) {
+          shifted_offset = PG_MAX(0, shifted_offset - OLDER_REVEAL_PX);
+        }
         set_chat_scroll_offset(shifted_offset, false);
       }
       if (has_selected_message()) {

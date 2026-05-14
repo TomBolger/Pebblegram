@@ -26,6 +26,7 @@ var pgjs = null;
 var currentChatId = null;
 var currentChatSignature = '';
 var refreshTimer = null;
+var loadingOlderChatId = null;
 var avatarChats = [];
 var avatarIndex = 0;
 var avatarTimer = null;
@@ -124,8 +125,16 @@ function isAvatarTransferPayload(payload) {
   return type === 'avatar_start' || type === 'avatar' || type === 'avatar_done';
 }
 
+function isImageTransferPayload(payload) {
+  var type = payload && payload[MessageKeys.Type];
+  return type === 'image_start' || type === 'image' || type === 'image_done' || type === 'image_error';
+}
+
 function cancelQueuedImageTransfers() {
   imageRequestSeq += 1;
+  sendQueue = sendQueue.filter(function(entry, index) {
+    return index === 0 && sending ? true : !isImageTransferPayload(entry.payload);
+  });
 }
 
 function cancelQueuedAvatarTransfers() {
@@ -304,6 +313,7 @@ function getChats() {
 function getMessages(chatId) {
   currentChatId = chatId;
   currentChatSignature = '';
+  loadingOlderChatId = null;
   cancelQueuedAvatarTransfers();
   cancelQueuedImageTransfers();
   scheduleOpenChatRefresh();
@@ -335,6 +345,10 @@ function refreshOpenChat() {
   if (!chatId) {
     return;
   }
+  if (loadingOlderChatId === chatId) {
+    scheduleOpenChatRefresh();
+    return;
+  }
   activePgjs().messages(chatId, INITIAL_MESSAGE_ROWS).then(function(messages) {
     var signature;
     if (currentChatId !== chatId) {
@@ -362,6 +376,7 @@ function leaveChat(chatId) {
   if (!chatId || currentChatId === chatId) {
     currentChatId = null;
     currentChatSignature = '';
+    loadingOlderChatId = null;
     cancelQueuedImageTransfers();
     scheduleChatAvatars(300);
   }
@@ -387,8 +402,16 @@ function getOlderMessages(chatId, beforeId) {
   if (!beforeId) {
     return;
   }
+  if (loadingOlderChatId === chatId) {
+    return;
+  }
+  loadingOlderChatId = chatId;
+  cancelQueuedImageTransfers();
   status('Loading older...');
   timed('older messages load ' + chatId, activePgjs().olderMessages(chatId, OLDER_MESSAGE_ROWS, beforeId)).then(function(older) {
+    if (loadingOlderChatId !== chatId) {
+      return;
+    }
     var current = messageStore[chatId] || [];
     var seen = {};
     var merged = [];
@@ -401,7 +424,11 @@ function getOlderMessages(chatId, beforeId) {
     messageStore[chatId] = merged.slice(0, MAX_MESSAGE_ROWS);
     sendMessageRows(messageStore[chatId]);
     done('messages_done', Math.min(messageStore[chatId].length, MAX_MESSAGE_ROWS));
+    loadingOlderChatId = null;
   }).catch(function(err) {
+    if (loadingOlderChatId === chatId) {
+      loadingOlderChatId = null;
+    }
     promiseError('Older failed', err);
   });
 }
