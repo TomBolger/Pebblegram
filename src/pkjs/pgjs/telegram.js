@@ -123,6 +123,19 @@ function documentDimensions(message) {
   return null;
 }
 
+function isPngBytes(bytes) {
+  return bytes && bytes.length > 8 &&
+    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+}
+
+function isJpegBytes(bytes) {
+  return bytes && bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8;
+}
+
+function isPreviewImageBytes(bytes) {
+  return isPngBytes(bytes) || isJpegBytes(bytes);
+}
+
 function isGif(message) {
   var document = messageDocument(message);
   var file = message && message.file;
@@ -226,6 +239,115 @@ function displayChatMessageText(message) {
     return messageText(message);
   }
   return displayMessageText(message);
+}
+
+function pushMediaPreviewCandidate(candidates, candidate) {
+  if (!candidate) {
+    return;
+  }
+  if (Array.isArray(candidate)) {
+    for (var i = 0; i < candidate.length; i += 1) {
+      pushMediaPreviewCandidate(candidates, candidate[i]);
+    }
+    return;
+  }
+  candidates.push(candidate);
+}
+
+function mediaPreviewArea(candidate) {
+  var width = candidate && (candidate.w || candidate.width);
+  var height = candidate && (candidate.h || candidate.height);
+  return (width || 0) * (height || 0);
+}
+
+function mediaPreviewCandidates(message) {
+  var media = message && message.media;
+  var document = messageDocument(message);
+  var extendedMedia = media && (media.extendedMedia || media.extended_media);
+  var candidates = [];
+
+  pushMediaPreviewCandidate(candidates, media && (media.videoCover || media.video_cover));
+  pushMediaPreviewCandidate(candidates, extendedMedia && extendedMedia.thumb);
+  pushMediaPreviewCandidate(candidates, document && document.thumbs);
+  pushMediaPreviewCandidate(candidates, document && (document.videoThumbs || document.video_thumbs));
+
+  candidates.sort(function(a, b) {
+    return mediaPreviewArea(b) - mediaPreviewArea(a);
+  });
+  return candidates;
+}
+
+function previewThumbOption(candidate) {
+  if (!candidate) {
+    return null;
+  }
+  return candidate.type || candidate.size || candidate;
+}
+
+function looksLikePhoto(candidate) {
+  var name = objectName(candidate);
+  return !!(candidate && !candidate.type && (name.indexOf('Photo') !== -1 || candidate.sizes));
+}
+
+function downloadImageBytes(client, target, options) {
+  return client.downloadMedia(target, options || {}).then(function(bytes) {
+    if (isPreviewImageBytes(bytes)) {
+      return bytes;
+    }
+    throw new Error('media preview was not an image');
+  });
+}
+
+function downloadMediaPreviewCandidate(client, message, candidate) {
+  var media = message && message.media;
+  var option = previewThumbOption(candidate);
+  var attempts = [];
+  var target = 0;
+
+  if (looksLikePhoto(candidate)) {
+    attempts.push(function() {
+      return downloadImageBytes(client, candidate, {});
+    });
+  }
+  if (option) {
+    attempts.push(function() {
+      return downloadImageBytes(client, message, {thumb: option});
+    });
+    if (media) {
+      attempts.push(function() {
+        return downloadImageBytes(client, media, {thumb: option});
+      });
+    }
+  }
+  attempts.push(function() {
+    return downloadImageBytes(client, message, {thumb: candidate});
+  });
+  if (media) {
+    attempts.push(function() {
+      return downloadImageBytes(client, media, {thumb: candidate});
+    });
+  }
+
+  function tryNext() {
+    if (target >= attempts.length) {
+      throw new Error('no usable media preview candidate');
+    }
+    return attempts[target++]().catch(tryNext);
+  }
+  return tryNext();
+}
+
+function downloadGifPreview(client, message) {
+  var candidates = mediaPreviewCandidates(message);
+  var index = 0;
+
+  function tryNext() {
+    if (index >= candidates.length) {
+      throw new Error('gif has no usable still preview');
+    }
+    return downloadMediaPreviewCandidate(client, message, candidates[index++]).catch(tryNext);
+  }
+  return tryNext();
 }
 
 function dialogUnreadMarked(dialog) {
@@ -390,11 +512,11 @@ function downloadMedia(chatId, messageId) {
       if (!message || (!hasPhoto(message) && !isGif(message))) {
         throw new Error('message has no previewable media');
       }
-      return client.downloadMedia(message, {}).then(function(bytes) {
-        if (bytes && bytes.length) {
-          return bytes;
-        }
-        return client.downloadMedia(photo || message.media, {});
+      if (isGif(message) && !photo) {
+        return downloadGifPreview(client, message);
+      }
+      return downloadImageBytes(client, message, {}).catch(function() {
+        return downloadImageBytes(client, photo || message.media, {});
       });
     });
   });

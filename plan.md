@@ -16,8 +16,9 @@ do not all destabilize the watch message model at once.
   regular photo loading blocked after success, failure, retry, or cancellation.
 - Reuse the proven single-active-image transfer discipline from the 2.2 photo
   loader; do not introduce parallel image transfers for GIFs.
-- Prefer a first-frame or Telegram-provided still preview at the same byte and
-  heap limits as photos. If quality or stability is poor, keep GIFs text-only for
+- Prefer Telegram-provided still previews/covers, including thumbnails attached
+  to MP4-backed GIFs, at the same byte and heap limits as photos. Do not decode
+  video frames in PKJS. If quality or stability is poor, keep GIFs text-only for
   2.3 rather than risking image-loader regressions.
 - Add live incoming message handling as the other core 2.3 feature.
 - Incoming messages should update the active chat without moving the selected
