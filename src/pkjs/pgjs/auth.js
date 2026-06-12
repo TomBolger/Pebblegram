@@ -249,7 +249,6 @@ function signInWithCode(gram, config, creds) {
     });
   }
 
-  pinAuthDc(client, config);
   return timeout(
     Promise.resolve().then(function() {
       reportStatus('Connecting...');
