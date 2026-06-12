@@ -204,7 +204,6 @@ function requestCode(gram, config, creds) {
       return client.connect();
     }).then(function() {
       reportStatus('Sending code...');
-      cache.noteCodeRequest(creds.phone);
       return client.invoke(new gram.Api.auth.SendCode({
         phoneNumber: creds.phone,
         apiId: config.apiId,
@@ -219,6 +218,7 @@ function requestCode(gram, config, creds) {
         throw new Error('Telegram did not return a login code hash.');
       }
       reportStatus('Code requested.');
+      cache.noteCodeRequest(creds.phone);
       cache.setPhoneCodeRequest(result.phoneCodeHash, client.session.save());
       cache.clearCode();
       return closeClient(client);
