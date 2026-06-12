@@ -36,7 +36,7 @@ function runtimeConfig(gram, creds) {
   return {
     apiId: embedded.apiId || creds.apiId || 0,
     apiHash: embedded.apiHash || creds.apiHash || '',
-    forceWSS: embedded.forceWSS === true,
+    forceWSS: embedded.forceWSS !== false,  // Default to true for better compatibility with iOS
     testServers: embedded.testServers === true
   };
 }
