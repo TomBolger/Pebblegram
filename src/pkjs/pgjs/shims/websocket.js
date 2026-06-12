@@ -1,6 +1,8 @@
 function W3CWebSocket(uri, protocols) {
   var root = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : global;
-  var NativeWebSocket = root.WebSocket || root.MozWebSocket;
+  // Prefer the preserved native constructor (exposed by the bundle entry)
+  // to avoid any wrapper that may have replaced the global WebSocket symbol.
+  var NativeWebSocket = root.__pebblegramNativeWebSocket || root.WebSocket || root.MozWebSocket;
   if (!NativeWebSocket) {
     throw new Error('WebSocket is not available in PebbleKit JS.');
   }
