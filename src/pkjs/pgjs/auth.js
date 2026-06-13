@@ -36,7 +36,7 @@ function runtimeConfig(gram, creds) {
   return {
     apiId: embedded.apiId || creds.apiId || 0,
     apiHash: embedded.apiHash || creds.apiHash || '',
-    forceWSS: embedded.forceWSS === true,
+    forceWSS: embedded.forceWSS !== false,  // Default to true for better compatibility with iOS
     testServers: embedded.testServers === true
   };
 }
@@ -204,7 +204,6 @@ function requestCode(gram, config, creds) {
       return client.connect();
     }).then(function() {
       reportStatus('Sending code...');
-      cache.noteCodeRequest(creds.phone);
       return client.invoke(new gram.Api.auth.SendCode({
         phoneNumber: creds.phone,
         apiId: config.apiId,
@@ -219,6 +218,7 @@ function requestCode(gram, config, creds) {
         throw new Error('Telegram did not return a login code hash.');
       }
       reportStatus('Code requested.');
+      cache.noteCodeRequest(creds.phone);
       cache.setPhoneCodeRequest(result.phoneCodeHash, client.session.save());
       cache.clearCode();
       return closeClient(client);
@@ -249,7 +249,6 @@ function signInWithCode(gram, config, creds) {
     });
   }
 
-  pinAuthDc(client, config);
   return timeout(
     Promise.resolve().then(function() {
       reportStatus('Connecting...');
