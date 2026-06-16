@@ -12,7 +12,10 @@ function parseBoolean(value) {
 const runtimeConfig = {
   apiId: parseApiId(process.env.PGJS_TELEGRAM_API_ID),
   apiHash: String(process.env.PGJS_TELEGRAM_API_HASH || "").trim(),
-  forceWSS: parseBoolean(process.env.PGJS_TELEGRAM_FORCE_WSS),
+  // Core Devices app blocks cleartext ws://; default to WSS (opt out with PGJS_TELEGRAM_FORCE_WSS=false).
+  forceWSS: process.env.PGJS_TELEGRAM_FORCE_WSS == null
+    ? true
+    : parseBoolean(process.env.PGJS_TELEGRAM_FORCE_WSS),
   testServers: parseBoolean(process.env.PGJS_TELEGRAM_TEST_SERVERS)
 };
 
