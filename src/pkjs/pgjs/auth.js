@@ -249,7 +249,10 @@ function signInWithCode(gram, config, creds) {
     });
   }
 
-  pinAuthDc(client, config);
+  // pendingSession already holds the DC and auth key SendCode finished on; re-pinning breaks it.
+  if (!creds.pendingSession) {
+    pinAuthDc(client, config);
+  }
   return timeout(
     Promise.resolve().then(function() {
       reportStatus('Connecting...');
