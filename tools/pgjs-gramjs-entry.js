@@ -81,105 +81,11 @@ if (!root.window.Response) {
   root.window.Response = root.Response;
 }
 
-if (typeof root.WebSocket === 'function' && root.WebSocket.__pebblegramWrapped !== true) {
-  (function() {
-    var NativeWebSocket = root.WebSocket;
-
-    function WebSocketWrapper(url, protocols) {
-      var socket = protocols ? new NativeWebSocket(url, protocols) : new NativeWebSocket(url);
-      var listeners = {open: [], message: [], error: [], close: []};
-      var pending = [];
-      var wrapper = {};
-
-      function hasListeners(kind) {
-        return typeof wrapper['on' + kind] === 'function' || listeners[kind].length > 0;
-      }
-
-      function emit(kind, event) {
-        var handler = wrapper['on' + kind];
-        var index;
-        if (typeof handler === 'function') {
-          handler.call(wrapper, event || {type: kind});
-        }
-        for (index = 0; index < listeners[kind].length; index += 1) {
-          listeners[kind][index].call(wrapper, event || {type: kind});
-        }
-      }
-
-      function flush(kind) {
-        var next = [];
-        var index;
-        var entry;
-        for (index = 0; index < pending.length; index += 1) {
-          entry = pending[index];
-          if ((!kind || entry.kind === kind) && hasListeners(entry.kind)) {
-            emit(entry.kind, entry.event);
-          } else {
-            next.push(entry);
-          }
-        }
-        pending = next;
-      }
-
-      function dispatch(kind, event) {
-        if (!hasListeners(kind)) {
-          pending.push({kind: kind, event: event});
-          return;
-        }
-        emit(kind, event);
-      }
-
-      socket.onopen = function(event) { dispatch('open', event); };
-      socket.onmessage = function(event) { dispatch('message', event); };
-      socket.onerror = function(event) { dispatch('error', event); };
-      socket.onclose = function(event) { dispatch('close', event); };
-
-      wrapper.send = function(data) { return socket.send(data); };
-      wrapper.close = function(code, reason) { return socket.close(code, reason); };
-      wrapper.addEventListener = function(kind, listener) {
-        if (listeners[kind] && typeof listener === 'function') {
-          listeners[kind].push(listener);
-          flush(kind);
-        }
-      };
-      wrapper.removeEventListener = function(kind, listener) {
-        var index;
-        if (!listeners[kind] || typeof listener !== 'function') {
-          return;
-        }
-        for (index = listeners[kind].length - 1; index >= 0; index -= 1) {
-          if (listeners[kind][index] === listener) {
-            listeners[kind].splice(index, 1);
-          }
-        }
-      };
-      Object.defineProperty(wrapper, 'readyState', {get: function() { return socket.readyState; }});
-      Object.defineProperty(wrapper, 'bufferedAmount', {get: function() { return socket.bufferedAmount; }});
-      Object.defineProperty(wrapper, 'binaryType', {
-        get: function() { return socket.binaryType; },
-        set: function(value) { socket.binaryType = value; }
-      });
-      ['open', 'message', 'error', 'close'].forEach(function(kind) {
-        Object.defineProperty(wrapper, 'on' + kind, {
-          get: function() { return wrapper['__on' + kind] || null; },
-          set: function(listener) {
-            wrapper['__on' + kind] = listener;
-            flush(kind);
-          }
-        });
-      });
-      return wrapper;
-    }
-
-    ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach(function(name) {
-      if (NativeWebSocket[name] !== undefined) {
-        WebSocketWrapper[name] = NativeWebSocket[name];
-      }
-    });
-    WebSocketWrapper.__pebblegramWrapped = true;
-    root.WebSocket = WebSocketWrapper;
-    root.window.WebSocket = WebSocketWrapper;
-  })();
+// Keep a handle on the phone app's own WebSocket constructor. The global is
+// deliberately left untouched: the iOS Core Devices app routes socket events
+// through it (issue #7). Compatibility handling lives in shims/websocket.js.
+if (typeof root.WebSocket === 'function' && !root.__pebblegramNativeWebSocket) {
+  root.__pebblegramNativeWebSocket = root.WebSocket;
 }
 
 var client = require('telegram/client/TelegramClient');

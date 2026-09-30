@@ -133,7 +133,8 @@ function configureForPlatform() {
     IMAGE_MAX_BYTES = 23000;
     IMAGE_MAX_PIXELS = 40000;
     IMAGE_CHUNK_SIZE = 500;
-  } else if (info && info.platform === 'diorite') {
+  } else if (info && (info.platform === 'diorite' || info.platform === 'flint')) {
+    // Pebble 2 Duo (flint) shares Diorite's 144x168 black-and-white screen.
     IMAGE_SIZE = 108;
     IMAGE_WIDTH = 112;
     IMAGE_COLORS = 4;
@@ -1913,6 +1914,10 @@ function prefetchNewerMessages(chatId, afterId) {
 }
 
 function sendMessage(chatId, text, replyTo) {
+  if (!text || !String(text).trim()) {
+    error('Send failed: the watch sent an empty message.');
+    return;
+  }
   timed('send message ' + chatId, activePgjs().sendMessage(chatId, text, replyTo)).then(function() {
     var payload = {};
     payload[MessageKeys.Type] = 'sent';

@@ -9,7 +9,7 @@ Pebblegram brings Telegram to Pebble watches with a PebbleKit JS Telegram client
 
 ## Download
 
-- [Download Pebblegram 3.5 PBW](https://github.com/TomBolger/Pebblegram/releases/download/v3.5.0/Pebblegram.pbw)
+- [Download Pebblegram 3.6 PBW](https://github.com/TomBolger/Pebblegram/releases/download/v3.6.0/Pebblegram.pbw)
 
 ## What It Does
 
@@ -24,26 +24,28 @@ Pebblegram brings Telegram to Pebble watches with a PebbleKit JS Telegram client
 - Replies to, forwards, edits, and deletes messages from the watch
 - Loads older messages on demand
 - Keeps open chats and the chat list refreshed while the app is running
-- Supports Basalt, Diorite, Emery, and Gabbro builds
+- Supports Basalt, Diorite, Flint (Pebble 2 Duo), Emery, and Gabbro builds
 - Includes a black-and-white optimized Diorite image path
 - Includes round-screen layout handling for Gabbro
 
-## Changes Since 3.3
+## Changes Since 3.5
 
-Pebblegram 3.5 is the current live Telegram build.
+Pebblegram 3.6 is a maintenance release focused on login and reply bugs.
 
-- Reworked resident message and chat-list text storage to reduce fixed RAM use.
-- Made the chat list appear progressively so the UI becomes usable much sooner on launch.
-- Deferred nonessential startup work until the first visible chats are drawn.
-- Raised media size and quality limits, especially on Emery and Gabbro.
-- Added screenshot-aware photo contrast handling for both dark and light app screenshots.
-- Improved tall-photo navigation so entering and panning through long images is consistent.
-- Disabled the experimental Emery touch keyboard to reclaim RAM for media and speed.
-- Updated the bundled release PBW and GitHub release download for 3.5.
+- Fixed canned replies and voice replies sending an empty message on Basalt, Diorite and Pebble 2 Duo (#11).
+- Fixed login on the Core Devices phone apps: Telegram now connects over encrypted `wss://` by default (#4, #7, #10).
+- Fixed "Maximum reconnection retries reached" after entering the login code, caused by sign-in being sent to the wrong Telegram data center (#4, #9).
+- Fixed iOS login hanging on "Requesting Telegram login..." by no longer replacing the phone app's WebSocket (#7, #8).
+- Fixed two-step (cloud password) login looping back to the password prompt (#6).
+- The login code cooldown now starts only after Telegram actually sends a code, and the watch says where the code was sent (Telegram app, SMS, call).
+- Added a native Pebble 2 Duo (Flint) build.
+- Built with the current Core Devices SDK (Emery and Gabbro now have 128 KB of app memory).
+
+Thanks to @SimonIlic (#8) and @twodotwill (#9) for tracking down the login bugs.
 
 ## Quick Start
 
-1. Install [Pebblegram 3.5 PBW](https://github.com/TomBolger/Pebblegram/releases/download/v3.5.0/Pebblegram.pbw) with the Pebble/Rebble mobile app.
+1. Install [Pebblegram 3.6 PBW](https://github.com/TomBolger/Pebblegram/releases/download/v3.6.0/Pebblegram.pbw) with the Pebble/Rebble mobile app.
 2. Open Pebblegram settings in the Pebble mobile app.
 3. Enter your Telegram API ID, API hash, and phone number.
 4. Save once to request a Telegram login code.
@@ -54,7 +56,7 @@ Create Telegram API credentials at [my.telegram.org/apps](https://my.telegram.or
 
 ## Development
 
-Install the Pebble SDK/tooling, then build:
+Install the Core Devices Pebble tool (`uv tool install pebble-tool`, then `pebble sdk install latest`), then build:
 
 ```sh
 pebble build
@@ -87,4 +89,4 @@ For local testing with embedded API credentials, keep them in an ignored environ
 
 ## Status
 
-Pebblegram 3.5 is the current direct Telegram build. The core flows work, but this is still community software for an unsupported watch platform.
+Pebblegram 3.6 is the current direct Telegram build. The core flows work, but this is still community software for an unsupported watch platform.
