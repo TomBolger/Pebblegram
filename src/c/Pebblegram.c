@@ -3084,6 +3084,68 @@ static void kb_key_label(KeyHit key, char *buffer, size_t size) {
   buffer[0] = '\0';
 }
 
+// Big preview of the key under your finger, drawn well above it so the finger
+// doesn't hide it: a keyboard-coloured rounded square with a tapered tail
+// pointing down toward the key. It follows the finger while sliding.
+#define KB_PREVIEW_W 36
+#define KB_PREVIEW_H 40
+#define KB_PREVIEW_GAP 48
+#define KB_PREVIEW_TAIL 12
+
+static void kb_draw_key_preview(GContext *ctx, GRect bounds, GRect key_rect, KeyHit key) {
+  char label[2] = {key.ch, '\0'};
+  if (!s_touch_keyboard_symbols && s_touch_keyboard_shift && key.ch >= 'a' && key.ch <= 'z') {
+    label[0] = (char)(key.ch - 'a' + 'A');
+  }
+  int key_cx = key_rect.origin.x + key_rect.size.w / 2;
+  int head_bottom = key_rect.origin.y - KB_PREVIEW_GAP;
+  int head_top = PG_MAX(2, head_bottom - KB_PREVIEW_H);
+  head_bottom = head_top + KB_PREVIEW_H;
+
+  // Keep the bubble on screen (inside the circle on Round 2).
+  int span_x;
+  int span_w;
+  kb_span(bounds, head_top, head_bottom, &span_x, &span_w);
+  int head_x = key_cx - KB_PREVIEW_W / 2;
+  head_x = PG_MAX(span_x, PG_MIN(head_x, span_x + span_w - KB_PREVIEW_W));
+  GRect head = GRect(head_x, head_top, KB_PREVIEW_W, KB_PREVIEW_H);
+
+  // Tail: tapers from the bottom of the square toward the pressed key.
+  int tail_cx = PG_MAX(head.origin.x + 8, PG_MIN(key_cx, head.origin.x + KB_PREVIEW_W - 8));
+  GPoint tail_points[3] = {
+    {tail_cx - 9, head_bottom - 2},
+    {tail_cx + 9, head_bottom - 2},
+    {tail_cx, head_bottom + KB_PREVIEW_TAIL}
+  };
+  GPathInfo tail_info = {3, tail_points};
+  GPath *tail = gpath_create(&tail_info);
+
+  // Outline in the keyboard's dark grey, then the white key face.
+  graphics_context_set_fill_color(ctx, GColorDarkGray);
+  graphics_fill_rect(ctx, grect_inset(head, GEdgeInsets(-2)), 8, GCornersAll);
+  if (tail) {
+    graphics_context_set_stroke_color(ctx, GColorDarkGray);
+    graphics_context_set_stroke_width(ctx, 3);
+    gpath_draw_outline(ctx, tail);
+    graphics_context_set_stroke_width(ctx, 1);
+  }
+  graphics_context_set_fill_color(ctx, GColorWhite);
+  graphics_fill_rect(ctx, head, 6, GCornersAll);
+  if (tail) {
+    gpath_draw_filled(ctx, tail);
+    gpath_destroy(tail);
+  }
+  // Accent bar ties it to the pressed-key colour.
+  graphics_context_set_fill_color(ctx, APP_COLOR);
+  graphics_fill_rect(ctx, GRect(head.origin.x + 6, head.origin.y + head.size.h - 5, head.size.w - 12, 2),
+                     0, GCornerNone);
+
+  graphics_context_set_text_color(ctx, GColorBlack);
+  graphics_draw_text(ctx, label, fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD),
+                     GRect(head.origin.x, head.origin.y + 1, head.size.w, head.size.h - 6),
+                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+}
+
 static void draw_touch_keyboard(GContext *ctx, GRect bounds) {
   GRect keyboard_rect = touch_keyboard_rect_for_bounds(bounds);
   graphics_context_set_fill_color(ctx, GColorDarkGray);
@@ -3137,6 +3199,11 @@ static void draw_touch_keyboard(GContext *ctx, GRect bounds) {
       kb_key_label(key, label, sizeof(label));
       draw_touch_keyboard_key(ctx, key_rect, label, pressed, special, accent);
     }
+  }
+
+  if (s_kb_press_active && s_kb_pressed.kind == KeyChar) {
+    kb_draw_key_preview(ctx, bounds, kb_key_rect(bounds, keyboard_rect, s_kb_pressed.row,
+                                                 s_kb_pressed.index), s_kb_pressed);
   }
 }
 

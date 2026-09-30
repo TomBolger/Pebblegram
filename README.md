@@ -50,7 +50,7 @@ Pebblegram 3.6 fixes login and reply bugs, brings back the on-screen keyboard, a
 ### Keyboard (Pebble Time 2 and Round 2)
 
 - The on-screen touch keyboard is back and reworked. Tap "New message" at the bottom of a chat, or pick Keyboard from the Select menu.
-- No dead spots between keys; the key under your finger lights up and you can slide to correct before letting go.
+- No dead spots between keys. The key under your finger lights up, and a big preview of the letter pops up well above your finger so you can see it; slide to correct before letting go.
 - Holding delete keeps deleting. Sentences are capitalised automatically; double-tap the shift arrow for caps lock. A second symbols page is available.
 - The text box scrolls so you can always see what you're typing, and on Round 2 the keys fit inside the circle.
 - Drafts survive menus and the Back button ("Continue draft"). A failed send is marked "not sent" and your text comes back.
