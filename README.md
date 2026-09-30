@@ -43,6 +43,21 @@ Pebblegram 3.6 fixes login and reply bugs, brings back the on-screen keyboard, a
 - Fixed two-step (cloud password) login looping back to the password prompt (#6).
 - The login code cooldown now starts only after Telegram actually sends a code, and the watch says where the code was sent (Telegram app, SMS, call).
 
+### New look
+
+- A Telegram-inspired redesign, strongest on Pebble Time 2 and Round 2:
+  - Blue Telegram header with the chat's avatar and a back arrow. Status ("Loading older...", "Sending...") shows under the chat name.
+  - Chat list with coloured initial avatars, bold names, times, read ticks, and green unread badges (grey when muted). Group senders show in blue.
+  - Green doodle wallpaper with white incoming and mint outgoing bubbles. Bubbles now size to their text and have tails, and consecutive messages are grouped.
+  - Coloured sender names and small avatars in group chats; reply and forward quotes with a coloured bar.
+  - Message time and read ticks tucked into the last line of text when they fit.
+  - Reactions as rounded pills.
+  - Messages that are only 1-3 emoji show them twice as big, without a bubble.
+  - A Telegram-style input bar with a mic button (tap it to dictate).
+  - New splash screen, and a clean white full-message view.
+- Black-and-white watches get the same layout with outlines instead of colour.
+- Faster scrolling: message sizes are measured once and cached instead of on every frame, and the app binary is smaller (link-time optimisation).
+
 ### Emoji
 
 - Much wider emoji support: on PebbleOS 4.29 and newer, all ~1,400 emoji the watch fonts include now show as emoji in messages, chat names, stickers and reactions. Anything the watch can't draw shows as its name, like `:partying_face:` or `:flag_de:`, instead of a generic `:emoji:`. Older firmware keeps its smaller set and names the rest.

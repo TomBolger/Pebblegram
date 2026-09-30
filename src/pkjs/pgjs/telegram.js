@@ -1277,6 +1277,68 @@ function isUnsafeLargeChannel(entity) {
   return count > MAX_SAFE_CHANNEL_PARTICIPANTS;
 }
 
+var WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function messageDate(message) {
+  var value = message && message.date;
+  if (!value) {
+    return null;
+  }
+  var date = value instanceof Date ? value :
+             new Date(typeof value === 'number' ? (value < 1000000000000 ? value * 1000 : value) : value);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+// Telegram chat-list style: time today, weekday this week, otherwise day/month.
+function chatListTime(message) {
+  var date = messageDate(message);
+  if (!date) {
+    return '';
+  }
+  var now = new Date();
+  var startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (date.getTime() >= startOfToday) {
+    return String(date.getHours()) + ':' + padMinute(date.getMinutes());
+  }
+  if (date.getTime() >= startOfToday - 6 * 86400000) {
+    return WEEKDAYS[date.getDay()];
+  }
+  return (date.getMonth() + 1) + '/' + date.getDate();
+}
+
+function dialogIsMuted(dialog) {
+  var settings = dialog && ((dialog.dialog && dialog.dialog.notifySettings) || dialog.notifySettings);
+  var until = settings && settings.muteUntil;
+  return !!(until && until * 1000 > Date.now());
+}
+
+function dialogIsGroup(dialog, entity) {
+  if (dialog && (dialog.isGroup || dialog.isChannel)) {
+    return !dialog.isUser;
+  }
+  var name = objectName(entity);
+  return name.indexOf('Chat') !== -1 || name.indexOf('Channel') !== -1;
+}
+
+// "time|flags" for the watch: g=group m=muted p=pinned 1/2=receipt on my last message.
+function dialogMeta(dialog, entity) {
+  var flags = '';
+  var message = dialog && dialog.message;
+  if (dialogIsGroup(dialog, entity)) {
+    flags += 'g';
+  }
+  if (dialogIsMuted(dialog)) {
+    flags += 'm';
+  }
+  if (dialog.pinned || dialog.isPinned || (dialog.dialog && (dialog.dialog.pinned || dialog.dialog.isPinned))) {
+    flags += 'p';
+  }
+  if (message && message.out) {
+    flags += numericId(message.id) <= dialogReadOutboxMaxId(dialog) ? '2' : '1';
+  }
+  return chatListTime(message) + '|' + flags;
+}
+
 function dialogRows(dialogs, folderName, folderOrder) {
   return (dialogs || []).map(function(dialog, index) {
     var entity = dialog.entity || {};
@@ -1300,6 +1362,7 @@ function dialogRows(dialogs, folderName, folderOrder) {
       preview: preview,
       unread: !!(dialog.unreadCount || dialogUnreadMarked(dialog)),
       unread_count: dialog.unreadCount || 0,
+      meta: dialogMeta(dialog, entity),
       pinned: !!(dialog.pinned || dialog.isPinned || (dialog.dialog && (dialog.dialog.pinned || dialog.dialog.isPinned))),
       folder_order: folderOrder || 0,
       order: index

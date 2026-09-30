@@ -585,6 +585,9 @@ function chatPayload(chat, index, total) {
   payload[MessageKeys.Text] = watchText(chat.preview, 71);
   payload[MessageKeys.IsUnread] = chat.unread ? 1 : 0;
   payload[MessageKeys.UnreadCount] = chat.unread_count || 0;
+  if (chat.meta) {
+    payload[MessageKeys.MessageMeta] = clampUtf8Bytes(chat.meta, 15);
+  }
   return payload;
 }
 
