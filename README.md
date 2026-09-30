@@ -18,6 +18,7 @@ Pebblegram brings Telegram to Pebble watches with a PebbleKit JS Telegram client
 - Displays incoming and outgoing chat bubbles
 - Loads inline photo previews, GIF/video still previews, and text link previews
 - Sends replies with Pebble dictation
+- Types messages, replies and edits with an on-screen keyboard on touch watches (Pebble Time 2, Round 2)
 - Sends configurable canned replies
 - Sends emoji replies
 - Sends, updates, and removes Telegram reactions
@@ -30,7 +31,9 @@ Pebblegram brings Telegram to Pebble watches with a PebbleKit JS Telegram client
 
 ## Changes Since 3.5
 
-Pebblegram 3.6 is a maintenance release focused on login and reply bugs.
+Pebblegram 3.6 fixes login and reply bugs, brings back the on-screen keyboard, and adds much wider emoji support.
+
+### Fixes
 
 - Fixed canned replies and voice replies sending an empty message on Basalt, Diorite and Pebble 2 Duo (#11).
 - Fixed login on the Core Devices phone apps: Telegram now connects over encrypted `wss://` by default (#4, #7, #10).
@@ -38,10 +41,25 @@ Pebblegram 3.6 is a maintenance release focused on login and reply bugs.
 - Fixed iOS login hanging on "Requesting Telegram login..." by no longer replacing the phone app's WebSocket (#7, #8).
 - Fixed two-step (cloud password) login looping back to the password prompt (#6).
 - The login code cooldown now starts only after Telegram actually sends a code, and the watch says where the code was sent (Telegram app, SMS, call).
+
+### Emoji
+
 - Much wider emoji support: on PebbleOS 4.29 and newer, all ~1,400 emoji the watch fonts include now show as emoji in messages, chat names, stickers and reactions. Anything the watch can't draw shows as its name, like `:partying_face:` or `:flag_de:`, instead of a generic `:emoji:`. Older firmware keeps its smaller set and names the rest.
 - The React menu now offers every Telegram standard reaction your watch can draw (69 on PebbleOS 4.29+), and the Emoji reply menu has 84 choices. Messages can show up to six reactions, and Premium custom-emoji reactions show the emoji they stand for.
+
+### Keyboard (Pebble Time 2 and Round 2)
+
+- The on-screen touch keyboard is back and reworked. Tap "New message" at the bottom of a chat, or pick Keyboard from the Select menu.
+- No dead spots between keys; the key under your finger lights up and you can slide to correct before letting go.
+- Holding delete keeps deleting. Sentences are capitalised automatically; double-tap the shift arrow for caps lock. A second symbols page is available.
+- The text box scrolls so you can always see what you're typing, and on Round 2 the keys fit inside the circle.
+- Drafts survive menus and the Back button ("Continue draft"). A failed send is marked "not sent" and your text comes back.
+- New menu options: Keyboard, Type Reply, and Edit by Keyboard. Voice stays at the top of the menu.
+
+### Other
+
 - Added a native Pebble 2 Duo (Flint) build.
-- Built with the current Core Devices SDK (Emery and Gabbro now have 128 KB of app memory).
+- Built with the current Core Devices SDK, stamped to install on the same watch firmware as 3.5.
 
 Thanks to @SimonIlic (#8) and @twodotwill (#9) for tracking down the login bugs.
 
