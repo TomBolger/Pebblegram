@@ -77,11 +77,8 @@
 #define IMAGE_DIAG_LOGS 0
 #define STATUS_CLEAR_MS 1000
 #define VIEW_TRANSITION_MS 120
-#define TOUCH_KEYBOARD_ENABLED 0
-#define TOUCH_KEYBOARD_MAX_TEXT 120
-#define TOUCH_KEYBOARD_INPUT_H 30
-#define TOUCH_KEYBOARD_ROW_H 21
-#define TOUCH_KEYBOARD_ROWS 4
+#define TOUCH_KEYBOARD_ENABLED 1
+#define TOUCH_KEYBOARD_MAX_TEXT 400
 #ifdef _PBL_API_EXISTS_touch_service_subscribe
 #define TOUCH_KEYBOARD_AVAILABLE 1
 #else
@@ -132,8 +129,17 @@ typedef enum {
   ActionItemMarkUnread,
   ActionItemGoBack,
   ActionItemConfirmSend,
-  ActionItemConfirmCancel
+  ActionItemConfirmCancel,
+  ActionItemKeyboard,
+  ActionItemReplyKeyboard,
+  ActionItemEditKeyboard
 } ActionItem;
+
+typedef enum {
+  KeyboardModeCompose,
+  KeyboardModeReply,
+  KeyboardModeEdit
+} KeyboardMode;
 
 typedef struct {
   char id[MAX_ID];
@@ -231,6 +237,8 @@ static int s_full_text_height;
 static bool s_full_text_context;
 static bool s_native_has_deferred_mode;
 static bool s_native_deferred_dictation;
+static int s_native_deferred_keyboard = -1;
+static char s_native_deferred_keyboard_target[MAX_ID];
 static char s_full_text_title[MAX_SENDER + 10];
 static char *s_full_text_body;
 
@@ -276,8 +284,10 @@ static char s_pending_edit_message_id[MAX_ID];
 static char s_pending_chat_command[24];
 static bool s_pending_send_as_reply;
 static bool s_touch_keyboard_open;
+#if TOUCH_KEYBOARD_AVAILABLE
 static bool s_touch_keyboard_symbols;
 static bool s_touch_keyboard_shift;
+#endif
 static char s_touch_keyboard_sent_text[TOUCH_KEYBOARD_MAX_TEXT];
 static char s_current_chat_id[MAX_ID];
 static char s_current_chat_title[48];
@@ -373,9 +383,19 @@ static void start_dictation(void);
 static void action_click_config_provider(void *context);
 static void action_window_unload(Window *window);
 #if TOUCH_KEYBOARD_AVAILABLE
-static int touch_keyboard_height(void);
+static int touch_keyboard_viewport_height(GRect bounds);
 static void touch_handler(const TouchEvent *event, void *context);
 #endif
+static bool touch_keyboard_supported(void);
+static void close_touch_keyboard(void);
+static void reset_touch_keyboard(void);
+static void open_touch_keyboard(KeyboardMode mode, const char *target_id, const char *initial_text);
+static void touch_keyboard_send_result(bool ok);
+static bool touch_keyboard_has_draft(void);
+static int find_message_index_by_id(const char *id);
+static void remove_message_at(int index);
+static void set_chat_scroll_offset(int offset, bool animated);
+static GRect compose_rect_for_bounds(GRect bounds);
 static bool selected_message_is_truncated(void);
 static bool selected_message_has_context(void);
 static bool has_selected_message(void);
@@ -486,6 +506,21 @@ static void copy_cstr(char *dest, size_t dest_size, const char *src) {
   strncpy(dest, src, dest_size - 1);
   dest[dest_size - 1] = '\0';
   trim_incomplete_utf8(dest);
+}
+
+static bool text_matches_ignoring_trailing_space(const char *a, const char *b) {
+  if (!a || !b) {
+    return false;
+  }
+  size_t la = strlen(a);
+  size_t lb = strlen(b);
+  while (la > 0 && (a[la - 1] == ' ' || a[la - 1] == '\n')) {
+    la--;
+  }
+  while (lb > 0 && (b[lb - 1] == ' ' || b[lb - 1] == '\n')) {
+    lb--;
+  }
+  return la == lb && strncmp(a, b, la) == 0;
 }
 
 static char s_empty_message_string[] = "";
@@ -1061,7 +1096,7 @@ static bool message_image_visible(int index) {
 
 static int visible_message_height(GRect bounds) {
 #if TOUCH_KEYBOARD_AVAILABLE
-  return s_touch_keyboard_open ? PG_MAX(1, bounds.size.h - touch_keyboard_height()) : bounds.size.h;
+  return s_touch_keyboard_open ? touch_keyboard_viewport_height(bounds) : bounds.size.h;
 #else
   return bounds.size.h;
 #endif
@@ -1683,7 +1718,7 @@ static int clamp_scroll_offset(int offset) {
   int visible_h = bounds.size.h;
 #if TOUCH_KEYBOARD_AVAILABLE
   if (s_touch_keyboard_open) {
-    visible_h = PG_MAX(1, visible_h - touch_keyboard_height());
+    visible_h = touch_keyboard_viewport_height(bounds);
   }
 #endif
   int max_offset = PG_MAX(0, s_chat_content_height - visible_h);
@@ -2145,8 +2180,7 @@ static void recalc_message_layout(void) {
 
   GRect bounds = layer_get_bounds(s_messages_root);
 #if TOUCH_KEYBOARD_AVAILABLE
-  int visible_h = s_touch_keyboard_open ? PG_MAX(1, bounds.size.h - touch_keyboard_height()) :
-                                          bounds.size.h;
+  int visible_h = s_touch_keyboard_open ? touch_keyboard_viewport_height(bounds) : bounds.size.h;
 #else
   int visible_h = bounds.size.h;
 #endif
@@ -2343,142 +2377,575 @@ static GRect compose_rect_for_bounds(GRect bounds) {
 }
 
 #if TOUCH_KEYBOARD_AVAILABLE
-static int touch_keyboard_height(void) {
-  return TOUCH_KEYBOARD_INPUT_H + (TOUCH_KEYBOARD_ROW_H * TOUCH_KEYBOARD_ROWS);
+// ---------------------------------------------------------------------------
+// On-screen keyboard (touch watches: Pebble Time 2 / Emery, Round 2 / Gabbro)
+//
+// Layout is 20 "units" wide per row so every row lines up:
+//   row 0: 10 letters x 2 units
+//   row 1:  9 letters x 2 units, centred (1 unit pad each side)
+//   row 2: shift 3 + 7 letters x 2 + delete 3
+//   row 3: 123 5 + space 10 + send 5
+// Taps are matched to the nearest key in the touched row, so there are no
+// dead zones between keys. Keys commit on lift-off (slide to correct), except
+// delete, which fires on touch-down and repeats while held.
+// ---------------------------------------------------------------------------
+
+#define KB_UNITS 20
+#define KB_INPUT_H 28
+#define KB_ROW_H PBL_IF_ROUND_ELSE(24, 22)
+#define KB_ROWS 4
+#define KB_PAD 3
+#define KB_ROUND_BOTTOM_GAP 22
+#define KB_REPEAT_DELAY_MS 450
+#define KB_REPEAT_MS 90
+#define KB_DOUBLE_TAP_MS 400
+
+typedef enum {
+  KeyNone,
+  KeyChar,
+  KeyShift,
+  KeyDelete,
+  KeySymbols,
+  KeySpace,
+  KeySend
+} KeyKind;
+
+typedef struct {
+  KeyKind kind;
+  char ch;
+  int8_t row;
+  int8_t index;
+} KeyHit;
+
+static const char *const KB_ALPHA[3] = {"qwertyuiop", "asdfghjkl", "zxcvbnm"};
+static const char *const KB_SYMBOLS[3] = {"1234567890", "-/:;()$&@", ".,?!'\"+"};
+static const char *const KB_SYMBOLS_2[3] = {"[]{}#%^*+=", "_\\|~<>`;:", ".,?!'\"@"};
+
+static KeyboardMode s_kb_mode;
+static char s_kb_draft[TOUCH_KEYBOARD_MAX_TEXT];
+static char s_kb_target_id[MAX_ID];
+static bool s_kb_caps_lock;
+static bool s_kb_press_active;
+static KeyHit s_kb_pressed;
+static AppTimer *s_kb_repeat_timer;
+static uint32_t s_kb_last_shift_ms;
+static int s_kb_view_start;
+static bool s_kb_touch_checked;
+static bool s_kb_touch_ok;
+static bool s_kb_awaiting_send;
+
+static bool kb_hit_equal(KeyHit a, KeyHit b) {
+  return a.kind == b.kind && a.row == b.row && a.index == b.index;
 }
 
-static GRect touch_keyboard_rect_for_bounds(GRect bounds) {
-  int keyboard_h = touch_keyboard_height();
-  return GRect(0, bounds.size.h - keyboard_h, bounds.size.w, keyboard_h);
+static uint32_t kb_now_ms(void) {
+  time_t seconds;
+  uint16_t millis;
+  time_ms(&seconds, &millis);
+  return (uint32_t)seconds * 1000 + millis;
 }
 
-static void close_touch_keyboard(void) {
-  if (!s_touch_keyboard_open) {
-    return;
+// Touch arrived in PebbleOS 4.9.164, and the "non-navigational" flag in 4.32.
+static WatchInfoVersion kb_firmware(void) {
+  return watch_info_get_firmware_version();
+}
+
+static bool kb_firmware_at_least(int major, int minor, int patch) {
+  WatchInfoVersion v = kb_firmware();
+  if (v.major != major) {
+    return v.major > major;
   }
-  s_touch_keyboard_open = false;
-  s_touch_keyboard_symbols = false;
-  s_touch_keyboard_shift = false;
-  s_pending_text[0] = '\0';
-  if (s_messages_root) {
-    layer_mark_dirty(s_messages_root);
+  if (v.minor != minor) {
+    return v.minor > minor;
   }
+  return v.patch >= patch;
 }
 
-static void open_touch_keyboard(void) {
+static bool touch_keyboard_supported(void) {
   if (!TOUCH_KEYBOARD_ENABLED) {
+    return false;
+  }
+  if (!s_kb_touch_checked) {
+    s_kb_touch_checked = true;
+    s_kb_touch_ok = kb_firmware_at_least(4, 9, 164) && touch_service_is_enabled();
+  }
+  return s_kb_touch_ok;
+}
+
+static const char *const *kb_rows(void) {
+  if (!s_touch_keyboard_symbols) {
+    return KB_ALPHA;
+  }
+  return s_touch_keyboard_shift ? KB_SYMBOLS_2 : KB_SYMBOLS;
+}
+
+static int kb_block_height(void) {
+  return KB_INPUT_H + (KB_ROW_H * KB_ROWS) + KB_PAD;
+}
+
+// Whole keyboard (input field + keys) in message-layer coordinates.
+static GRect touch_keyboard_rect_for_bounds(GRect bounds) {
+  int h = kb_block_height();
+  int bottom = bounds.size.h - (ROUND_UI ? KB_ROUND_BOTTOM_GAP : 0);
+  return GRect(0, PG_MAX(0, bottom - h), bounds.size.w, h);
+}
+
+// Height of the message area left visible above the keyboard.
+static int touch_keyboard_viewport_height(GRect bounds) {
+  return PG_MAX(1, touch_keyboard_rect_for_bounds(bounds).origin.y);
+}
+
+#if defined(PBL_ROUND)
+static int kb_isqrt(int value) {
+  if (value <= 0) {
+    return 0;
+  }
+  int root = value;
+  int next = (root + 1) / 2;
+  while (next < root) {
+    root = next;
+    next = (root + value / root) / 2;
+  }
+  return root;
+}
+#endif
+
+// Horizontal span usable between y_top and y_bottom. On round screens this is
+// the circle's chord, so keys never fall off the curved edge.
+static void kb_span(GRect bounds, int y_top, int y_bottom, int *x, int *w) {
+  *x = 2;
+  *w = bounds.size.w - 4;
+#if defined(PBL_ROUND)
+  if (s_messages_root) {
+    GRect frame = layer_get_frame(s_messages_root);
+    int radius = PBL_DISPLAY_WIDTH / 2;
+    int cy = PBL_DISPLAY_HEIGHT / 2;
+    int top = y_top + frame.origin.y - cy;
+    int bottom = y_bottom + frame.origin.y - cy;
+    int dy = PG_MAX(top < 0 ? -top : top, bottom < 0 ? -bottom : bottom);
+    int half = kb_isqrt((radius * radius) - (dy * dy)) - 4;
+    half = PG_MAX(24, PG_MIN(half, bounds.size.w / 2 - 2));
+    *x = (PBL_DISPLAY_WIDTH / 2) - frame.origin.x - half;
+    *w = half * 2;
+  }
+#endif
+}
+
+static int kb_row_top(GRect keyboard_rect, int row) {
+  return keyboard_rect.origin.y + KB_INPUT_H + (row * KB_ROW_H);
+}
+
+// Unit range [start, start + count) for a key in a row.
+static void kb_key_units(int row, int index, int *start, int *count) {
+  if (row == 0) {
+    *start = index * 2;
+    *count = 2;
+  } else if (row == 1) {
+    *start = 1 + index * 2;
+    *count = 2;
+  } else if (row == 2) {
+    if (index == 0) {
+      *start = 0;
+      *count = 3;
+    } else if (index == 8) {
+      *start = 17;
+      *count = 3;
+    } else {
+      *start = 3 + (index - 1) * 2;
+      *count = 2;
+    }
+  } else {
+    static const int starts[3] = {0, 5, 15};
+    static const int counts[3] = {5, 10, 5};
+    *start = starts[index];
+    *count = counts[index];
+  }
+}
+
+static int kb_row_key_count(int row) {
+  return row == 0 ? 10 : row == 1 ? 9 : row == 2 ? 9 : 3;
+}
+
+static KeyHit kb_key_at(int row, int index) {
+  KeyHit hit = {KeyNone, '\0', (int8_t)row, (int8_t)index};
+  const char *const *rows = kb_rows();
+  if (row == 0 || row == 1) {
+    hit.kind = KeyChar;
+    hit.ch = rows[row][index];
+  } else if (row == 2) {
+    if (index == 0) {
+      hit.kind = KeyShift;
+    } else if (index == 8) {
+      hit.kind = KeyDelete;
+    } else {
+      hit.kind = KeyChar;
+      hit.ch = rows[2][index - 1];
+    }
+  } else if (row == 3) {
+    hit.kind = index == 0 ? KeySymbols : index == 1 ? KeySpace : KeySend;
+  }
+  return hit;
+}
+
+static GRect kb_key_rect(GRect bounds, GRect keyboard_rect, int row, int index) {
+  int top = kb_row_top(keyboard_rect, row);
+  int x;
+  int w;
+  int start;
+  int count;
+  kb_span(bounds, top, top + KB_ROW_H, &x, &w);
+  kb_key_units(row, index, &start, &count);
+  int left = x + (w * start) / KB_UNITS;
+  int right = x + (w * (start + count)) / KB_UNITS;
+  return GRect(left + 1, top + 1, PG_MAX(1, right - left - 2), KB_ROW_H - 2);
+}
+
+static KeyHit kb_hit_test(GRect bounds, GPoint point) {
+  KeyHit none = {KeyNone, '\0', -1, -1};
+  GRect keyboard_rect = touch_keyboard_rect_for_bounds(bounds);
+  int rows_top = kb_row_top(keyboard_rect, 0);
+  int rows_bottom = kb_row_top(keyboard_rect, KB_ROWS);
+  // A little slack above the top row and below the bottom row.
+  if (point.y < rows_top - 6 || point.y > rows_bottom + 10) {
+    return none;
+  }
+  int row = PG_MAX(0, PG_MIN(KB_ROWS - 1, (point.y - rows_top) / KB_ROW_H));
+  int top = kb_row_top(keyboard_rect, row);
+  int x;
+  int w;
+  kb_span(bounds, top, top + KB_ROW_H, &x, &w);
+  int unit = w > 0 ? ((point.x - x) * KB_UNITS) / w : 0;
+  unit = PG_MAX(0, PG_MIN(KB_UNITS - 1, unit));
+  int count = kb_row_key_count(row);
+  for (int i = 0; i < count; i++) {
+    int start;
+    int units;
+    kb_key_units(row, i, &start, &units);
+    if (unit < start + units || i == count - 1) {
+      return kb_key_at(row, i);
+    }
+  }
+  return none;
+}
+
+static bool kb_sentence_start(void) {
+  size_t len = strlen(s_kb_draft);
+  if (len == 0) {
+    return true;
+  }
+  if (s_kb_draft[len - 1] != ' ') {
+    return false;
+  }
+  while (len > 0 && s_kb_draft[len - 1] == ' ') {
+    len--;
+  }
+  if (len == 0) {
+    return true;
+  }
+  char last = s_kb_draft[len - 1];
+  return last == '.' || last == '!' || last == '?';
+}
+
+// Auto-capitalise the first letter of the message and of each sentence.
+static void kb_update_auto_shift(void) {
+  if (s_touch_keyboard_symbols || s_kb_caps_lock || s_kb_mode == KeyboardModeEdit) {
     return;
   }
-  s_touch_keyboard_open = true;
-  s_touch_keyboard_symbols = false;
-  s_touch_keyboard_shift = false;
-  s_pending_text[0] = '\0';
-  show_status("Type message");
+  s_touch_keyboard_shift = kb_sentence_start();
+}
+
+static int kb_input_text_width(void) {
+  GRect bounds = s_messages_root ? layer_get_bounds(s_messages_root) : GRect(0, 0, 200, 200);
+  GRect keyboard_rect = touch_keyboard_rect_for_bounds(bounds);
+  int x;
+  int w;
+  kb_span(bounds, keyboard_rect.origin.y, keyboard_rect.origin.y + KB_INPUT_H, &x, &w);
+  return PG_MAX(20, w - 24);
+}
+
+static int kb_text_width(const char *text) {
+  if (!text[0]) {
+    return 0;
+  }
+  GSize size = graphics_text_layout_get_content_size(
+    text, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(0, 0, 2000, 24),
+    GTextOverflowModeFill, GTextAlignmentLeft);
+  return size.w;
+}
+
+static bool kb_is_continuation(char c) {
+  return ((unsigned char)c & 0xc0) == 0x80;
+}
+
+// Keep the end of the draft (where you are typing) visible in the input field.
+static void kb_update_view(void) {
+  int available = kb_input_text_width();
+  int len = (int)strlen(s_kb_draft);
+  int start = PG_MIN(s_kb_view_start, len);
+  if (kb_text_width(s_kb_draft) <= available) {
+    s_kb_view_start = 0;
+    return;
+  }
+  while (start > 0 && kb_is_continuation(s_kb_draft[start])) {
+    start--;
+  }
+  // Move the window left if we deleted back into it.
+  while (start > 0 && kb_text_width(s_kb_draft + start) < available - 30) {
+    start = PG_MAX(0, start - 4);
+    while (start > 0 && kb_is_continuation(s_kb_draft[start])) {
+      start--;
+    }
+  }
+  // Move it right until the tail fits.
+  while (start < len && kb_text_width(s_kb_draft + start) > available) {
+    start += 3;
+    while (start < len && kb_is_continuation(s_kb_draft[start])) {
+      start++;
+    }
+  }
+  s_kb_view_start = PG_MIN(start, len);
+}
+
+static void kb_dirty(void) {
   if (s_messages_root) {
-    recalc_message_layout();
-    set_chat_scroll_offset(s_chat_content_height, true);
     layer_mark_dirty(s_messages_root);
   }
 }
 
-static const char *touch_keyboard_chars_for_row(int row) {
-  static const char *alpha[] = {"qwertyuiop", "asdfghjkl", "zxcvbnm"};
-  static const char *symbols[] = {"1234567890", "-/:;()$&@", ".,!?'\"+"};
-  return s_touch_keyboard_symbols ? symbols[row] : alpha[row];
+static void kb_draft_changed(void) {
+  kb_update_view();
+  kb_update_auto_shift();
+  kb_dirty();
 }
 
-static GRect touch_keyboard_key_rect(GRect keyboard_rect, int row, int start_unit,
-                                     int unit_count, int total_units) {
-  int row_y = keyboard_rect.origin.y + TOUCH_KEYBOARD_INPUT_H + (row * TOUCH_KEYBOARD_ROW_H);
-  int left = (keyboard_rect.size.w * start_unit) / total_units;
-  int right = (keyboard_rect.size.w * (start_unit + unit_count)) / total_units;
-  return GRect(keyboard_rect.origin.x + left + 1, row_y + 1,
-               PG_MAX(1, right - left - 2), TOUCH_KEYBOARD_ROW_H - 2);
-}
-
-static bool touch_keyboard_point_in_key(GRect keyboard_rect, GPoint point, int row,
-                                        int start_unit, int unit_count, int total_units) {
-  GRect rect = touch_keyboard_key_rect(keyboard_rect, row, start_unit, unit_count, total_units);
-  return grect_contains_point(&rect, &point);
-}
-
-static char touch_keyboard_char_at(GRect keyboard_rect, GPoint point, char *action) {
-  if (action) {
-    *action = '\0';
-  }
-  if (!grect_contains_point(&keyboard_rect, &point) ||
-      point.y < keyboard_rect.origin.y + TOUCH_KEYBOARD_INPUT_H) {
-    return '\0';
-  }
-
-  for (int row = 0; row < 2; row++) {
-    const char *chars = touch_keyboard_chars_for_row(row);
-    int len = strlen(chars);
-    for (int i = 0; i < len; i++) {
-      if (touch_keyboard_point_in_key(keyboard_rect, point, row, i, 1, len)) {
-        return chars[i];
-      }
-    }
-  }
-
-  const char *third_row = touch_keyboard_chars_for_row(2);
-  if (touch_keyboard_point_in_key(keyboard_rect, point, 2, 0, 2, 11)) {
-    if (action) *action = '^';
-    return '\0';
-  }
-  for (int i = 0; i < 7; i++) {
-    if (touch_keyboard_point_in_key(keyboard_rect, point, 2, i + 2, 1, 11)) {
-      return third_row[i];
-    }
-  }
-  if (touch_keyboard_point_in_key(keyboard_rect, point, 2, 9, 2, 11)) {
-    if (action) *action = 'b';
-    return '\0';
-  }
-
-  if (touch_keyboard_point_in_key(keyboard_rect, point, 3, 0, 2, 10)) {
-    if (action) *action = 'm';
-  } else if (touch_keyboard_point_in_key(keyboard_rect, point, 3, 2, 5, 10)) {
-    if (action) *action = ' ';
-  } else if (touch_keyboard_point_in_key(keyboard_rect, point, 3, 7, 3, 10)) {
-    if (action) *action = '>';
-  }
-  return '\0';
-}
-
-static void append_touch_keyboard_char(char ch) {
-  size_t current = strlen(s_pending_text);
-  if (current + 1 >= TOUCH_KEYBOARD_MAX_TEXT) {
+static void kb_append(const char *text) {
+  size_t current = strlen(s_kb_draft);
+  size_t add = strlen(text);
+  if (current + add + 1 > sizeof(s_kb_draft)) {
     show_status("Message full");
+    vibes_short_pulse();
     return;
   }
+  memcpy(s_kb_draft + current, text, add + 1);
+}
+
+static void kb_type_char(char ch) {
   if (!s_touch_keyboard_symbols && s_touch_keyboard_shift && ch >= 'a' && ch <= 'z') {
     ch = (char)(ch - 'a' + 'A');
   }
-  s_pending_text[current] = ch;
-  s_pending_text[current + 1] = '\0';
-  s_touch_keyboard_shift = false;
-}
-
-static void backspace_touch_keyboard_text(void) {
-  size_t len = strlen(s_pending_text);
-  if (len > 0) {
-    s_pending_text[len - 1] = '\0';
+  char text[2] = {ch, '\0'};
+  kb_append(text);
+  if (!s_kb_caps_lock && !s_touch_keyboard_symbols) {
+    s_touch_keyboard_shift = false;
   }
+  kb_draft_changed();
 }
 
-static void send_touch_keyboard_text(void) {
-  if (!s_pending_text[0]) {
-    show_status("Type message");
+// Deletes one whole character, including multi-byte UTF-8 (emoji in an edit).
+static void kb_delete(void) {
+  size_t len = strlen(s_kb_draft);
+  if (len == 0) {
     return;
   }
-  char text[TOUCH_KEYBOARD_MAX_TEXT];
-  copy_cstr(text, sizeof(text), s_pending_text);
-  copy_cstr(s_touch_keyboard_sent_text, sizeof(s_touch_keyboard_sent_text), text);
+  len--;
+  while (len > 0 && kb_is_continuation(s_kb_draft[len])) {
+    len--;
+  }
+  s_kb_draft[len] = '\0';
+  kb_draft_changed();
+}
+
+static void kb_cancel_repeat(void) {
+  if (s_kb_repeat_timer) {
+    app_timer_cancel(s_kb_repeat_timer);
+    s_kb_repeat_timer = NULL;
+  }
+}
+
+static void kb_repeat_callback(void *context) {
+  s_kb_repeat_timer = NULL;
+  if (!s_touch_keyboard_open || !s_kb_press_active || s_kb_pressed.kind != KeyDelete ||
+      !s_kb_draft[0]) {
+    return;
+  }
+  kb_delete();
+  s_kb_repeat_timer = app_timer_register(KB_REPEAT_MS, kb_repeat_callback, NULL);
+}
+
+static void kb_reset_press(void) {
+  kb_cancel_repeat();
+  s_kb_press_active = false;
+  s_kb_pressed.kind = KeyNone;
+  s_kb_pressed.row = -1;
+  s_kb_pressed.index = -1;
+}
+
+static const char *kb_placeholder(void) {
+  switch (s_kb_mode) {
+    case KeyboardModeReply:
+      return "Reply...";
+    case KeyboardModeEdit:
+      return "Edit message...";
+    case KeyboardModeCompose:
+      break;
+  }
+  return "Message...";
+}
+
+static const char *kb_send_label(void) {
+  return s_kb_mode == KeyboardModeEdit ? "save" : "send";
+}
+
+static void close_touch_keyboard(void) {
+  kb_reset_press();
+  if (!s_touch_keyboard_open) {
+    return;
+  }
+  // The draft is kept, so reopening the keyboard picks up where you left off.
   s_touch_keyboard_open = false;
+  if (s_messages_root) {
+    recalc_message_layout();
+    layer_mark_dirty(s_messages_root);
+  }
+}
+
+// Forget the draft entirely (after sending, or when switching chats).
+static void reset_touch_keyboard(void) {
+  close_touch_keyboard();
+  s_kb_draft[0] = '\0';
+  s_kb_target_id[0] = '\0';
+  s_kb_mode = KeyboardModeCompose;
+  s_kb_view_start = 0;
+  s_kb_caps_lock = false;
   s_touch_keyboard_symbols = false;
   s_touch_keyboard_shift = false;
-  s_pending_text[0] = '\0';
+}
+
+static void open_touch_keyboard(KeyboardMode mode, const char *target_id, const char *initial_text) {
+  if (!touch_keyboard_supported() || s_view_state != ViewStateChat || !s_messages_root) {
+    return;
+  }
+  if (mode == KeyboardModeCompose && s_kb_draft[0]) {
+    // "New message" / "Keyboard" resumes whatever you were typing.
+    mode = s_kb_mode;
+    target_id = s_kb_target_id[0] ? s_kb_target_id : NULL;
+  }
+  bool same_target = mode == s_kb_mode &&
+                     strcmp(s_kb_target_id, target_id ? target_id : "") == 0;
+  if (!same_target) {
+    // Different conversation target: start fresh (edits start from the message text).
+    s_kb_draft[0] = '\0';
+    s_kb_view_start = 0;
+  }
+  s_kb_mode = mode;
+  copy_cstr(s_kb_target_id, sizeof(s_kb_target_id), target_id);
+  if (initial_text && !s_kb_draft[0]) {
+    copy_cstr(s_kb_draft, sizeof(s_kb_draft), initial_text);
+  }
+  s_touch_keyboard_open = true;
+  s_touch_keyboard_symbols = false;
+  s_kb_caps_lock = false;
+  s_touch_keyboard_shift = false;
+  kb_reset_press();
+  kb_update_view();
+  kb_update_auto_shift();
+  show_status(mode == KeyboardModeEdit ? "Edit message" : mode == KeyboardModeReply ? "Reply" :
+                                                                                       "Type message");
+  recalc_message_layout();
+  set_chat_scroll_offset(s_chat_content_height, true);
+  layer_mark_dirty(s_messages_root);
+}
+
+static void kb_mark_pending_failed(void) {
+  int index = find_message_index_by_id("pending");
+  if (index >= 0) {
+    Message *message = &s_messages[index];
+    char text[TOUCH_KEYBOARD_MAX_TEXT];
+    copy_cstr(text, sizeof(text), message->text);
+    set_message_strings(message, NULL, text, NULL, "not sent", NULL);
+    copy_cstr(message->id, sizeof(message->id), "failed");
+  }
+  if (!s_kb_draft[0]) {
+    copy_cstr(s_kb_draft, sizeof(s_kb_draft), s_touch_keyboard_sent_text);
+    s_kb_view_start = 0;
+  }
+  s_touch_keyboard_sent_text[0] = '\0';
+  s_kb_awaiting_send = false;
+  if (s_messages_root) {
+    recalc_message_layout();
+    layer_mark_dirty(s_messages_root);
+  }
+}
+
+// Called from the inbox for "sent" / "error" replies.
+static bool touch_keyboard_has_draft(void) {
+  return s_kb_draft[0] != '\0';
+}
+
+static void touch_keyboard_send_result(bool ok) {
+  if (!s_kb_awaiting_send) {
+    return;
+  }
+  if (ok) {
+    s_kb_awaiting_send = false;
+    int index = find_message_index_by_id("pending");
+    if (index >= 0) {
+      Message *message = &s_messages[index];
+      char text[TOUCH_KEYBOARD_MAX_TEXT];
+      copy_cstr(text, sizeof(text), message->text);
+      set_message_strings(message, NULL, text, NULL, "sent", NULL);
+      kb_dirty();
+    }
+  } else {
+    kb_mark_pending_failed();
+    show_status("Not sent - reopen keyboard to retry");
+  }
+}
+
+static void kb_trim_trailing_spaces(char *text) {
+  size_t len = strlen(text);
+  while (len > 0 && (text[len - 1] == ' ' || text[len - 1] == '\n')) {
+    text[--len] = '\0';
+  }
+}
+
+static void kb_send(void) {
+  char text[TOUCH_KEYBOARD_MAX_TEXT];
+  copy_cstr(text, sizeof(text), s_kb_draft);
+  kb_trim_trailing_spaces(text);
+  if (!text[0]) {
+    show_status("Type a message first");
+    return;
+  }
+
+  if (s_kb_mode == KeyboardModeEdit) {
+    if (!s_kb_target_id[0]) {
+      show_status("No edit target");
+      return;
+    }
+    show_status("Editing...");
+    if (!send_command("edit_message", s_current_chat_id, text, NULL, s_kb_target_id)) {
+      return;  // Busy: keep the keyboard open so nothing is lost.
+    }
+    reset_touch_keyboard();
+    return;
+  }
+
+  const char *reply_to = (s_kb_mode == KeyboardModeReply && s_kb_target_id[0]) ? s_kb_target_id : NULL;
+  show_status("Sending...");
+  if (!send_command("send_message", s_current_chat_id, text, reply_to, NULL)) {
+    return;  // Busy: keep the draft and keyboard so the user can tap send again.
+  }
+
+  copy_cstr(s_touch_keyboard_sent_text, sizeof(s_touch_keyboard_sent_text), text);
+  s_kb_awaiting_send = true;
+  reset_touch_keyboard();
+
+  // Show the message straight away; the real one replaces it when it arrives.
+  int stale = find_message_index_by_id("failed");
+  if (stale >= 0) {
+    remove_message_at(stale);
+  }
   Message *slot = append_message_slot();
   copy_cstr(slot->id, sizeof(slot->id), "pending");
   set_message_strings(slot, NULL, text, NULL, "...", NULL);
@@ -2489,105 +2956,228 @@ static void send_touch_keyboard_text(void) {
   if (s_messages_root) {
     recalc_message_layout();
     set_chat_scroll_offset(s_chat_content_height, true);
-  }
-  send_text_message(text, false);
-  if (s_messages_root) {
     layer_mark_dirty(s_messages_root);
   }
 }
 
-static void handle_touch_keyboard_key(char ch, char action) {
-  if (ch) {
-    append_touch_keyboard_char(ch);
-  } else if (action == ' ') {
-    append_touch_keyboard_char(' ');
-  } else if (action == 'b') {
-    backspace_touch_keyboard_text();
-  } else if (action == '^') {
-    s_touch_keyboard_shift = !s_touch_keyboard_shift;
-  } else if (action == 'm') {
-    s_touch_keyboard_symbols = !s_touch_keyboard_symbols;
-    s_touch_keyboard_shift = false;
-  } else if (action == '>') {
-    send_touch_keyboard_text();
-    return;
-  }
-  if (s_messages_root) {
-    layer_mark_dirty(s_messages_root);
-  }
-}
-
-static void draw_touch_keyboard_key(GContext *ctx, GRect rect, const char *label) {
-  graphics_context_set_fill_color(ctx, GColorLightGray);
-  graphics_fill_rect(ctx, rect, 0, GCornerNone);
-  graphics_context_set_stroke_color(ctx, GColorBlack);
-  graphics_draw_rect(ctx, rect);
-  graphics_context_set_text_color(ctx, GColorBlack);
-  graphics_draw_text(ctx, label, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
-                     GRect(rect.origin.x, rect.origin.y + 1, rect.size.w, rect.size.h - 1),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
-}
-
-static void draw_touch_keyboard_char_row(GContext *ctx, GRect keyboard_rect, int row) {
-  const char *chars = touch_keyboard_chars_for_row(row);
-  int len = strlen(chars);
-  char label[2] = {'\0', '\0'};
-  for (int i = 0; i < len; i++) {
-    label[0] = chars[i];
-    if (!s_touch_keyboard_symbols && s_touch_keyboard_shift && label[0] >= 'a' && label[0] <= 'z') {
-      label[0] = (char)(label[0] - 'a' + 'A');
+static void kb_activate(KeyHit hit) {
+  switch (hit.kind) {
+    case KeyChar:
+      kb_type_char(hit.ch);
+      return;
+    case KeySpace:
+      kb_append(" ");
+      kb_draft_changed();
+      return;
+    case KeyShift: {
+      uint32_t now = kb_now_ms();
+      if (s_touch_keyboard_symbols) {
+        s_touch_keyboard_shift = !s_touch_keyboard_shift;  // second symbols page
+      } else if (s_kb_caps_lock) {
+        s_kb_caps_lock = false;
+        s_touch_keyboard_shift = false;
+      } else if (s_touch_keyboard_shift && now - s_kb_last_shift_ms < KB_DOUBLE_TAP_MS) {
+        s_kb_caps_lock = true;  // double-tap shift = caps lock
+      } else {
+        s_touch_keyboard_shift = !s_touch_keyboard_shift;
+      }
+      s_kb_last_shift_ms = now;
+      kb_dirty();
+      return;
     }
-    draw_touch_keyboard_key(ctx, touch_keyboard_key_rect(keyboard_rect, row, i, 1, len), label);
+    case KeySymbols:
+      s_touch_keyboard_symbols = !s_touch_keyboard_symbols;
+      s_touch_keyboard_shift = false;
+      s_kb_caps_lock = false;
+      kb_update_auto_shift();
+      kb_dirty();
+      return;
+    case KeySend:
+      kb_send();
+      return;
+    case KeyDelete:
+    case KeyNone:
+      return;
   }
+}
+
+static void draw_touch_keyboard_key(GContext *ctx, GRect rect, const char *label, bool pressed,
+                                    bool special, bool accent) {
+  GColor fill = pressed ? APP_COLOR : accent ? APP_COLOR : special ? GColorLightGray : GColorWhite;
+  GColor text = (pressed || accent) ? GColorWhite : GColorBlack;
+  if (pressed && accent) {
+    fill = GColorPictonBlue;
+  }
+  graphics_context_set_fill_color(ctx, fill);
+  graphics_fill_rect(ctx, rect, 3, GCornersAll);
+  graphics_context_set_text_color(ctx, text);
+  GFont font = fonts_get_system_font(strlen(label) > 1 ? FONT_KEY_GOTHIC_14_BOLD : FONT_KEY_GOTHIC_18_BOLD);
+  int text_y = rect.origin.y + (strlen(label) > 1 ? 2 : -2);
+  graphics_draw_text(ctx, label, font, GRect(rect.origin.x, text_y, rect.size.w, rect.size.h),
+                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+}
+
+static void kb_key_label(KeyHit key, char *buffer, size_t size) {
+  switch (key.kind) {
+    case KeyChar:
+      buffer[0] = key.ch;
+      if (!s_touch_keyboard_symbols && s_touch_keyboard_shift && key.ch >= 'a' && key.ch <= 'z') {
+        buffer[0] = (char)(key.ch - 'a' + 'A');
+      }
+      buffer[1] = '\0';
+      return;
+    case KeyShift:
+      copy_cstr(buffer, size, s_touch_keyboard_symbols ? (s_touch_keyboard_shift ? "123" : "#+=") :
+                              s_kb_caps_lock ? "CAPS" : s_touch_keyboard_shift ? "SHIFT" : "shift");
+      return;
+    case KeyDelete:
+      copy_cstr(buffer, size, "del");
+      return;
+    case KeySymbols:
+      copy_cstr(buffer, size, s_touch_keyboard_symbols ? "ABC" : "123");
+      return;
+    case KeySpace:
+      copy_cstr(buffer, size, "space");
+      return;
+    case KeySend:
+      copy_cstr(buffer, size, kb_send_label());
+      return;
+    case KeyNone:
+      break;
+  }
+  buffer[0] = '\0';
 }
 
 static void draw_touch_keyboard(GContext *ctx, GRect bounds) {
   GRect keyboard_rect = touch_keyboard_rect_for_bounds(bounds);
-  GRect input_rect = GRect(keyboard_rect.origin.x + 7, keyboard_rect.origin.y + 3,
-                          keyboard_rect.size.w - 14, TOUCH_KEYBOARD_INPUT_H - 5);
   graphics_context_set_fill_color(ctx, GColorDarkGray);
-  graphics_fill_rect(ctx, keyboard_rect, 0, GCornerNone);
-  graphics_context_set_fill_color(ctx, BW_UI ? GColorWhite : OUT_BUBBLE);
-  graphics_fill_rect(ctx, input_rect, 6, GCornersAll);
-  graphics_context_set_stroke_color(ctx, BW_UI ? GColorBlack : APP_COLOR);
-  graphics_draw_round_rect(ctx, input_rect, 6);
-  graphics_context_set_text_color(ctx, s_pending_text[0] ? GColorBlack : GColorDarkGray);
-  graphics_draw_text(ctx, s_pending_text[0] ? s_pending_text : "Type...",
-                     fonts_get_system_font(FONT_KEY_GOTHIC_18),
-                     GRect(input_rect.origin.x + 5, input_rect.origin.y + 1,
-                           input_rect.size.w - 10, input_rect.size.h - 2),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  graphics_fill_rect(ctx, GRect(0, keyboard_rect.origin.y, bounds.size.w,
+                                bounds.size.h - keyboard_rect.origin.y), 0, GCornerNone);
 
-  draw_touch_keyboard_char_row(ctx, keyboard_rect, 0);
-  draw_touch_keyboard_char_row(ctx, keyboard_rect, 1);
-  draw_touch_keyboard_key(ctx, touch_keyboard_key_rect(keyboard_rect, 2, 0, 2, 11), "^");
-  const char *third_row = touch_keyboard_chars_for_row(2);
-  char label[2] = {'\0', '\0'};
-  for (int i = 0; i < 7; i++) {
-    label[0] = third_row[i];
-    if (!s_touch_keyboard_symbols && s_touch_keyboard_shift && label[0] >= 'a' && label[0] <= 'z') {
-      label[0] = (char)(label[0] - 'a' + 'A');
-    }
-    draw_touch_keyboard_key(ctx, touch_keyboard_key_rect(keyboard_rect, 2, i + 2, 1, 11), label);
+  // Input field
+  int span_x;
+  int span_w;
+  kb_span(bounds, keyboard_rect.origin.y, keyboard_rect.origin.y + KB_INPUT_H, &span_x, &span_w);
+  GRect input_rect = GRect(span_x + 4, keyboard_rect.origin.y + 3, span_w - 8, KB_INPUT_H - 5);
+  graphics_context_set_fill_color(ctx, GColorWhite);
+  graphics_fill_rect(ctx, input_rect, 6, GCornersAll);
+  graphics_context_set_stroke_color(ctx, APP_COLOR);
+  graphics_draw_round_rect(ctx, input_rect, 6);
+  GRect text_rect = GRect(input_rect.origin.x + 6, input_rect.origin.y - 1,
+                          input_rect.size.w - 12, input_rect.size.h);
+  if (s_kb_draft[0]) {
+    const char *visible = s_kb_draft + PG_MIN(s_kb_view_start, (int)strlen(s_kb_draft));
+    graphics_context_set_text_color(ctx, GColorBlack);
+    graphics_draw_text(ctx, visible, fonts_get_system_font(FONT_KEY_GOTHIC_18), text_rect,
+                       GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+    int cursor_x = text_rect.origin.x + PG_MIN(text_rect.size.w - 2, kb_text_width(visible) + 1);
+    graphics_context_set_fill_color(ctx, APP_COLOR);
+    graphics_fill_rect(ctx, GRect(cursor_x, input_rect.origin.y + 4, 2, input_rect.size.h - 8),
+                       0, GCornerNone);
+  } else {
+    graphics_context_set_text_color(ctx, GColorDarkGray);
+    graphics_draw_text(ctx, kb_placeholder(), fonts_get_system_font(FONT_KEY_GOTHIC_18), text_rect,
+                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
   }
-  draw_touch_keyboard_key(ctx, touch_keyboard_key_rect(keyboard_rect, 2, 9, 2, 11), "<");
-  draw_touch_keyboard_key(ctx, touch_keyboard_key_rect(keyboard_rect, 3, 0, 2, 10),
-                          s_touch_keyboard_symbols ? "ABC" : "#?");
-  draw_touch_keyboard_key(ctx, touch_keyboard_key_rect(keyboard_rect, 3, 2, 5, 10), "space");
-  draw_touch_keyboard_key(ctx, touch_keyboard_key_rect(keyboard_rect, 3, 7, 3, 10), "send");
+
+  // Keys
+  char label[8];
+  for (int row = 0; row < KB_ROWS; row++) {
+    int count = kb_row_key_count(row);
+    for (int i = 0; i < count; i++) {
+      KeyHit key = kb_key_at(row, i);
+      bool pressed = s_kb_press_active && kb_hit_equal(key, s_kb_pressed);
+      bool special = key.kind != KeyChar && key.kind != KeySpace;
+      bool accent = key.kind == KeySend ||
+                    (key.kind == KeyShift && !s_touch_keyboard_symbols &&
+                     (s_touch_keyboard_shift || s_kb_caps_lock));
+      kb_key_label(key, label, sizeof(label));
+      draw_touch_keyboard_key(ctx, kb_key_rect(bounds, keyboard_rect, row, i), label, pressed,
+                              special, accent);
+    }
+  }
 }
-#else
-static void close_touch_keyboard(void) {
-  // Only clear the draft when a keyboard was actually open. Every action menu
-  // calls this on open, so clearing unconditionally wiped canned and dictated
-  // replies before the Send confirmation could send them (issue #11).
-  if (!s_touch_keyboard_open) {
+
+static void touch_handler(const TouchEvent *event, void *context) {
+  if (!event || !touch_keyboard_supported()) {
     return;
   }
-  s_touch_keyboard_open = false;
-  s_touch_keyboard_symbols = false;
-  s_touch_keyboard_shift = false;
-  s_pending_text[0] = '\0';
+  // Menus, dictation and full-text views sit above the chat: ignore touches then.
+  if (window_stack_get_top_window() != s_main_window || s_view_state != ViewStateChat ||
+      !s_messages_root) {
+    kb_reset_press();
+    return;
+  }
+  // A touch that woke the screen shouldn't type (flag exists from PebbleOS 4.32).
+  if (event->non_navigational && kb_firmware_at_least(4, 32, 0)) {
+    return;
+  }
+
+  GRect bounds = layer_get_bounds(s_messages_root);
+  GRect frame = layer_get_frame(s_messages_root);
+  GPoint point = GPoint(event->x - frame.origin.x, event->y - frame.origin.y);
+
+  if (!s_touch_keyboard_open) {
+    if (event->type == TouchEvent_Liftoff && s_at_newest) {
+      GRect compose_rect = compose_rect_for_bounds(bounds);
+      if (grect_contains_point(&compose_rect, &point)) {
+        open_touch_keyboard(KeyboardModeCompose, NULL, NULL);
+      }
+    }
+    return;
+  }
+
+  KeyHit hit = kb_hit_test(bounds, point);
+  switch (event->type) {
+    case TouchEvent_Touchdown:
+      kb_reset_press();
+      s_kb_press_active = hit.kind != KeyNone;
+      s_kb_pressed = hit;
+      if (hit.kind == KeyDelete) {
+        kb_delete();
+        s_kb_repeat_timer = app_timer_register(KB_REPEAT_DELAY_MS, kb_repeat_callback, NULL);
+      }
+      kb_dirty();
+      break;
+    case TouchEvent_PositionUpdate:
+      if (s_kb_press_active && !kb_hit_equal(hit, s_kb_pressed) &&
+          s_kb_pressed.kind != KeyDelete) {
+        // Slide to correct: the highlight follows your finger.
+        s_kb_pressed = hit;
+        kb_dirty();
+      }
+      break;
+    case TouchEvent_Liftoff: {
+      bool was_active = s_kb_press_active;
+      KeyHit pressed = s_kb_pressed;
+      kb_reset_press();
+      if (was_active && pressed.kind != KeyDelete && hit.kind != KeyNone) {
+        kb_activate(hit);
+      }
+      kb_dirty();
+      break;
+    }
+  }
+}
+#else
+static bool touch_keyboard_supported(void) {
+  return false;
+}
+
+static void close_touch_keyboard(void) {
+}
+
+static void reset_touch_keyboard(void) {
+}
+
+static void open_touch_keyboard(KeyboardMode mode, const char *target_id, const char *initial_text) {
+}
+
+static void touch_keyboard_send_result(bool ok) {
+}
+
+static bool touch_keyboard_has_draft(void) {
+  return false;
 }
 #endif
 
@@ -2753,7 +3343,8 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
                                (COMPOSE_BUBBLE_H / 2) - 1);
     }
     graphics_context_set_text_color(ctx, GColorBlack);
-    graphics_draw_text(ctx, "New message", fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+    graphics_draw_text(ctx, touch_keyboard_has_draft() ? "Continue draft" : "New message",
+                       fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
                        GRect(compose_rect.origin.x + 8, compose_rect.origin.y + 3,
                              compose_rect.size.w - 16, compose_rect.size.h - 5),
                        GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
@@ -3391,7 +3982,7 @@ static void request_newer_messages(bool silent) {
 static void request_messages(const char *chat_id) {
   cancel_message_timeout();
   cancel_message_retry();
-  close_touch_keyboard();
+  reset_touch_keyboard();
   destroy_message_images();
   clear_message_stage();
   s_loading_older_messages = false;
@@ -3600,6 +4191,9 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
 
   if (strcmp(type, "error") == 0) {
     char *error = tuple_cstring(iter, MESSAGE_KEY_Error);
+    if (error && strncmp(error, "Send failed", 11) == 0) {
+      touch_keyboard_send_result(false);
+    }
     cancel_message_timeout();
     cancel_message_retry();
     if (s_chat_retry_timer) {
@@ -3759,12 +4353,21 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
       anchor_y = s_message_y[s_selected_message];
     }
     char *incoming_text = tuple_cstring(iter, MESSAGE_KEY_Text);
-    bool replaces_pending = s_touch_keyboard_sent_text[0] &&
-                            s_message_count > 0 &&
-                            strcmp(s_messages[s_message_count - 1].id, "pending") == 0 &&
+    int pending_index = find_message_index_by_id("pending");
+    bool replaces_pending = pending_index >= 0 &&
                             tuple_int(iter, MESSAGE_KEY_IsOutgoing, 0) != 0 &&
-                            incoming_text && strcmp(incoming_text, s_touch_keyboard_sent_text) == 0;
-    slot = replaces_pending ? &s_messages[s_message_count - 1] : append_message_slot();
+                            incoming_text &&
+                            text_matches_ignoring_trailing_space(incoming_text,
+                                                                 s_messages[pending_index].text);
+    if (replaces_pending) {
+      // Swap the optimistic bubble for the real message, keeping it in place.
+      clear_message_slot(&s_messages[pending_index]);
+      memset(&s_messages[pending_index], 0, sizeof(Message));
+      init_message_strings(&s_messages[pending_index]);
+      slot = &s_messages[pending_index];
+    } else {
+      slot = append_message_slot();
+    }
     populate_message_from_tuple(slot, iter);
     if (replaces_pending) {
       s_touch_keyboard_sent_text[0] = '\0';
@@ -4458,6 +5061,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   }
 
   if (strcmp(type, "sent") == 0) {
+    touch_keyboard_send_result(true);
     show_status("Sent");
     return;
   }
@@ -4562,10 +5166,10 @@ static int action_item_count(void) {
   switch (s_action_mode) {
     case ActionMenuMain:
       if (!has_selected_message()) {
-        return 4;
+        return 4 + (touch_keyboard_supported() ? 1 : 0);
       }
       return 4 +
-             (s_messages[s_selected_message].outgoing ? 1 : 0) +
+             (s_messages[s_selected_message].outgoing ? (touch_keyboard_supported() ? 2 : 1) : 0) +
              (selected_message_has_context() ? 1 : 0) +
              (selected_message_is_truncated() ? 1 : 0);
     case ActionMenuChat:
@@ -4575,7 +5179,7 @@ static int action_item_count(void) {
     case ActionMenuConfirm:
       return 2;
     case ActionMenuReply:
-      return 3;
+      return 3 + (touch_keyboard_supported() ? 1 : 0);
     case ActionMenuReactionGrid:
       return reaction_grid_count();
     case ActionMenuEmojiReplyGrid:
@@ -4735,9 +5339,12 @@ static ActionMenuLevel *native_create_reaction_level(void) {
 }
 
 static ActionMenuLevel *native_create_reply_level(void) {
-  ActionMenuLevel *level = action_menu_level_create(3);
+  ActionMenuLevel *level = action_menu_level_create(touch_keyboard_supported() ? 4 : 3);
   if (!level) {
     return NULL;
+  }
+  if (touch_keyboard_supported()) {
+    native_add_action(level, "Type Reply", ActionItemReplyKeyboard, -1);
   }
   native_add_action(level, "Dictate Reply", ActionItemReplyDictate, -1);
   native_add_child(level, native_create_canned_level(true), "Canned Message");
@@ -4752,6 +5359,9 @@ static ActionMenuLevel *native_build_main_level(void) {
   }
 
   if (!has_selected_message()) {
+    if (touch_keyboard_supported()) {
+      native_add_action(level, "Keyboard", ActionItemKeyboard, -1);
+    }
     native_add_action(level, "Voice", ActionItemCompose, -1);
     native_add_child(level, native_create_canned_level(false), "Canned Message");
     native_add_child(level, native_create_emoji_level(false), "Emoji");
@@ -4766,7 +5376,12 @@ static ActionMenuLevel *native_build_main_level(void) {
                       ActionItemFullContext, -1);
   }
   if (s_messages[s_selected_message].outgoing) {
-    native_add_action(level, "Edit Message", ActionItemEdit, -1);
+    if (touch_keyboard_supported()) {
+      native_add_action(level, "Edit by Keyboard", ActionItemEditKeyboard, -1);
+      native_add_action(level, "Edit by Voice", ActionItemEdit, -1);
+    } else {
+      native_add_action(level, "Edit Message", ActionItemEdit, -1);
+    }
   }
   if (selected_message_is_truncated()) {
     native_add_action(level, "View Full Message", ActionItemFullText, -1);
@@ -4825,6 +5440,8 @@ static ActionMenuLevel *native_build_action_level(ActionMenuMode mode) {
 static void native_action_menu_did_close(ActionMenu *menu, const ActionMenuItem *performed_action,
                                          void *context) {
   ActionMenuLevel *root = s_native_action_root;
+  int keyboard_mode = s_native_deferred_keyboard;
+  s_native_deferred_keyboard = -1;
   bool start_dictation_after_close = s_native_deferred_dictation;
   bool show_next = s_native_has_deferred_mode;
   ActionMenuMode next_mode = s_native_deferred_mode;
@@ -4838,7 +5455,12 @@ static void native_action_menu_did_close(ActionMenu *menu, const ActionMenuItem 
     action_menu_hierarchy_destroy(root, NULL, NULL);
   }
 
-  if (start_dictation_after_close) {
+  if (keyboard_mode >= 0) {
+    const char *target = s_native_deferred_keyboard_target[0] ? s_native_deferred_keyboard_target : NULL;
+    int index = target ? find_message_index_by_id(target) : -1;
+    const char *initial = (keyboard_mode == KeyboardModeEdit && index >= 0) ? s_messages[index].text : NULL;
+    open_touch_keyboard((KeyboardMode)keyboard_mode, target, initial);
+  } else if (start_dictation_after_close) {
     start_dictation();
   } else if (show_next) {
     show_action_window(next_mode);
@@ -4892,6 +5514,24 @@ static void native_action_perform(ActionMenu *action_menu, const ActionMenuItem 
   int index = native_action_data_index(data);
 
   switch (item) {
+    case ActionItemKeyboard:
+      s_native_deferred_keyboard = KeyboardModeCompose;
+      s_native_deferred_keyboard_target[0] = '\0';
+      break;
+    case ActionItemReplyKeyboard:
+      if (has_selected_message()) {
+        s_native_deferred_keyboard = KeyboardModeReply;
+        copy_cstr(s_native_deferred_keyboard_target, sizeof(s_native_deferred_keyboard_target),
+                  s_messages[s_selected_message].id);
+      }
+      break;
+    case ActionItemEditKeyboard:
+      if (has_selected_message() && s_messages[s_selected_message].outgoing) {
+        s_native_deferred_keyboard = KeyboardModeEdit;
+        copy_cstr(s_native_deferred_keyboard_target, sizeof(s_native_deferred_keyboard_target),
+                  s_messages[s_selected_message].id);
+      }
+      break;
     case ActionItemCompose:
       s_pending_edit_message_id[0] = '\0';
       s_pending_chat_command[0] = '\0';
@@ -5326,43 +5966,13 @@ static void main_back_click_handler(ClickRecognizerRef recognizer, void *context
     s_message_transfer_id = 0;
     s_chat_view_pending = false;
     clear_message_stage();
-    close_touch_keyboard();
+    reset_touch_keyboard();
     send_command_with_status("leave_chat", s_current_chat_id, NULL, NULL, NULL, false);
     render_chat_list_with_transition();
   } else {
     window_stack_pop(true);
   }
 }
-
-#if TOUCH_KEYBOARD_AVAILABLE
-static void touch_handler(const TouchEvent *event, void *context) {
-  if (!TOUCH_KEYBOARD_ENABLED || !event || event->type != TouchEvent_Liftoff ||
-      s_view_state != ViewStateChat || !s_messages_root) {
-    return;
-  }
-
-  GRect bounds = layer_get_bounds(s_messages_root);
-  GRect frame = layer_get_frame(s_messages_root);
-  GPoint point = GPoint(event->x - frame.origin.x, event->y - frame.origin.y);
-  if (!grect_contains_point(&bounds, &point)) {
-    return;
-  }
-  if (s_touch_keyboard_open) {
-    GRect keyboard_rect = touch_keyboard_rect_for_bounds(bounds);
-    char action;
-    char ch = touch_keyboard_char_at(keyboard_rect, point, &action);
-    handle_touch_keyboard_key(ch, action);
-    return;
-  }
-
-  if (s_at_newest) {
-    GRect compose_rect = compose_rect_for_bounds(bounds);
-    if (grect_contains_point(&compose_rect, &point)) {
-      open_touch_keyboard();
-    }
-  }
-}
-#endif
 
 static void click_config_provider(void *context) {
   window_single_click_subscribe(BUTTON_ID_SELECT, main_select_click_handler);
@@ -5436,7 +6046,7 @@ static void init(void) {
   app_message_register_outbox_failed(outbox_failed_callback);
   app_message_open(APP_INBOX_SIZE, APP_OUTBOX_SIZE);
 #if TOUCH_KEYBOARD_AVAILABLE
-  if (TOUCH_KEYBOARD_ENABLED) {
+  if (touch_keyboard_supported()) {
     touch_service_subscribe(touch_handler, NULL);
   }
 #endif
@@ -5471,7 +6081,7 @@ static void deinit(void) {
   free_avatar_transfer_buffer();
   free_full_text_body();
 #if TOUCH_KEYBOARD_AVAILABLE
-  if (TOUCH_KEYBOARD_ENABLED) {
+  if (touch_keyboard_supported()) {
     touch_service_unsubscribe();
   }
 #endif
