@@ -62,7 +62,7 @@ Pebblegram 3.6 fixes login and reply bugs, brings back the on-screen keyboard, a
 - Tap a chat to open it; hold a chat for Archive/Delete/Mute/Mark as Unread; drag to scroll the list.
 - In a chat, drag to scroll (pull down at the top to load older messages), tap a message for its menu, hold a message to react, and swipe right to go back.
 - In the full-message view, drag to scroll and swipe right to close.
-- Pop-up menus (Reply, React, Canned Message, Emoji, chat actions) respond to touch through PebbleOS touch navigation; turn it on in the watch's Settings if taps in menus don't work. On touch watches the React and Emoji menus are a one-per-row list so every tap picks exactly the emoji you touched.
+- Pop-up menus (Reply, React, Canned Message, Emoji, chat actions) respond to touch through PebbleOS touch navigation; turn it on in the watch's Settings if taps in menus don't work. On touch watches the React and Emoji menus open Pebblegram's own grid, which looks like the system one but lets you tap any emoji, drag to scroll, and swipe right to close.
 - The buttons still work exactly as before.
 
 ### Other

@@ -132,7 +132,10 @@ typedef enum {
   ActionItemConfirmCancel,
   ActionItemKeyboard,
   ActionItemReplyKeyboard,
-  ActionItemEditKeyboard
+  ActionItemEditKeyboard,
+  ActionItemReactGrid,
+  ActionItemEmojiGrid,
+  ActionItemReplyEmojiGrid
 } ActionItem;
 
 typedef enum {
@@ -140,6 +143,11 @@ typedef enum {
   KeyboardModeReply,
   KeyboardModeEdit
 } KeyboardMode;
+
+typedef enum {
+  EmojiGridReact,
+  EmojiGridReply
+} EmojiGridMode;
 
 typedef struct {
   char id[MAX_ID];
@@ -238,6 +246,8 @@ static bool s_full_text_context;
 static bool s_native_has_deferred_mode;
 static bool s_native_deferred_dictation;
 static int s_native_deferred_keyboard = -1;
+static int s_native_deferred_grid = -1;
+static bool s_native_deferred_grid_reply;
 static char s_native_deferred_keyboard_target[MAX_ID];
 static char s_full_text_title[MAX_SENDER + 10];
 static char *s_full_text_body;
@@ -392,6 +402,9 @@ static void reset_touch_keyboard(void);
 static void open_touch_keyboard(KeyboardMode mode, const char *target_id, const char *initial_text);
 static void touch_keyboard_send_result(bool ok);
 static bool touch_keyboard_has_draft(void);
+#if TOUCH_KEYBOARD_AVAILABLE
+static void open_emoji_grid(EmojiGridMode mode, bool as_reply);
+#endif
 static int find_message_index_by_id(const char *id);
 static void remove_message_at(int index);
 static void set_chat_scroll_offset(int offset, bool animated);
@@ -5410,11 +5423,7 @@ static ActionMenuLevel *native_create_emoji_level(bool as_reply) {
   if (!level) {
     return NULL;
   }
-  // PebbleOS grids only let a tap pick the first emoji in each row, so touch
-  // watches get a one-per-row list where every tap lands exactly.
-  if (!touch_keyboard_supported()) {
-    action_menu_level_set_display_mode(level, ActionMenuLevelDisplayModeThin);
-  }
+  action_menu_level_set_display_mode(level, ActionMenuLevelDisplayModeThin);
   for (int i = 0; i < count; i++) {
     native_add_action(level, emoji_reply_glyph_at(i),
                       as_reply ? ActionItemReplyEmoji : ActionItemEmoji, i);
@@ -5428,11 +5437,7 @@ static ActionMenuLevel *native_create_reaction_level(void) {
   if (!level) {
     return NULL;
   }
-  // PebbleOS grids only let a tap pick the first emoji in each row, so touch
-  // watches get a one-per-row list where every tap lands exactly.
-  if (!touch_keyboard_supported()) {
-    action_menu_level_set_display_mode(level, ActionMenuLevelDisplayModeThin);
-  }
+  action_menu_level_set_display_mode(level, ActionMenuLevelDisplayModeThin);
   for (int i = 0; i < count; i++) {
     native_add_action(level, reaction_grid_glyph_at(i), ActionItemReact, i);
   }
@@ -5446,7 +5451,11 @@ static ActionMenuLevel *native_create_reply_level(void) {
   }
   native_add_action(level, "Dictate Reply", ActionItemReplyDictate, -1);
   native_add_child(level, native_create_canned_level(true), "Canned Message");
-  native_add_child(level, native_create_emoji_level(true), "Emoji");
+  if (touch_keyboard_supported()) {
+    native_add_action(level, "Emoji", ActionItemReplyEmojiGrid, -1);
+  } else {
+    native_add_child(level, native_create_emoji_level(true), "Emoji");
+  }
   if (touch_keyboard_supported()) {
     native_add_action(level, "Type Reply", ActionItemReplyKeyboard, -1);
   }
@@ -5462,7 +5471,11 @@ static ActionMenuLevel *native_build_main_level(void) {
   if (!has_selected_message()) {
     native_add_action(level, "Voice", ActionItemCompose, -1);
     native_add_child(level, native_create_canned_level(false), "Canned Message");
-    native_add_child(level, native_create_emoji_level(false), "Emoji");
+    if (touch_keyboard_supported()) {
+      native_add_action(level, "Emoji", ActionItemEmojiGrid, -1);
+    } else {
+      native_add_child(level, native_create_emoji_level(false), "Emoji");
+    }
     if (touch_keyboard_supported()) {
       native_add_action(level, "Keyboard", ActionItemKeyboard, -1);
     }
@@ -5471,7 +5484,11 @@ static ActionMenuLevel *native_build_main_level(void) {
   }
 
   native_add_child(level, native_create_reply_level(), "Reply");
-  native_add_child(level, native_create_reaction_level(), "React");
+  if (touch_keyboard_supported()) {
+    native_add_action(level, "React", ActionItemReactGrid, -1);
+  } else {
+    native_add_child(level, native_create_reaction_level(), "React");
+  }
   if (selected_message_has_context()) {
     native_add_action(level, selected_message_context_is_forward() ? "View Forward" : "View Quote",
                       ActionItemFullContext, -1);
@@ -5543,6 +5560,10 @@ static void native_action_menu_did_close(ActionMenu *menu, const ActionMenuItem 
   ActionMenuLevel *root = s_native_action_root;
   int keyboard_mode = s_native_deferred_keyboard;
   s_native_deferred_keyboard = -1;
+#if TOUCH_KEYBOARD_AVAILABLE
+  int grid_mode = s_native_deferred_grid;
+#endif
+  s_native_deferred_grid = -1;
   bool start_dictation_after_close = s_native_deferred_dictation;
   bool show_next = s_native_has_deferred_mode;
   ActionMenuMode next_mode = s_native_deferred_mode;
@@ -5556,6 +5577,12 @@ static void native_action_menu_did_close(ActionMenu *menu, const ActionMenuItem 
     action_menu_hierarchy_destroy(root, NULL, NULL);
   }
 
+#if TOUCH_KEYBOARD_AVAILABLE
+  if (grid_mode >= 0) {
+    open_emoji_grid((EmojiGridMode)grid_mode, s_native_deferred_grid_reply);
+    return;
+  }
+#endif
   if (keyboard_mode >= 0) {
     const char *target = s_native_deferred_keyboard_target[0] ? s_native_deferred_keyboard_target : NULL;
     int index = target ? find_message_index_by_id(target) : -1;
@@ -5615,6 +5642,15 @@ static void native_action_perform(ActionMenu *action_menu, const ActionMenuItem 
   int index = native_action_data_index(data);
 
   switch (item) {
+    case ActionItemReactGrid:
+      s_native_deferred_grid = EmojiGridReact;
+      s_native_deferred_grid_reply = false;
+      break;
+    case ActionItemEmojiGrid:
+    case ActionItemReplyEmojiGrid:
+      s_native_deferred_grid = EmojiGridReply;
+      s_native_deferred_grid_reply = item == ActionItemReplyEmojiGrid;
+      break;
     case ActionItemKeyboard:
       s_native_deferred_keyboard = KeyboardModeCompose;
       s_native_deferred_keyboard_target[0] = '\0';
@@ -6082,6 +6118,279 @@ static void main_back_click_handler(ClickRecognizerRef recognizer, void *context
 
 #if TOUCH_KEYBOARD_AVAILABLE
 // ---------------------------------------------------------------------------
+// Emoji grid (touch watches). Replaces the PebbleOS grid menu for React and
+// Emoji because the system grid only lets a tap pick the first emoji in a row.
+// Looks like the system menu (black, blue rail, 3 columns) but every cell is
+// tappable. Buttons: Up/Down move, Select picks, Back closes.
+// Touch: tap picks, drag scrolls, swipe right closes.
+// ---------------------------------------------------------------------------
+
+#define GRID_COLS 3
+#define GRID_CELL_H PBL_IF_ROUND_ELSE(50, 46)
+#define GRID_RAIL_W PBL_IF_ROUND_ELSE(0, 14)
+#define GRID_PAD_TOP PBL_IF_ROUND_ELSE(40, 6)
+
+static Window *s_grid_window;
+static Layer *s_grid_layer;
+static EmojiGridMode s_grid_mode;
+static bool s_grid_as_reply;
+static int s_grid_selected;
+static int s_grid_scroll;
+static int s_grid_pressed = -1;
+
+static int emoji_grid_count(void) {
+  return s_grid_mode == EmojiGridReact ? reaction_grid_count() : emoji_reply_count();
+}
+
+static const char *emoji_grid_label(int index) {
+  return s_grid_mode == EmojiGridReact ? reaction_grid_glyph_at(index) : emoji_reply_glyph_at(index);
+}
+
+// "Remove" (last reaction) gets a full-width row of its own.
+static bool emoji_grid_is_wide(int index) {
+  return s_grid_mode == EmojiGridReact && reaction_grid_is_remove(index);
+}
+
+static int emoji_grid_row_of(int index) {
+  if (emoji_grid_is_wide(index)) {
+    return (index + GRID_COLS - 1) / GRID_COLS;
+  }
+  return index / GRID_COLS;
+}
+
+static int emoji_grid_row_count(void) {
+  int count = emoji_grid_count();
+  return count > 0 ? emoji_grid_row_of(count - 1) + 1 : 0;
+}
+
+static GRect emoji_grid_cell_rect(GRect bounds, int index) {
+  int left = GRID_RAIL_W + 2;
+  int width = bounds.size.w - left - 2;
+#if defined(PBL_ROUND)
+  left = 28;
+  width = bounds.size.w - 56;
+#endif
+  int row = emoji_grid_row_of(index);
+  int y = GRID_PAD_TOP + row * GRID_CELL_H - s_grid_scroll;
+  if (emoji_grid_is_wide(index)) {
+    return GRect(left, y, width, GRID_CELL_H);
+  }
+  int col = index % GRID_COLS;
+  int x0 = left + (width * col) / GRID_COLS;
+  int x1 = left + (width * (col + 1)) / GRID_COLS;
+  return GRect(x0, y, x1 - x0, GRID_CELL_H);
+}
+
+static int emoji_grid_max_scroll(GRect bounds) {
+  int content = GRID_PAD_TOP * 2 + emoji_grid_row_count() * GRID_CELL_H;
+  return PG_MAX(0, content - bounds.size.h);
+}
+
+static void emoji_grid_clamp_scroll(GRect bounds) {
+  s_grid_scroll = PG_MAX(0, PG_MIN(s_grid_scroll, emoji_grid_max_scroll(bounds)));
+}
+
+static void emoji_grid_reveal_selected(void) {
+  if (!s_grid_layer) {
+    return;
+  }
+  GRect bounds = layer_get_bounds(s_grid_layer);
+  int top = GRID_PAD_TOP + emoji_grid_row_of(s_grid_selected) * GRID_CELL_H;
+  int margin = PBL_IF_ROUND_ELSE(bounds.size.h / 3, 4);
+  if (top - s_grid_scroll < margin) {
+    s_grid_scroll = top - margin;
+  } else if (top + GRID_CELL_H - s_grid_scroll > bounds.size.h - margin) {
+    s_grid_scroll = top + GRID_CELL_H - bounds.size.h + margin;
+  }
+  emoji_grid_clamp_scroll(bounds);
+}
+
+static int emoji_grid_index_at(GPoint point) {
+  if (!s_grid_layer) {
+    return -1;
+  }
+  GRect bounds = layer_get_bounds(s_grid_layer);
+  int count = emoji_grid_count();
+  for (int i = 0; i < count; i++) {
+    GRect cell = emoji_grid_cell_rect(bounds, i);
+    if (grect_contains_point(&cell, &point)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+static void emoji_grid_update_proc(Layer *layer, GContext *ctx) {
+  GRect bounds = layer_get_bounds(layer);
+  graphics_context_set_fill_color(ctx, ACTION_BG);
+  graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+  if (GRID_RAIL_W > 0) {
+    graphics_context_set_fill_color(ctx, APP_COLOR);
+    graphics_fill_rect(ctx, GRect(0, 0, GRID_RAIL_W, bounds.size.h), 0, GCornerNone);
+    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_fill_circle(ctx, GPoint(GRID_RAIL_W / 2, 10), 2);
+  }
+
+  int count = emoji_grid_count();
+  GFont emoji_font = fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD);
+  GFont text_font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+  for (int i = 0; i < count; i++) {
+    GRect cell = emoji_grid_cell_rect(bounds, i);
+    if (cell.origin.y + cell.size.h < 0 || cell.origin.y > bounds.size.h) {
+      continue;
+    }
+    bool selected = i == s_grid_selected;
+    bool pressed = i == s_grid_pressed;
+    GRect face = grect_inset(cell, GEdgeInsets(3));
+    if (pressed) {
+      graphics_context_set_fill_color(ctx, APP_COLOR);
+      graphics_fill_rect(ctx, face, 8, GCornersAll);
+    } else if (selected) {
+      graphics_context_set_fill_color(ctx, GColorDarkGray);
+      graphics_fill_rect(ctx, face, 8, GCornersAll);
+      graphics_context_set_stroke_color(ctx, GColorWhite);
+      graphics_draw_round_rect(ctx, face, 8);
+    }
+    bool wide = emoji_grid_is_wide(i);
+    graphics_context_set_text_color(ctx, (selected || pressed || wide) ? GColorWhite : ACTION_TEXT);
+    graphics_draw_text(ctx, emoji_grid_label(i), wide ? text_font : emoji_font,
+                       GRect(cell.origin.x, cell.origin.y + (wide ? 8 : 4), cell.size.w, cell.size.h),
+                       GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+  }
+}
+
+static void emoji_grid_close(void) {
+  if (s_grid_window) {
+    window_stack_remove(s_grid_window, true);
+  }
+}
+
+static void emoji_grid_commit(int index) {
+  if (index < 0 || index >= emoji_grid_count()) {
+    return;
+  }
+  EmojiGridMode mode = s_grid_mode;
+  bool as_reply = s_grid_as_reply;
+  char glyph[16];
+  copy_cstr(glyph, sizeof(glyph), mode == EmojiGridReact ? reaction_grid_token_at(index) :
+                                                           emoji_reply_glyph_at(index));
+  emoji_grid_close();
+  if (mode == EmojiGridReact) {
+    send_selected_reaction(glyph);
+  } else {
+    send_text_message(glyph, as_reply);
+  }
+}
+
+static void emoji_grid_move(int delta) {
+  int count = emoji_grid_count();
+  if (count <= 0) {
+    return;
+  }
+  s_grid_selected = (s_grid_selected + delta + count) % count;
+  emoji_grid_reveal_selected();
+  layer_mark_dirty(s_grid_layer);
+}
+
+static void emoji_grid_up_handler(ClickRecognizerRef recognizer, void *context) {
+  emoji_grid_move(-1);
+}
+
+static void emoji_grid_down_handler(ClickRecognizerRef recognizer, void *context) {
+  emoji_grid_move(1);
+}
+
+static void emoji_grid_select_handler(ClickRecognizerRef recognizer, void *context) {
+  emoji_grid_commit(s_grid_selected);
+}
+
+static void emoji_grid_click_config(void *context) {
+  window_single_repeating_click_subscribe(BUTTON_ID_UP, REPEAT_SCROLL_MS, emoji_grid_up_handler);
+  window_single_repeating_click_subscribe(BUTTON_ID_DOWN, REPEAT_SCROLL_MS, emoji_grid_down_handler);
+  window_single_click_subscribe(BUTTON_ID_SELECT, emoji_grid_select_handler);
+}
+
+static void emoji_grid_window_unload(Window *window) {
+  if (s_grid_layer) {
+    layer_destroy(s_grid_layer);
+    s_grid_layer = NULL;
+  }
+  window_destroy(window);
+  if (s_grid_window == window) {
+    s_grid_window = NULL;
+  }
+  s_grid_pressed = -1;
+}
+
+static void open_emoji_grid(EmojiGridMode mode, bool as_reply) {
+  if (s_grid_window) {
+    return;
+  }
+  s_grid_mode = mode;
+  s_grid_as_reply = as_reply;
+  s_grid_selected = 0;
+  s_grid_scroll = 0;
+  s_grid_pressed = -1;
+  s_grid_window = window_create();
+  if (!s_grid_window) {
+    return;
+  }
+  window_set_background_color(s_grid_window, ACTION_BG);
+  window_set_click_config_provider(s_grid_window, emoji_grid_click_config);
+  window_set_window_handlers(s_grid_window, (WindowHandlers) {
+    .unload = emoji_grid_window_unload
+  });
+  window_set_touch_bridge_disabled(s_grid_window, true);
+  Layer *root = window_get_root_layer(s_grid_window);
+  s_grid_layer = layer_create(layer_get_bounds(root));
+  layer_set_update_proc(s_grid_layer, emoji_grid_update_proc);
+  layer_add_child(root, s_grid_layer);
+  window_stack_push(s_grid_window, true);
+}
+
+static bool emoji_grid_on_top(void) {
+  return s_grid_window && window_stack_get_top_window() == s_grid_window;
+}
+
+// Touch hooks called from the gesture dispatcher.
+static void emoji_grid_touch_down(GPoint screen) {
+  s_grid_pressed = emoji_grid_index_at(screen);
+  if (s_grid_layer) {
+    layer_mark_dirty(s_grid_layer);
+  }
+}
+
+static void emoji_grid_touch_drag(int dy) {
+  if (!s_grid_layer) {
+    return;
+  }
+  s_grid_pressed = -1;
+  s_grid_scroll -= dy;
+  emoji_grid_clamp_scroll(layer_get_bounds(s_grid_layer));
+  layer_mark_dirty(s_grid_layer);
+}
+
+static void emoji_grid_touch_tap(GPoint screen) {
+  int index = emoji_grid_index_at(screen);
+  s_grid_pressed = -1;
+  if (index >= 0) {
+    s_grid_selected = index;
+    emoji_grid_commit(index);
+  } else if (s_grid_layer) {
+    layer_mark_dirty(s_grid_layer);
+  }
+}
+
+static void emoji_grid_touch_cancel(void) {
+  if (s_grid_pressed >= 0 && s_grid_layer) {
+    s_grid_pressed = -1;
+    layer_mark_dirty(s_grid_layer);
+  }
+}
+#endif
+
+#if TOUCH_KEYBOARD_AVAILABLE
+// ---------------------------------------------------------------------------
 // Touch gestures for the whole app (Pebble Time 2 / Round 2).
 //   Chat list:  tap a chat to open it, hold for chat actions, drag to scroll.
 //   Chat:       drag to scroll, tap a message for its menu, hold a message to
@@ -6238,7 +6547,7 @@ static void touch_chat_hold(GRect bounds, GPoint point) {
   s_selected_message = index;
   layer_mark_dirty(s_messages_root);
   vibes_short_pulse();
-  show_action_window(ActionMenuReactionGrid);  // Hold a message to react.
+  open_emoji_grid(EmojiGridReact, false);  // Hold a message to react.
 }
 
 static void touch_chat_drag(int dy) {
@@ -6292,6 +6601,52 @@ static void touch_full_text_drag(int dy) {
 
 // ---- Dispatcher -----------------------------------------------------------
 
+static void touch_grid_event(const TouchEvent *event, GPoint screen) {
+  switch (event->type) {
+    case TouchEvent_Touchdown:
+      touch_cancel_long_press();
+      s_gesture = (TouchGesture){.down = true, .start = screen, .last = screen};
+      emoji_grid_touch_down(screen);
+      return;
+    case TouchEvent_PositionUpdate: {
+      if (!s_gesture.down) {
+        return;
+      }
+      int dx = screen.x - s_gesture.start.x;
+      int dy_total = screen.y - s_gesture.start.y;
+      if (!s_gesture.dragging &&
+          (touch_abs(dx) > TOUCH_SLOP || touch_abs(dy_total) > TOUCH_SLOP)) {
+        s_gesture.dragging = true;
+        s_gesture.horizontal = touch_abs(dx) > touch_abs(dy_total);
+        emoji_grid_touch_cancel();
+      }
+      if (s_gesture.dragging && !s_gesture.horizontal) {
+        emoji_grid_touch_drag(screen.y - s_gesture.last.y);
+      }
+      s_gesture.last = screen;
+      return;
+    }
+    case TouchEvent_Liftoff: {
+      TouchGesture gesture = s_gesture;
+      s_gesture.down = false;
+      if (!gesture.down) {
+        return;
+      }
+      int dx = screen.x - gesture.start.x;
+      int dy = screen.y - gesture.start.y;
+      if (gesture.dragging && gesture.horizontal && dx > TOUCH_SWIPE_BACK_MIN &&
+          touch_abs(dy) < dx / 2) {
+        emoji_grid_close();
+      } else if (!gesture.dragging) {
+        emoji_grid_touch_tap(screen);
+      } else {
+        emoji_grid_touch_cancel();
+      }
+      return;
+    }
+  }
+}
+
 static bool touch_full_text_on_top(void) {
   return s_action_window && window_stack_get_top_window() == s_action_window &&
          s_action_mode == ActionMenuFullText;
@@ -6329,6 +6684,10 @@ static void touch_handler(const TouchEvent *event, void *context) {
   }
 
   Window *top = window_stack_get_top_window();
+  if (emoji_grid_on_top()) {
+    touch_grid_event(event, GPoint(event->x, event->y));
+    return;
+  }
   bool full_text = touch_full_text_on_top();
   if (top != s_main_window && !full_text) {
     // System menus and dictation handle their own input.
