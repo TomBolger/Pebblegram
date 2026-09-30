@@ -6,7 +6,8 @@
     "pebble-app"
   ],
   "scripts": {
-    "build:pgjs-gramjs": "node tools/build-pgjs-gramjs.mjs"
+    "build:pgjs-gramjs": "node tools/build-pgjs-gramjs.mjs",
+    "build:emoji": "node tools/build-emoji-data.mjs"
   },
   "pebble": {
     "displayName": "Pebblegram",
@@ -70,6 +71,7 @@
   },
   "devDependencies": {
     "buffer": "6.0.3",
+    "emojibase-data": "^17.0.0",
     "esbuild": "0.28.2",
     "jpeg-js": "0.4.4",
     "js-sha1": "0.7.0",

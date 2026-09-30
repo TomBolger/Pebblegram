@@ -975,6 +975,47 @@ function senderName(message) {
   return '';
 }
 
+// Custom (Premium) emoji reactions only carry a document id. Telegram tells us
+// which regular emoji each one stands for, so we look that up and cache it.
+var customEmojiAlt = {};
+var MAX_CUSTOM_EMOJI_LOOKUP = 100;
+
+function customEmojiId(reaction) {
+  var id = reaction && (reaction.documentId || reaction.document_id);
+  return id === undefined || id === null ? '' : String(id);
+}
+
+function resolveCustomEmoji(client, rows) {
+  var wanted = [];
+  var seen = {};
+  (rows || []).forEach(function(row) {
+    var results = (row && row.reactions && row.reactions.results) || [];
+    results.forEach(function(result) {
+      var reaction = result && result.reaction;
+      var id = objectName(reaction).indexOf('CustomEmoji') !== -1 ? customEmojiId(reaction) : '';
+      if (id && customEmojiAlt[id] === undefined && !seen[id]) {
+        seen[id] = true;
+        wanted.push(reaction.documentId || reaction.document_id);
+      }
+    });
+  });
+  if (!wanted.length || !client || typeof client.invoke !== 'function') {
+    return Promise.resolve();
+  }
+  return withTimeout(client.invoke(new gram.Api.messages.GetCustomEmojiDocuments({
+    documentId: wanted.slice(0, MAX_CUSTOM_EMOJI_LOOKUP)
+  })), 'custom emoji lookup', 8000).then(function(documents) {
+    (documents || []).forEach(function(document) {
+      var attr = hasDocumentAttribute(document, 'CustomEmoji');
+      if (document && document.id !== undefined) {
+        customEmojiAlt[String(document.id)] = (attr && attr.alt) || '';
+      }
+    });
+  }).catch(function(err) {
+    debugLog('custom emoji lookup failed: ' + errorText(err));
+  });
+}
+
 function reactionGlyph(reaction) {
   var name = objectName(reaction);
   var glyph;
@@ -986,7 +1027,7 @@ function reactionGlyph(reaction) {
     return glyph;
   }
   if (name.indexOf('CustomEmoji') !== -1) {
-    return '*';
+    return customEmojiAlt[customEmojiId(reaction)] || ':custom_emoji:';
   }
   if (name.indexOf('Paid') !== -1) {
     return '$';
@@ -994,11 +1035,13 @@ function reactionGlyph(reaction) {
   return '';
 }
 
+var MAX_REACTION_SUMMARY = 6;
+
 function reactionSummary(message) {
   var reactions = message && message.reactions;
   var results = (reactions && reactions.results) || [];
   var parts = [];
-  for (var i = 0; i < results.length && parts.length < 3; i += 1) {
+  for (var i = 0; i < results.length && parts.length < MAX_REACTION_SUMMARY; i += 1) {
     var result = results[i];
     var glyph = reactionGlyph(result && result.reaction);
     var count = result && result.count;
@@ -1149,7 +1192,9 @@ function normalizeMessageRows(client, chatId, rows, readOutboxMaxId) {
     }
   });
   function finish() {
-    return resolveForwardEntities(client, rows).then(function(forwardEntities) {
+    return resolveCustomEmoji(client, rows).then(function() {
+      return resolveForwardEntities(client, rows);
+    }).then(function(forwardEntities) {
       return rows.map(function(row) {
         return normalizeMessageWithContext(row, replies, forwardEntities, readOutboxMaxId);
       });
@@ -1381,103 +1426,24 @@ function editMessage(chatId, messageId, text) {
   });
 }
 
+var REACTION_TOKENS = {
+  like: '\ud83d\udc4d', heart: '\u2764', laugh: '\ud83e\udd23', wow: '\ud83d\ude31',
+  sad: '\ud83d\ude22', angry: '\ud83d\ude21', smile_open: '\ud83d\ude01', smile_eyes: '\ud83d\ude01',
+  cry_loud: '\ud83d\ude2d', fire: '\ud83d\udd25', party: '\ud83c\udf89', star_struck: '\ud83e\udd29',
+  smiling_hearts: '\ud83e\udd70', symbols_mouth: '\ud83e\udd2c', clap: '\ud83d\udc4f', grin: '\ud83d\ude01',
+  think: '\ud83e\udd14', eyes: '\ud83d\udc40', love: '\ud83d\ude0d', kiss: '\ud83d\ude18',
+  blush: '\ud83d\ude33', grimace: '\ud83d\ude2c', neutral: '\ud83d\ude10', angel: '\ud83d\ude07',
+  devil: '\ud83d\ude08', pray: '\ud83d\ude4f', dislike: '\ud83d\udc4e', ok: '\ud83d\udc4c',
+  broken_heart: '\ud83d\udc94', kiss_mark: '\ud83d\udc8b', poop: '\ud83d\udca9', sick: '\ud83e\udd2e',
+  sleep: '\ud83d\ude34', cool: '\ud83d\ude0e'
+};
+
 function reactionEmoticon(token) {
-  switch (token) {
-    case 'like':
-      return '\ud83d\udc4d';
-    case 'heart':
-      return '\u2764';
-    case 'laugh':
-      return '\ud83e\udd23';
-    case 'wow':
-      return '\ud83d\ude31';
-    case 'sad':
-      return '\ud83d\ude22';
-    case 'angry':
-      return '\ud83d\ude21';
-    case 'smile_open':
-    case 'smile_eyes':
-      return '\ud83d\ude01';
-    case 'cry_loud':
-      return '\ud83d\ude2d';
-    case 'fire':
-      return '\ud83d\udd25';
-    case 'party':
-      return '\ud83c\udf89';
-    case 'star_struck':
-      return '\ud83e\udd29';
-    case 'smiling_hearts':
-      return '\ud83e\udd70';
-    case 'symbols_mouth':
-      return '\ud83e\udd2c';
-    case 'clap':
-      return '\ud83d\udc4f';
-    case 'grin':
-      return '\ud83d\ude01';
-    case 'think':
-      return '\ud83e\udd14';
-    case 'eyes':
-      return '\ud83d\udc40';
-    case 'love':
-      return '\ud83d\ude0d';
-    case 'kiss':
-      return '\ud83d\ude18';
-    case 'blush':
-      return '\ud83d\ude33';
-    case 'grimace':
-      return '\ud83d\ude2c';
-    case 'neutral':
-      return '\ud83d\ude10';
-    case 'angel':
-      return '\ud83d\ude07';
-    case 'devil':
-      return '\ud83d\ude08';
-    case 'pray':
-      return '\ud83d\ude4f';
-    case 'dislike':
-      return '\ud83d\udc4e';
-    case 'ok':
-      return '\ud83d\udc4c';
-    case 'broken_heart':
-      return '\ud83d\udc94';
-    case 'kiss_mark':
-      return '\ud83d\udc8b';
-    case 'poop':
-      return '\ud83d\udca9';
-    case 'sick':
-      return '\ud83e\udd2e';
-    case 'sleep':
-      return '\ud83d\ude34';
-    case 'cool':
-      return '\ud83d\ude0e';
-    case 'bolt':
-      return '\u26a1';
-    case '\ud83d\ude02':
-      return '\ud83e\udd23';
-    case '\ud83d\ude00':
-    case '\ud83d\ude04':
-      return '\ud83d\ude01';
-    case '\ud83d\ude2d':
-      return '\ud83d\ude2d';
-    case '\ud83d\ude33':
-      return '\ud83d\ude31';
-    case '\ud83d\ude2c':
-      return '\ud83d\ude10';
-    default:
-      if (token && [
-        '\ud83d\udc4d', '\u2764', '\ud83e\udd23', '\ud83d\ude31',
-        '\ud83d\ude22', '\ud83d\ude21', '\ud83d\ude00', '\ud83d\ude04',
-        '\ud83d\ude2d', '\ud83d\udd25', '\ud83c\udf89', '\ud83d\udc4f',
-        '\ud83d\ude01', '\ud83e\udd14', '\ud83d\udc40', '\ud83d\ude0d',
-        '\ud83d\ude18', '\ud83d\ude33', '\ud83d\ude10', '\ud83d\ude07',
-        '\ud83d\ude08', '\ud83d\ude4f', '\ud83d\udc4e', '\ud83d\udc4c',
-        '\ud83d\udc94', '\ud83d\udc8b', '\ud83d\udca9', '\ud83e\udd2e',
-        '\ud83d\ude34', '\ud83d\ude0e', '\u26a1'
-      ].indexOf(token) !== -1) {
-        return token;
-      }
-      return '';
+  // The watch sends either a legacy name ("like") or the emoji itself.
+  if (REACTION_TOKENS.hasOwnProperty(token)) {
+    return REACTION_TOKENS[token];
   }
+  return token && /[^\x00-\x7f]/.test(token) ? token : '';
 }
 
 function sendReaction(chatId, messageId, token) {

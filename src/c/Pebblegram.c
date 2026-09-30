@@ -11,7 +11,9 @@
 #define MAX_FULL_TEXT 1200
 #define MESSAGE_PREVIEW_TEXT PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 132, 132, 132, 132, 220, 132, 220)
 #define MAX_SENDER 36
-#define MAX_REACTIONS 17
+#define MAX_REACTIONS 64
+#define REACTION_LINE_H 17
+#define REACTION_MAX_LINES 3
 #define MAX_META 16
 #define MAX_CONTEXT_TEXT PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 60, 60, 60, 56, 72, 56, 64)
 #define MAX_ID 24
@@ -165,60 +167,49 @@ typedef struct {
   uint8_t *image_data;
 } Message;
 
-typedef struct {
-  const char *token;
-  const char *glyph;
-} ReactionChoice;
-
-static const ReactionChoice REACTION_GRID_CHOICES[] = {
-  // Favorites
-  {"like", "\xF0\x9F\x91\x8D"},
-  {"heart", "\xE2\x9D\xA4"},
-  {"laugh", "\xF0\x9F\xA4\xA3"},
-  {"wow", "\xF0\x9F\x98\xB1"},
-  {"sad", "\xF0\x9F\x98\xA2"},
-  {"angry", "\xF0\x9F\x98\xA1"},
-  // Faces
-  {"cry_loud", "\xF0\x9F\x98\xAD"},
-  {"grin", "\xF0\x9F\x98\x81"},
-  {"love", "\xF0\x9F\x98\x8D"},
-  {"kiss", "\xF0\x9F\x98\x98"},
-  {"cool", "\xF0\x9F\x98\x8E"},
-  {"blush", "\xF0\x9F\x98\xB3"},
-  {"grimace", "\xF0\x9F\x98\xAC"},
-  {"neutral", "\xF0\x9F\x98\x90"},
-  {"sleep", "\xF0\x9F\x98\xB4"},
-  {"angel", "\xF0\x9F\x98\x87"},
-  {"devil", "\xF0\x9F\x98\x88"},
-  {"sick", "\xF0\x9F\xA4\xAE"},
-  // Hands
-  {"dislike", "\xF0\x9F\x91\x8E"},
-  {"ok", "\xF0\x9F\x91\x8C"},
-  {"clap", "\xF0\x9F\x91\x8F"},
-  {"pray", "\xF0\x9F\x99\x8F"},
-  {"eyes", "\xF0\x9F\x91\x80"},
-  // Hearts
-  {"broken_heart", "\xF0\x9F\x92\x94"},
-  {"kiss_mark", "\xF0\x9F\x92\x8B"},
-  // Symbols
-  {"fire", "\xF0\x9F\x94\xA5"},
-  {"party", "\xF0\x9F\x8E\x89"},
-  {"poop", "\xF0\x9F\x92\xA9"},
-  {"remove", "Remove"}
+// Telegram standard reactions the watch can draw, most popular first.
+// PebbleOS 4.29+ has a much larger emoji font than older firmware.
+static const char *const REACTION_CHOICES_EXPANDED[] = {
+  "👍", "❤", "🔥", "🥰", "👏", "😁", "🤔", "🤯",
+  "😱", "🤬", "😢", "🎉", "🤩", "🤮", "💩", "🙏",
+  "👌", "🕊", "🤡", "🥱", "🥴", "😍", "🐳", "🌚",
+  "🌭", "💯", "🤣", "⚡", "🍌", "🏆", "💔", "🤨",
+  "😐", "🍓", "🍾", "💋", "🖕", "😈", "😴", "😭",
+  "🤓", "👻", "👀", "🎃", "🙈", "😇", "😨", "🤝",
+  "✍", "🤗", "🫡", "🎅", "🎄", "☃", "💅", "🤪",
+  "🗿", "🆒", "💘", "🙉", "🦄", "😘", "💊", "🙊",
+  "😎", "👾", "🤷", "😡", "👎"
+};
+static const char *const REACTION_CHOICES_CLASSIC[] = {
+  "👍", "❤", "🥰", "👏", "😁", "😱", "🤬", "😢",
+  "🎉", "🤩", "🤮", "💩", "🙏", "👌", "😍", "💯",
+  "🤣", "💔", "😐", "💋", "😈", "😴", "😭", "👀",
+  "😇", "😨", "🤝", "🤗", "🤪", "💘", "😘", "😎",
+  "😡", "👎"
 };
 
-static const char *const EMOJI_REPLY_CHOICES[] = {
-  "👍", "❤", "😂", "😱",
-  "😢", "😡", "😀", "😄",
-  "😭", "😁", "😍", "😘",
-  "😎", "😳", "😬", "😐",
-  "😴", "😇", "😈", "🤮",
-  "👎", "🙏", "👀", "💔",
-  "🎉", "🍻", "🍺", "💩",
-  "⌚", "✅", "✨", "❗",
-  "⭐", "💯", "🤗", "🤝",
-  "🤩", "🤪", "🤬", "🥰",
-  "🥺"
+// Emoji offered as quick replies.
+static const char *const EMOJI_REPLY_CHOICES_EXPANDED[] = {
+  "👍", "👎", "❤", "😂", "🤣", "😊", "🙂", "😉",
+  "😍", "🥰", "😘", "😎", "🤔", "🙄", "😅", "😬",
+  "😐", "😴", "😢", "😭", "😱", "😡", "🤯", "🥺",
+  "🥹", "🫠", "🤗", "🫡", "🤷", "🙏", "👏", "🙌",
+  "👌", "✌", "🤞", "👋", "💪", "👀", "🔥", "✨",
+  "🎉", "🥳", "💯", "✅", "❌", "❓", "❗", "⭐",
+  "💔", "💕", "🤝", "🍻", "☕", "🍕", "🎂", "🎁",
+  "🚗", "🏠", "💤", "🕐", "🆗", "😀", "😃", "😄",
+  "😁", "😇", "😈", "🤪", "🤩", "🤓", "😷", "🤒",
+  "🤢", "🤮", "💩", "👻", "🙈", "😺", "🐶", "🌞",
+  "🌙", "⚡", "🌈", "☔"
+};
+static const char *const EMOJI_REPLY_CHOICES_CLASSIC[] = {
+  "👍", "👎", "❤", "😂", "🤣", "😊", "😉", "😍",
+  "🥰", "😘", "😎", "🙄", "😅", "😬", "😐", "😴",
+  "😢", "😭", "😱", "😡", "🥺", "🤗", "🙏", "👏",
+  "🙌", "👌", "✌", "👋", "👀", "✨", "🎉", "💯",
+  "✅", "❗", "⭐", "💔", "💕", "🤝", "🍻", "😀",
+  "😃", "😄", "😁", "😇", "😈", "🤪", "🤩", "😷",
+  "🤮", "💩", "🌙"
 };
 
 static Window *s_main_window;
@@ -376,6 +367,7 @@ static bool send_command_with_status(const char *command, const char *chat_id, c
 static void show_loading_text(const char *message, bool is_error);
 static void click_config_provider(void *context);
 static void copy_cstr(char *dest, size_t dest_size, const char *src);
+static int message_reaction_height(Message *message, int text_w);
 static void show_action_window(ActionMenuMode mode);
 static void start_dictation(void);
 static void action_click_config_provider(void *context);
@@ -1082,7 +1074,7 @@ static int message_image_top(int index, GRect bounds) {
   int bubble_w = message_bubble_width(bounds);
   int max_image_w = message_image_frame_width(bubble_w);
   int image_h = message_image_display_height(&s_messages[index], max_image_w);
-  int reaction_h = (s_messages[index].reactions[0] || s_messages[index].meta[0]) ? 17 : 0;
+  int reaction_h = message_reaction_height(&s_messages[index], bubble_w - 10);
   return s_message_y[index] + s_message_h[index] - reaction_h - image_h - 4;
 }
 
@@ -2104,11 +2096,28 @@ static void draw_message_context(GContext *ctx, Message *message, GRect rect) {
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 }
 
+static int message_reaction_height(Message *message, int text_w) {
+  if (!message->reactions[0]) {
+    return message->meta[0] ? REACTION_LINE_H : 0;
+  }
+  int meta_w = message->meta[0] ? PG_MIN(50, text_w) : 0;
+  int width = text_w - meta_w - 6;
+  if (width <= 8) {
+    return REACTION_LINE_H;
+  }
+  // Reactions that fall back to :shortcode: text can need more than one line.
+  GSize size = graphics_text_layout_get_content_size(
+    message->reactions, fonts_get_system_font(FONT_KEY_GOTHIC_14),
+    GRect(0, 0, width, REACTION_LINE_H * REACTION_MAX_LINES),
+    GTextOverflowModeWordWrap, GTextAlignmentLeft);
+  return PG_MAX(REACTION_LINE_H, PG_MIN(size.h + 3, REACTION_LINE_H * REACTION_MAX_LINES));
+}
+
 static int message_bubble_height(Message *message, int text_w, int bubble_w) {
   char display_text[MESSAGE_PREVIEW_TEXT + 8];
   GFont text_font = fonts_get_system_font(FONT_KEY_GOTHIC_18);
   int name_h = (!message->outgoing && message->sender[0]) ? 16 : 0;
-  int reaction_h = (message->reactions[0] || message->meta[0]) ? 17 : 0;
+  int reaction_h = message_reaction_height(message, text_w);
   int context_h = message_context_height(message);
   int image_h = message->image_placeholder ?
                 message_image_display_height(message, message_image_frame_width(bubble_w)) + 8 : 0;
@@ -2617,7 +2626,7 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
     int x = message->outgoing ? bounds.size.w - bubble_w - inset + offset : inset - offset;
     x = PG_MAX(2, PG_MIN(x, bounds.size.w - bubble_w - 2));
     int name_h = (!message->outgoing && message->sender[0]) ? 16 : 0;
-    int reaction_h = (message->reactions[0] || message->meta[0]) ? 17 : 0;
+    int reaction_h = message_reaction_height(message, text_w);
     int context_h = message_context_height(message);
     int y = s_message_y[i] - s_chat_scroll_offset;
     int bubble_h = s_message_h[i];
@@ -2719,12 +2728,12 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
         graphics_draw_text(ctx, message->reactions, reaction_font,
                            GRect(x + 7, y + bubble_h - reaction_h - 1,
                                  text_w - meta_w - 6, reaction_h),
-                           GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+                           GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
       }
       if (message->meta[0]) {
         draw_message_meta(ctx, message->meta, reaction_font,
-                          GRect(x + bubble_w - meta_w - 7, y + bubble_h - reaction_h - 1,
-                                meta_w, reaction_h));
+                          GRect(x + bubble_w - meta_w - 7, y + bubble_h - REACTION_LINE_H - 1,
+                                meta_w, REACTION_LINE_H));
       }
     }
   }
@@ -3495,30 +3504,56 @@ static void delete_selected_message(void) {
   }
 }
 
-static const ReactionChoice *reaction_grid_choices(void) {
-  return REACTION_GRID_CHOICES;
+// PebbleOS 4.29.0 added ~1,200 emoji to the system fonts.
+static bool emoji_fonts_expanded(void) {
+  static int s_expanded = -1;
+  if (s_expanded < 0) {
+    WatchInfoVersion version = watch_info_get_firmware_version();
+    s_expanded = (version.major > 4 || (version.major == 4 && version.minor >= 29)) ? 1 : 0;
+  }
+  return s_expanded == 1;
 }
 
+#define ARRAY_COUNT(array) ((int)(sizeof(array) / sizeof((array)[0])))
+
+// The last reaction slot is "Remove".
 static int reaction_grid_count(void) {
-  return (int)(sizeof(REACTION_GRID_CHOICES) / sizeof(REACTION_GRID_CHOICES[0]));
+  return (emoji_fonts_expanded() ? ARRAY_COUNT(REACTION_CHOICES_EXPANDED)
+                                 : ARRAY_COUNT(REACTION_CHOICES_CLASSIC)) + 1;
 }
 
-static int emoji_reply_count(void) {
-  return (int)(sizeof(EMOJI_REPLY_CHOICES) / sizeof(EMOJI_REPLY_CHOICES[0]));
+static bool reaction_grid_is_remove(int index) {
+  return index == reaction_grid_count() - 1;
 }
 
+static const char *reaction_grid_glyph_at(int index) {
+  if (index < 0 || index >= reaction_grid_count()) {
+    return "";
+  }
+  if (reaction_grid_is_remove(index)) {
+    return "Remove";
+  }
+  return emoji_fonts_expanded() ? REACTION_CHOICES_EXPANDED[index] : REACTION_CHOICES_CLASSIC[index];
+}
+
+// The phone accepts the emoji itself as the reaction token.
 static const char *reaction_grid_token_at(int index) {
   if (index < 0 || index >= reaction_grid_count()) {
     return "";
   }
-  return reaction_grid_choices()[index].token;
+  return reaction_grid_is_remove(index) ? "remove" : reaction_grid_glyph_at(index);
+}
+
+static int emoji_reply_count(void) {
+  return emoji_fonts_expanded() ? ARRAY_COUNT(EMOJI_REPLY_CHOICES_EXPANDED)
+                                : ARRAY_COUNT(EMOJI_REPLY_CHOICES_CLASSIC);
 }
 
 static const char *emoji_reply_glyph_at(int index) {
   if (index < 0 || index >= emoji_reply_count()) {
     return "";
   }
-  return EMOJI_REPLY_CHOICES[index];
+  return emoji_fonts_expanded() ? EMOJI_REPLY_CHOICES_EXPANDED[index] : EMOJI_REPLY_CHOICES_CLASSIC[index];
 }
 
 static void send_selected_reaction(const char *token) {
@@ -4694,7 +4729,7 @@ static ActionMenuLevel *native_create_reaction_level(void) {
   }
   action_menu_level_set_display_mode(level, ActionMenuLevelDisplayModeThin);
   for (int i = 0; i < count; i++) {
-    native_add_action(level, reaction_grid_choices()[i].glyph, ActionItemReact, i);
+    native_add_action(level, reaction_grid_glyph_at(i), ActionItemReact, i);
   }
   return level;
 }

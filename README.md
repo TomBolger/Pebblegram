@@ -38,6 +38,8 @@ Pebblegram 3.6 is a maintenance release focused on login and reply bugs.
 - Fixed iOS login hanging on "Requesting Telegram login..." by no longer replacing the phone app's WebSocket (#7, #8).
 - Fixed two-step (cloud password) login looping back to the password prompt (#6).
 - The login code cooldown now starts only after Telegram actually sends a code, and the watch says where the code was sent (Telegram app, SMS, call).
+- Much wider emoji support: on PebbleOS 4.29 and newer, all ~1,400 emoji the watch fonts include now show as emoji in messages, chat names, stickers and reactions. Anything the watch can't draw shows as its name, like `:partying_face:` or `:flag_de:`, instead of a generic `:emoji:`. Older firmware keeps its smaller set and names the rest.
+- The React menu now offers every Telegram standard reaction your watch can draw (69 on PebbleOS 4.29+), and the Emoji reply menu has 84 choices. Messages can show up to six reactions, and Premium custom-emoji reactions show the emoji they stand for.
 - Added a native Pebble 2 Duo (Flint) build.
 - Built with the current Core Devices SDK (Emery and Gabbro now have 128 KB of app memory).
 

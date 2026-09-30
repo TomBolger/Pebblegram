@@ -1,5 +1,6 @@
 var MessageKeys = require('message_keys');
 var pgjsBackend = require('./pgjs/backend');
+var watchEmoji = require('./pgjs/emoji');
 
 var DEBUG_LOGS = false;
 var TELEGRAM_SETTINGS_PAGE_URL = 'https://tombolger.github.io/Pebblegram/pgjs/config.html';
@@ -107,6 +108,7 @@ function configureForPlatform() {
   } catch (e) {
     info = null;
   }
+  watchEmoji.setFirmware(info && info.firmware);
   if (info && info.platform === 'emery') {
     INITIAL_MESSAGE_ROWS = 9;
     OLDER_MESSAGE_ROWS = 7;
@@ -417,195 +419,6 @@ function promiseError(prefix, err) {
   error(prefix + ': ' + message);
 }
 
-var WATCH_EMOJI_ALIASES = [
-  ['\u2709\ufe0f', ':envelope:'],
-  ['\u2709', ':envelope:'],
-  ['\u260e\ufe0f', ':phone:'],
-  ['\u260e', ':phone:'],
-  ['\u23f0', ':alarm_clock:'],
-  ['\u231b', ':hourglass:'],
-  ['\u23f3', ':hourglass:'],
-  ['\u2714\ufe0f', ':check_mark:'],
-  ['\u2714', ':check_mark:'],
-  ['\u274c', ':x:'],
-  ['\u2b55', ':o:'],
-  ['\u26a0\ufe0f', ':warning:'],
-  ['\u26a0', ':warning:'],
-  ['\u2600\ufe0f', ':sun:'],
-  ['\u2600', ':sun:'],
-  ['\u2601\ufe0f', ':cloud:'],
-  ['\u2601', ':cloud:'],
-  ['\u2614', ':umbrella:'],
-  ['\u26c5', ':partly_sunny:'],
-  ['\u26a1', ':zap:'],
-  ['\u2744\ufe0f', ':snowflake:'],
-  ['\u2744', ':snowflake:'],
-  ['\u2615', ':coffee:'],
-  ['\u26fd', ':fuelpump:'],
-  ['\u2708\ufe0f', ':airplane:'],
-  ['\u2708', ':airplane:'],
-  ['\u26f5', ':sailboat:'],
-  ['\u26bd', ':soccer:'],
-  ['\u26be', ':baseball:'],
-  ['\u26f3', ':golf:'],
-  ['\u2665\ufe0f', ':heart:'],
-  ['\u2665', ':heart:'],
-  ['\u2660\ufe0f', ':spades:'],
-  ['\u2660', ':spades:'],
-  ['\u2663\ufe0f', ':clubs:'],
-  ['\u2663', ':clubs:'],
-  ['\u2666\ufe0f', ':diamonds:'],
-  ['\u2666', ':diamonds:'],
-  ['\u267b\ufe0f', ':recycle:'],
-  ['\u267b', ':recycle:'],
-  ['\u00a9\ufe0f', ':copyright:'],
-  ['\u00ae\ufe0f', ':registered:'],
-  ['\u2122\ufe0f', ':tm:'],
-  ['\u270a', ':fist:'],
-  ['\ud83d\udc34', ':horse:'],
-  ['\ud83d\udc0e', ':racehorse:'],
-  ['\ud83e\udd84', ':unicorn:'],
-  ['\ud83d\udc36', ':dog:'],
-  ['\ud83d\udc15', ':dog:'],
-  ['\ud83d\udc31', ':cat:'],
-  ['\ud83d\udc08', ':cat:'],
-  ['\ud83d\udc2d', ':mouse:'],
-  ['\ud83d\udc39', ':hamster:'],
-  ['\ud83d\udc30', ':rabbit:'],
-  ['\ud83e\udd8a', ':fox:'],
-  ['\ud83d\udc3b', ':bear:'],
-  ['\ud83d\udc3c', ':panda:'],
-  ['\ud83d\udc28', ':koala:'],
-  ['\ud83d\udc2f', ':tiger:'],
-  ['\ud83e\udd81', ':lion:'],
-  ['\ud83d\udc2e', ':cow:'],
-  ['\ud83d\udc37', ':pig:'],
-  ['\ud83d\udc38', ':frog:'],
-  ['\ud83d\udc35', ':monkey:'],
-  ['\ud83d\ude48', ':see_no_evil:'],
-  ['\ud83d\ude49', ':hear_no_evil:'],
-  ['\ud83d\ude4a', ':speak_no_evil:'],
-  ['\ud83d\udc14', ':chicken:'],
-  ['\ud83d\udc27', ':penguin:'],
-  ['\ud83d\udc26', ':bird:'],
-  ['\ud83e\udd86', ':duck:'],
-  ['\ud83e\udd89', ':owl:'],
-  ['\ud83d\udc3a', ':wolf:'],
-  ['\ud83d\udc1d', ':bee:'],
-  ['\ud83d\udc1b', ':bug:'],
-  ['\ud83e\udd8b', ':butterfly:'],
-  ['\ud83d\udc0c', ':snail:'],
-  ['\ud83d\udc1e', ':lady_beetle:'],
-  ['\ud83d\udc1c', ':ant:'],
-  ['\ud83d\udc22', ':turtle:'],
-  ['\ud83d\udc0d', ':snake:'],
-  ['\ud83d\udc19', ':octopus:'],
-  ['\ud83e\udd80', ':crab:'],
-  ['\ud83d\udc20', ':fish:'],
-  ['\ud83d\udc2c', ':dolphin:'],
-  ['\ud83d\udc33', ':whale:'],
-  ['\ud83e\udd88', ':shark:'],
-  ['\ud83d\udc18', ':elephant:'],
-  ['\ud83e\udd92', ':giraffe:'],
-  ['\ud83c\udf08', ':rainbow:'],
-  ['\ud83d\ude80', ':rocket:'],
-  ['\ud83c\udf46', ':eggplant:'],
-  ['\ud83c\udf51', ':peach:'],
-  ['\ud83c\udf4e', ':apple:'],
-  ['\ud83c\udf4c', ':banana:'],
-  ['\ud83c\udf49', ':watermelon:'],
-  ['\ud83c\udf47', ':grapes:'],
-  ['\ud83c\udf53', ':strawberry:'],
-  ['\ud83c\udf52', ':cherries:'],
-  ['\ud83c\udf4d', ':pineapple:'],
-  ['\ud83e\udd51', ':avocado:'],
-  ['\ud83c\udf3d', ':corn:'],
-  ['\ud83e\udd55', ':carrot:'],
-  ['\ud83e\udd66', ':broccoli:'],
-  ['\ud83c\udf45', ':tomato:'],
-  ['\ud83c\udf44', ':mushroom:'],
-  ['\ud83c\udf36', ':hot_pepper:'],
-  ['\ud83c\udf5e', ':bread:'],
-  ['\ud83e\udd50', ':croissant:'],
-  ['\ud83e\uddc0', ':cheese:'],
-  ['\ud83e\udd5a', ':egg:'],
-  ['\ud83c\udf73', ':cooking:'],
-  ['\ud83e\udd5e', ':pancakes:'],
-  ['\ud83e\udd53', ':bacon:'],
-  ['\ud83c\udf54', ':burger:'],
-  ['\ud83c\udf5f', ':fries:'],
-  ['\ud83c\udf55', ':pizza:'],
-  ['\ud83c\udf2d', ':hot_dog:'],
-  ['\ud83c\udf2e', ':taco:'],
-  ['\ud83c\udf2f', ':burrito:'],
-  ['\ud83c\udf7f', ':popcorn:'],
-  ['\ud83c\udf63', ':sushi:'],
-  ['\ud83c\udf5c', ':ramen:'],
-  ['\ud83c\udf5d', ':spaghetti:'],
-  ['\ud83c\udf66', ':ice_cream:'],
-  ['\ud83c\udf69', ':donut:'],
-  ['\ud83c\udf6a', ':cookie:'],
-  ['\ud83c\udf82', ':cake:'],
-  ['\ud83c\udf70', ':cake:'],
-  ['\ud83c\udf6b', ':chocolate:'],
-  ['\ud83c\udf6c', ':candy:'],
-  ['\ud83c\udf6d', ':lollipop:'],
-  ['\ud83c\udf77', ':wine:'],
-  ['\ud83c\udf78', ':cocktail:'],
-  ['\ud83c\udf79', ':tropical_drink:'],
-  ['\ud83e\udd42', ':champagne:'],
-  ['\ud83d\udc4c', ':ok_hand:'],
-  ['\ud83d\udc4a', ':fist:'],
-  ['\ud83d\udc4b', ':wave:'],
-  ['\ud83d\udc4f', ':clap:'],
-  ['\ud83d\ude4c', ':raised_hands:'],
-  ['\ud83d\udc8b', ':kiss_mark:'],
-  ['\ud83d\udd25', ':fire:'],
-  ['\ud83e\udd14', ':thinking:'],
-  ['\ud83e\udd2f', ':exploding_head:'],
-  ['\ud83e\udd37', ':shrug:'],
-  ['\ud83e\udd26', ':facepalm:'],
-  ['\ud83e\udd1e', ':crossed_fingers:'],
-  ['\ud83e\udef6', ':heart_hands:']
-];
-
-var WATCH_SUPPORTED_EMOJI = [
-  '\u231a', '\u263a', '\u2620', '\u26a7', '\u2705', '\u270b',
-  '\u270c', '\u2728', '\u274e', '\u2757', '\u2763', '\u2764',
-  '\u2b50', '\ud83c\udf19', '\ud83c\udf1f', '\ud83c\udf37',
-  '\ud83c\udf38', '\ud83c\udf3a', '\ud83c\udf40', '\ud83c\udf7a',
-  '\ud83c\udf7b', '\ud83c\udf89', '\ud83c\udfb6', '\ud83c\udff3',
-  '\ud83d\udc25', '\ud83d\udc40', '\ud83d\udc4d', '\ud83d\udc4e',
-  '\ud83d\udc80', '\ud83d\udc93', '\ud83d\udc94', '\ud83d\udc95',
-  '\ud83d\udc96', '\ud83d\udc97', '\ud83d\udc98', '\ud83d\udc99',
-  '\ud83d\udc9a', '\ud83d\udc9b', '\ud83d\udc9c', '\ud83d\udc9d',
-  '\ud83d\udc9e', '\ud83d\udc9f', '\ud83d\udca1', '\ud83d\udca3',
-  '\ud83d\udca5', '\ud83d\udca9', '\ud83d\udcaf', '\ud83d\udda4',
-  '\ud83d\ude00', '\ud83d\ude01', '\ud83d\ude02', '\ud83d\ude03',
-  '\ud83d\ude04', '\ud83d\ude05', '\ud83d\ude06', '\ud83d\ude07',
-  '\ud83d\ude08', '\ud83d\ude09', '\ud83d\ude0a', '\ud83d\ude0b',
-  '\ud83d\ude0c', '\ud83d\ude0d', '\ud83d\ude0e', '\ud83d\ude0f',
-  '\ud83d\ude10', '\ud83d\ude11', '\ud83d\ude12', '\ud83d\ude13',
-  '\ud83d\ude14', '\ud83d\ude15', '\ud83d\ude16', '\ud83d\ude17',
-  '\ud83d\ude18', '\ud83d\ude19', '\ud83d\ude1a', '\ud83d\ude1b',
-  '\ud83d\ude1c', '\ud83d\ude1d', '\ud83d\ude1e', '\ud83d\ude1f',
-  '\ud83d\ude20', '\ud83d\ude21', '\ud83d\ude22', '\ud83d\ude23',
-  '\ud83d\ude24', '\ud83d\ude25', '\ud83d\ude26', '\ud83d\ude27',
-  '\ud83d\ude28', '\ud83d\ude29', '\ud83d\ude2a', '\ud83d\ude2b',
-  '\ud83d\ude2c', '\ud83d\ude2d', '\ud83d\ude2e', '\ud83d\ude2f',
-  '\ud83d\ude30', '\ud83d\ude31', '\ud83d\ude32', '\ud83d\ude33',
-  '\ud83d\ude34', '\ud83d\ude35', '\ud83d\ude36', '\ud83d\ude37',
-  '\ud83d\ude43', '\ud83d\ude44', '\ud83d\ude4f', '\ud83e\udd17',
-  '\ud83e\udd18', '\ud83e\udd1d', '\ud83e\udd23', '\ud83e\udd24',
-  '\ud83e\udd29', '\ud83e\udd2a', '\ud83e\udd2c', '\ud83e\udd2e',
-  '\ud83e\udd70', '\ud83e\udd7a'
-];
-
-var WATCH_SUPPORTED_EMOJI_MAP = {};
-for (var watchEmojiIndex = 0; watchEmojiIndex < WATCH_SUPPORTED_EMOJI.length; watchEmojiIndex += 1) {
-  WATCH_SUPPORTED_EMOJI_MAP[WATCH_SUPPORTED_EMOJI[watchEmojiIndex]] = true;
-}
-
 var WATCH_LINK_TLDS = {
   app: true,
   biz: true,
@@ -625,25 +438,11 @@ var WATCH_LINK_TLDS = {
   us: true
 };
 
-function replaceWatchEmojiAliases(value) {
-  for (var i = 0; i < WATCH_EMOJI_ALIASES.length; i += 1) {
-    value = value.split(WATCH_EMOJI_ALIASES[i][0]).join(WATCH_EMOJI_ALIASES[i][1]);
-  }
-  return value;
-}
-
-function replaceUnsupportedWatchEmoji(value) {
-  return value.replace(/[\ud800-\udbff][\udc00-\udfff]/g, function(match) {
-    return WATCH_SUPPORTED_EMOJI_MAP[match] ? match : ':emoji:';
-  });
-}
-
+// Emoji the watch can draw pass through; everything else becomes :shortcode:.
+// See pgjs/emoji.js.
 function normalizeWatchString(value) {
-  return replaceUnsupportedWatchEmoji(replaceWatchEmojiAliases(String(value || '')))
-    .replace(/[\u200b-\u200f\ufe00-\ufe0f\ufeff]/g, '')
-    .replace(/[\ud800-\udbff][\udc00-\udfff]/g, function(match) {
-      return WATCH_SUPPORTED_EMOJI_MAP[match] ? match : ':emoji:';
-    });
+  return watchEmoji.convert(String(value === undefined || value === null ? '' : value))
+    .replace(/[\u200b\u200c\u200e\u200f\ufeff]/g, '');
 }
 
 function clampText(value, maxLength) {
@@ -715,7 +514,10 @@ function watchText(value, maxLength) {
     .replace(/[\r\n\t]+/g, ' ')
     .replace(/\s+/g, ' ')
     .replace(/\b([A-Za-z0-9_.-]{2,})\/([A-Za-z0-9_.-]{2,})\b/g, '$1 / $2')
-    .replace(/[^\s]{29,}/g, shortenToken)
+    .replace(/[^\s]{29,}/g, function(token) {
+      // Never cut an emoji :shortcode: in half.
+      return /:[a-z0-9_+-]{2,}:/i.test(token) ? token : shortenToken(token);
+    })
     .trim();
   return clampUtf8Bytes(value, maxLength);
 }
@@ -908,7 +710,7 @@ function messagePayload(message, type, index, count, transferId) {
   payload[MessageKeys.Sender] = clampText(message.sender, 35);
   payload[MessageKeys.Text] = watchText(message.text, MAX_MESSAGE_TEXT);
   if (message.reactions) {
-    payload[MessageKeys.Reactions] = clampText(message.reactions, 16);
+    payload[MessageKeys.Reactions] = clampText(message.reactions, 63);
   }
   if (message.meta) {
     payload[MessageKeys.MessageMeta] = clampUtf8Bytes(message.meta, 15);
@@ -1697,91 +1499,24 @@ function messageSignature(messages) {
   return (messages || []).map(singleMessageSignature).join('~');
 }
 
+var REACTION_TOKENS = {
+  like: '\ud83d\udc4d', heart: '\u2764', laugh: '\ud83e\udd23', wow: '\ud83d\ude31',
+  sad: '\ud83d\ude22', angry: '\ud83d\ude21', smile_open: '\ud83d\ude01', smile_eyes: '\ud83d\ude01',
+  cry_loud: '\ud83d\ude2d', fire: '\ud83d\udd25', party: '\ud83c\udf89', star_struck: '\ud83e\udd29',
+  smiling_hearts: '\ud83e\udd70', symbols_mouth: '\ud83e\udd2c', clap: '\ud83d\udc4f', grin: '\ud83d\ude01',
+  think: '\ud83e\udd14', eyes: '\ud83d\udc40', love: '\ud83d\ude0d', kiss: '\ud83d\ude18',
+  blush: '\ud83d\ude33', grimace: '\ud83d\ude2c', neutral: '\ud83d\ude10', angel: '\ud83d\ude07',
+  devil: '\ud83d\ude08', pray: '\ud83d\ude4f', dislike: '\ud83d\udc4e', ok: '\ud83d\udc4c',
+  broken_heart: '\ud83d\udc94', kiss_mark: '\ud83d\udc8b', poop: '\ud83d\udca9', sick: '\ud83e\udd2e',
+  sleep: '\ud83d\ude34', cool: '\ud83d\ude0e'
+};
+
 function reactionGlyph(token) {
-  switch (token) {
-    case 'like':
-      return '\ud83d\udc4d';
-    case 'heart':
-      return '\u2764';
-    case 'laugh':
-      return '\ud83e\udd23';
-    case 'wow':
-      return '\ud83d\ude31';
-    case 'sad':
-      return '\ud83d\ude22';
-    case 'angry':
-      return '\ud83d\ude21';
-    case 'smile_open':
-    case 'smile_eyes':
-      return '\ud83d\ude01';
-    case 'cry_loud':
-      return '\ud83d\ude2d';
-    case 'fire':
-      return '\ud83d\udd25';
-    case 'party':
-      return '\ud83c\udf89';
-    case 'star_struck':
-      return '\ud83e\udd29';
-    case 'smiling_hearts':
-      return '\ud83e\udd70';
-    case 'symbols_mouth':
-      return '\ud83e\udd2c';
-    case 'clap':
-      return '\ud83d\udc4f';
-    case 'grin':
-      return '\ud83d\ude01';
-    case 'think':
-      return '\ud83e\udd14';
-    case 'eyes':
-      return '\ud83d\udc40';
-    case 'love':
-      return '\ud83d\ude0d';
-    case 'kiss':
-      return '\ud83d\ude18';
-    case 'blush':
-      return '\ud83d\ude33';
-    case 'grimace':
-      return '\ud83d\ude2c';
-    case 'neutral':
-      return '\ud83d\ude10';
-    case 'angel':
-      return '\ud83d\ude07';
-    case 'devil':
-      return '\ud83d\ude08';
-    case 'pray':
-      return '\ud83d\ude4f';
-    case 'dislike':
-      return '\ud83d\udc4e';
-    case 'ok':
-      return '\ud83d\udc4c';
-    case 'broken_heart':
-      return '\ud83d\udc94';
-    case 'kiss_mark':
-      return '\ud83d\udc8b';
-    case 'poop':
-      return '\ud83d\udca9';
-    case 'sick':
-      return '\ud83e\udd2e';
-    case 'sleep':
-      return '\ud83d\ude34';
-    case 'cool':
-      return '\ud83d\ude0e';
-    case 'bolt':
-      return '\u26a1';
-    case '\ud83d\ude02':
-      return '\ud83e\udd23';
-    case '\ud83d\ude00':
-    case '\ud83d\ude04':
-      return '\ud83d\ude01';
-    case '\ud83d\ude2d':
-      return '\ud83d\ude2d';
-    case '\ud83d\ude33':
-      return '\ud83d\ude31';
-    case '\ud83d\ude2c':
-      return '\ud83d\ude10';
-    default:
-      return token && /[^\x00-\x7f]/.test(token) ? token : '';
+  // The watch sends either a legacy name ("like") or the emoji itself.
+  if (REACTION_TOKENS.hasOwnProperty(token)) {
+    return REACTION_TOKENS[token];
   }
+  return token && /[^\x00-\x7f]/.test(token) ? token : '';
 }
 
 function reactionApplied(message, token) {
