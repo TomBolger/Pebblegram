@@ -3017,6 +3017,42 @@ static void draw_touch_keyboard_key(GContext *ctx, GRect rect, const char *label
                      GTextOverflowModeFill, GTextAlignmentCenter, NULL);
 }
 
+// Shift is a drawn up arrow: outline when off, filled when on, with a bar
+// underneath for caps lock. Fonts can't be relied on for an arrow glyph.
+static void kb_draw_shift_arrow(GContext *ctx, GRect rect, GColor color, bool filled, bool caps) {
+  int cx = rect.origin.x + rect.size.w / 2;
+  int size = PG_MIN(rect.size.w - 4, rect.size.h - 6);
+  int half = PG_MAX(3, size / 2);
+  int top = rect.origin.y + (rect.size.h - size) / 2 - (caps ? 1 : 0);
+  int mid = top + half;
+  int stem_w = PG_MAX(2, half / 2);
+  int bottom = top + size - (caps ? 2 : 0);
+  GPoint points[7] = {
+    {cx, top},
+    {cx + half, mid},
+    {cx + stem_w, mid},
+    {cx + stem_w, bottom},
+    {cx - stem_w, bottom},
+    {cx - stem_w, mid},
+    {cx - half, mid}
+  };
+  GPathInfo info = {7, points};
+  GPath *path = gpath_create(&info);
+  if (!path) {
+    return;
+  }
+  graphics_context_set_fill_color(ctx, color);
+  graphics_context_set_stroke_color(ctx, color);
+  if (filled) {
+    gpath_draw_filled(ctx, path);
+  }
+  gpath_draw_outline(ctx, path);
+  gpath_destroy(path);
+  if (caps) {
+    graphics_fill_rect(ctx, GRect(cx - half + 1, bottom + 2, (half * 2) - 1, 2), 0, GCornerNone);
+  }
+}
+
 static void kb_key_label(KeyHit key, char *buffer, size_t size) {
   switch (key.kind) {
     case KeyChar:
@@ -3091,9 +3127,15 @@ static void draw_touch_keyboard(GContext *ctx, GRect bounds) {
       bool accent = key.kind == KeySend ||
                     (key.kind == KeyShift && !s_touch_keyboard_symbols &&
                      (s_touch_keyboard_shift || s_kb_caps_lock));
+      GRect key_rect = kb_key_rect(bounds, keyboard_rect, row, i);
+      if (key.kind == KeyShift && !s_touch_keyboard_symbols) {
+        draw_touch_keyboard_key(ctx, key_rect, "", pressed, special, accent);
+        kb_draw_shift_arrow(ctx, key_rect, (pressed || accent) ? GColorWhite : GColorBlack,
+                            s_touch_keyboard_shift || s_kb_caps_lock, s_kb_caps_lock);
+        continue;
+      }
       kb_key_label(key, label, sizeof(label));
-      draw_touch_keyboard_key(ctx, kb_key_rect(bounds, keyboard_rect, row, i), label, pressed,
-                              special, accent);
+      draw_touch_keyboard_key(ctx, key_rect, label, pressed, special, accent);
     }
   }
 }
@@ -5343,12 +5385,12 @@ static ActionMenuLevel *native_create_reply_level(void) {
   if (!level) {
     return NULL;
   }
-  if (touch_keyboard_supported()) {
-    native_add_action(level, "Type Reply", ActionItemReplyKeyboard, -1);
-  }
   native_add_action(level, "Dictate Reply", ActionItemReplyDictate, -1);
   native_add_child(level, native_create_canned_level(true), "Canned Message");
   native_add_child(level, native_create_emoji_level(true), "Emoji");
+  if (touch_keyboard_supported()) {
+    native_add_action(level, "Type Reply", ActionItemReplyKeyboard, -1);
+  }
   return level;
 }
 
@@ -5359,12 +5401,12 @@ static ActionMenuLevel *native_build_main_level(void) {
   }
 
   if (!has_selected_message()) {
-    if (touch_keyboard_supported()) {
-      native_add_action(level, "Keyboard", ActionItemKeyboard, -1);
-    }
     native_add_action(level, "Voice", ActionItemCompose, -1);
     native_add_child(level, native_create_canned_level(false), "Canned Message");
     native_add_child(level, native_create_emoji_level(false), "Emoji");
+    if (touch_keyboard_supported()) {
+      native_add_action(level, "Keyboard", ActionItemKeyboard, -1);
+    }
     native_add_action(level, "Go to Bottom", ActionItemGoToBottom, -1);
     return level;
   }
