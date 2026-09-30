@@ -22,6 +22,12 @@ def configure(ctx):
     Universal configuration: add your change prior to calling ctx.load('pebble_sdk').
     """
     ctx.load('pebble_sdk')
+    # Link-time optimisation: the watch app's code lives in RAM, so a smaller
+    # binary means more heap for photos, especially on 64 KB watches.
+    for platform in ctx.env.TARGET_PLATFORMS:
+        env = ctx.all_envs[platform]
+        env.append_value('CFLAGS', ['-flto'])
+        env.append_value('LINKFLAGS', ['-flto', '-Os'])
 
 
 @feature('js')

@@ -5,14 +5,20 @@ function parseApiId(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function parseBoolean(value) {
-  return value === "1" || value === "true" || value === "yes" || value === "on";
+function parseBoolean(value, fallback = false) {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return fallback;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }
 
 const runtimeConfig = {
   apiId: parseApiId(process.env.PGJS_TELEGRAM_API_ID),
   apiHash: String(process.env.PGJS_TELEGRAM_API_HASH || "").trim(),
-  forceWSS: parseBoolean(process.env.PGJS_TELEGRAM_FORCE_WSS),
+  // Encrypted wss:// is the default: the Core Devices phone apps block cleartext
+  // ws:// sockets (issues #4, #7). Set PGJS_TELEGRAM_FORCE_WSS=false to opt out.
+  forceWSS: parseBoolean(process.env.PGJS_TELEGRAM_FORCE_WSS, true),
   testServers: parseBoolean(process.env.PGJS_TELEGRAM_TEST_SERVERS)
 };
 

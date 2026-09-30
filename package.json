@@ -1,12 +1,13 @@
 {
   "name": "Pebblegram",
   "author": "Bolger Innovations",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "keywords": [
     "pebble-app"
   ],
   "scripts": {
-    "build:pgjs-gramjs": "node tools/build-pgjs-gramjs.mjs"
+    "build:pgjs-gramjs": "node tools/build-pgjs-gramjs.mjs",
+    "build:emoji": "node tools/build-emoji-data.mjs"
   },
   "pebble": {
     "displayName": "Pebblegram",
@@ -17,6 +18,7 @@
       "basalt",
       "diorite",
       "emery",
+      "flint",
       "gabbro"
     ],
     "capabilities": [
@@ -63,13 +65,34 @@
           "name": "IMAGE_MENU_ICON",
           "file": "images/menu_icon.png",
           "menuIcon": true
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_WALLPAPER",
+          "file": "images/wallpaper.png",
+          "targetPlatforms": [
+            "basalt",
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_TINT_SELECT",
+          "file": "images/tint_select.png",
+          "targetPlatforms": [
+            "basalt",
+            "emery",
+            "gabbro"
+          ]
         }
       ]
     }
   },
   "devDependencies": {
     "buffer": "6.0.3",
-    "esbuild": "0.28.0",
+    "emojibase-data": "^17.0.0",
+    "esbuild": "0.28.2",
     "jpeg-js": "0.4.4",
     "js-sha1": "0.7.0",
     "js-sha256": "0.11.1",

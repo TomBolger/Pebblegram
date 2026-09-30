@@ -36,7 +36,7 @@ function runtimeConfig(gram, creds) {
   return {
     apiId: embedded.apiId || creds.apiId || 0,
     apiHash: embedded.apiHash || creds.apiHash || '',
-    forceWSS: embedded.forceWSS === true,
+    forceWSS: embedded.forceWSS !== false,
     testServers: embedded.testServers === true
   };
 }
@@ -79,7 +79,19 @@ function authErrorMessage(err) {
     return 'Code stale. Open settings, save your phone number again, then enter the new Telegram code.';
   }
   if (code === 'PHONE_NUMBER_INVALID') {
-    return 'Bad phone number.';
+    return 'Telegram rejected that phone number. Use international format with a plus sign, such as +15551234567.';
+  }
+  if (code === 'PHONE_NUMBER_BANNED') {
+    return 'Telegram reports this phone number is banned.';
+  }
+  if (code === 'API_ID_INVALID' || code === 'API_ID_PUBLISHED_FLOOD') {
+    return 'Telegram rejected the API ID/hash. Re-check them at my.telegram.org/apps, then use Reset in settings.';
+  }
+  if (code === 'PASSWORD_HASH_INVALID') {
+    return 'Wrong two-step password. Open Pebblegram settings, enter your Telegram cloud password, then tap Save.';
+  }
+  if (/Maximum reconnection retries/i.test(String(err && err.message || ''))) {
+    return 'Could not reach Telegram. Check your phone\'s internet connection, then open Pebblegram again.';
   }
   if (code.indexOf('FLOOD_WAIT') === 0) {
     waitMatch = code.match(/FLOOD_WAIT_?(\d+)/);
@@ -187,6 +199,28 @@ function pinAuthDc(client, config) {
   }
 }
 
+function codeDestination(result) {
+  var type = result && result.type ? result.type.className : '';
+  if (type === 'auth.SentCodeTypeApp') {
+    return 'to your other Telegram app (check the "Telegram" chat)';
+  }
+  if (type === 'auth.SentCodeTypeSms' || type === 'auth.SentCodeTypeSmsWord' ||
+      type === 'auth.SentCodeTypeSmsPhrase') {
+    return 'by SMS';
+  }
+  if (type === 'auth.SentCodeTypeCall' || type === 'auth.SentCodeTypeFlashCall' ||
+      type === 'auth.SentCodeTypeMissedCall') {
+    return 'by phone call';
+  }
+  if (type === 'auth.SentCodeTypeEmailCode') {
+    return 'to your login email';
+  }
+  if (type === 'auth.SentCodeTypeFragmentSms') {
+    return 'via Fragment';
+  }
+  return 'to your Telegram account';
+}
+
 function requestCode(gram, config, creds) {
   var client = createClient(gram, config, '');
   var codeRequestAge = cache.codeRequestAgeMs(creds.phone);
@@ -204,7 +238,6 @@ function requestCode(gram, config, creds) {
       return client.connect();
     }).then(function() {
       reportStatus('Sending code...');
-      cache.noteCodeRequest(creds.phone);
       return client.invoke(new gram.Api.auth.SendCode({
         phoneNumber: creds.phone,
         apiId: config.apiId,
@@ -218,12 +251,18 @@ function requestCode(gram, config, creds) {
         }
         throw new Error('Telegram did not return a login code hash.');
       }
+      // Start the resend cooldown only once Telegram actually sent a code, so a
+      // failed request doesn't lock the user out for five minutes.
+      cache.noteCodeRequest(creds.phone);
       reportStatus('Code requested.');
       cache.setPhoneCodeRequest(result.phoneCodeHash, client.session.save());
       cache.clearCode();
-      return closeClient(client);
-    }).then(function(value) {
-      throw new Error('Open Pebblegram settings on your phone, enter the Telegram login code, then tap Save.');
+      return closeClient(client).then(function() {
+        return result;
+      });
+    }).then(function(result) {
+      throw new Error('Telegram sent a login code ' + codeDestination(result) +
+                      '. Open Pebblegram settings on your phone, enter the code, then tap Save.');
     }, function(err) {
       return closeClient(client).then(function() {
         throw err;
@@ -249,12 +288,53 @@ function signInWithCode(gram, config, creds) {
     });
   }
 
-  pinAuthDc(client, config);
+  function signInWithPassword() {
+    reportStatus('Checking password...');
+    return client.signInWithPassword({
+      apiId: config.apiId,
+      apiHash: config.apiHash
+    }, {
+      password: function() {
+        return Promise.resolve(creds.password);
+      },
+      onError: function(passwordErr) {
+        throw passwordErr;
+      }
+    }).then(function() {
+      cache.setSession(client.session.save());
+      return client;
+    }).catch(function(err) {
+      if (telegramErrorCode(err) === 'PASSWORD_HASH_INVALID') {
+        cache.set('password', '');
+        cache.set('authStage', 'password');
+      }
+      return failSignIn(err);
+    });
+  }
+
+  function needPassword() {
+    cache.set('authStage', 'password');
+    return closeClient(client).then(function() {
+      throw new Error('Open Pebblegram settings on your phone, enter your Telegram two-step password, then tap Save.');
+    });
+  }
+
+  // No auth-DC pin here: pendingSession already carries the data center (and
+  // matching auth key) Telegram migrated us to while sending the code.
+  // Re-pinning pointed sign-in at the wrong DC and caused the
+  // "Maximum reconnection retries" loop (issue #4, PR #9).
+  if (creds.authStage === 'password' && !creds.password) {
+    return needPassword();
+  }
   return timeout(
     Promise.resolve().then(function() {
       reportStatus('Connecting...');
       return client.connect();
     }).then(function() {
+      if (creds.authStage === 'password' && creds.pendingSession) {
+        // The code was already accepted; Telegram only needs the password now.
+        return 'password';
+      }
       if (!creds.phoneCodeHash) {
         throw new Error('Open settings, save your phone number again, then enter the new Telegram code.');
       }
@@ -268,31 +348,19 @@ function signInWithCode(gram, config, creds) {
         phoneCodeHash: creds.phoneCodeHash,
         phoneCode: creds.code
       }));
-    }).then(function() {
+    }).then(function(result) {
+      if (result === 'password') {
+        return signInWithPassword();
+      }
+      if (result && result.className === 'auth.AuthorizationSignUpRequired') {
+        cache.clearCodeRequest();
+        return failSignIn(new Error('No Telegram account uses this phone number. Sign up in the Telegram app first.'));
+      }
       cache.setSession(client.session.save());
       return client;
-    }).catch(function(err) {
+    }, function(err) {
       if (err && err.errorMessage === 'SESSION_PASSWORD_NEEDED') {
-        if (creds.password) {
-          return client.signInWithPassword({
-            apiId: config.apiId,
-            apiHash: config.apiHash
-          }, {
-            password: function() {
-              return Promise.resolve(creds.password);
-            },
-            onError: function(passwordErr) {
-              throw passwordErr;
-            }
-          }).then(function() {
-            cache.setSession(client.session.save());
-            return client;
-          }).catch(failSignIn);
-        }
-        cache.set('authStage', 'password');
-        return closeClient(client).then(function() {
-          throw new Error('Open Pebblegram settings on your phone, enter your Telegram two-step password, then tap Save.');
-        });
+        return creds.password ? signInWithPassword() : needPassword();
       }
       return failSignIn(err);
     }),
@@ -337,7 +405,7 @@ function getClient() {
       return;
     }
 
-    if (!creds.session && !creds.code) {
+    if (!creds.session && !creds.code && creds.authStage !== 'password') {
       requestCode(gram, config, creds).then(resolve).catch(function(err) {
         clientPromise = null;
         reject(err);
@@ -345,7 +413,7 @@ function getClient() {
       return;
     }
 
-    if (!creds.session && creds.code) {
+    if (!creds.session && (creds.code || creds.authStage === 'password')) {
       signInWithCode(gram, config, creds).then(function(client) {
         currentClient = client;
         resolve(client);
