@@ -3207,33 +3207,15 @@ static void draw_touch_keyboard(GContext *ctx, GRect bounds) {
   }
 }
 
-static void touch_handler(const TouchEvent *event, void *context) {
-  if (!event || !touch_keyboard_supported()) {
-    return;
-  }
-  // Menus, dictation and full-text views sit above the chat: ignore touches then.
-  if (window_stack_get_top_window() != s_main_window || s_view_state != ViewStateChat ||
-      !s_messages_root) {
-    kb_reset_press();
-    return;
-  }
-  // A touch that woke the screen shouldn't type (flag exists from PebbleOS 4.32).
-  if (event->non_navigational && kb_firmware_at_least(4, 32, 0)) {
-    return;
-  }
-
-  GRect bounds = layer_get_bounds(s_messages_root);
-  GRect frame = layer_get_frame(s_messages_root);
-  GPoint point = GPoint(event->x - frame.origin.x, event->y - frame.origin.y);
-
+// Keyboard part of touch handling. Returns true when the keyboard used the event.
+static bool kb_handle_touch(const TouchEvent *event, GRect bounds, GPoint point) {
   if (!s_touch_keyboard_open) {
-    if (event->type == TouchEvent_Liftoff && s_at_newest) {
-      GRect compose_rect = compose_rect_for_bounds(bounds);
-      if (grect_contains_point(&compose_rect, &point)) {
-        open_touch_keyboard(KeyboardModeCompose, NULL, NULL);
-      }
-    }
-    return;
+    return false;
+  }
+  GRect keyboard_rect = touch_keyboard_rect_for_bounds(bounds);
+  bool in_keyboard = point.y >= keyboard_rect.origin.y;
+  if (!in_keyboard && !s_kb_press_active) {
+    return false;  // Above the keyboard: scroll the chat like normal.
   }
 
   KeyHit hit = kb_hit_test(bounds, point);
@@ -3267,6 +3249,7 @@ static void touch_handler(const TouchEvent *event, void *context) {
       break;
     }
   }
+  return true;
 }
 #else
 static bool touch_keyboard_supported(void) {
@@ -6082,6 +6065,357 @@ static void main_back_click_handler(ClickRecognizerRef recognizer, void *context
     window_stack_pop(true);
   }
 }
+
+#if TOUCH_KEYBOARD_AVAILABLE
+// ---------------------------------------------------------------------------
+// Touch gestures for the whole app (Pebble Time 2 / Round 2).
+//   Chat list:  tap a chat to open it, hold for chat actions, drag to scroll.
+//   Chat:       drag to scroll, tap a message for its menu, hold a message to
+//               react, tap "New message" to type, swipe right to go back.
+//   Full text:  drag to scroll, swipe right to close.
+// Buttons keep working exactly as before.
+// ---------------------------------------------------------------------------
+
+#define TOUCH_SLOP 8
+#define TOUCH_LONG_PRESS_MS 500
+#define TOUCH_SWIPE_BACK_MIN 50
+
+typedef struct {
+  bool down;
+  bool dragging;
+  bool horizontal;
+  bool long_fired;
+  bool keyboard;
+  GPoint start;
+  GPoint last;
+  int list_accum;
+} TouchGesture;
+
+static TouchGesture s_gesture;
+static AppTimer *s_long_press_timer;
+
+static void touch_cancel_long_press(void) {
+  if (s_long_press_timer) {
+    app_timer_cancel(s_long_press_timer);
+    s_long_press_timer = NULL;
+  }
+}
+
+static int touch_abs(int value) {
+  return value < 0 ? -value : value;
+}
+
+static GPoint touch_point_in_layer(const TouchEvent *event, Layer *layer) {
+  GRect frame = layer_get_frame(layer);
+  return GPoint(event->x - frame.origin.x, event->y - frame.origin.y);
+}
+
+// ---- Chat list ------------------------------------------------------------
+
+static int touch_chat_row_at(GPoint point) {
+  if (!s_chat_menu || s_chat_count == 0) {
+    return s_chat_menu ? 0 : -1;
+  }
+  ScrollLayer *scroll = menu_layer_get_scroll_layer(s_chat_menu);
+  GPoint offset = scroll_layer_get_content_offset(scroll);
+  int cell_h = ROUND_UI ? 42 : 46;
+  int row = (point.y - offset.y) / cell_h;
+  return (row >= 0 && row < s_chat_count) ? row : -1;
+}
+
+static void touch_chat_list_select(int row, bool animated) {
+  s_selected_chat = row;
+  menu_layer_set_selected_index(s_chat_menu, MenuIndex(0, row), MenuRowAlignNone, animated);
+  if (row >= 0 && row < s_chat_count) {
+    copy_cstr(s_chat_list_selected_id, sizeof(s_chat_list_selected_id), s_chats[row].id);
+  }
+}
+
+static void touch_chat_list_tap(GPoint point) {
+  if (s_loading_messages) {
+    show_status("Loading messages...");
+    return;
+  }
+  int row = touch_chat_row_at(point);
+  if (row < 0) {
+    return;
+  }
+  if (s_chat_count > 0) {
+    touch_chat_list_select(row, false);
+  }
+  MenuIndex index = MenuIndex(0, row);
+  chat_menu_select_callback(s_chat_menu, &index, NULL);
+}
+
+static void touch_chat_list_hold(GPoint point) {
+  int row = touch_chat_row_at(point);
+  if (row < 0 || s_chat_count == 0 || s_chats_loading || s_loading_messages) {
+    return;
+  }
+  touch_chat_list_select(row, true);
+  show_action_window(ActionMenuChat);
+}
+
+// Dragging moves the selection one row per row-height of finger travel.
+static void touch_chat_list_drag(int dy) {
+  int cell_h = ROUND_UI ? 42 : 46;
+  s_gesture.list_accum += dy;
+  while (s_gesture.list_accum <= -cell_h / 2) {
+    s_gesture.list_accum += cell_h / 2;
+    menu_layer_set_selected_next(s_chat_menu, false, MenuRowAlignCenter, false);
+  }
+  while (s_gesture.list_accum >= cell_h / 2) {
+    s_gesture.list_accum -= cell_h / 2;
+    menu_layer_set_selected_next(s_chat_menu, true, MenuRowAlignCenter, false);
+  }
+  touch_chat_list_select(menu_layer_get_selected_index(s_chat_menu).row, false);
+}
+
+// ---- Chat -----------------------------------------------------------------
+
+static int touch_message_at(GPoint point) {
+  int content_y = point.y + s_chat_scroll_offset;
+  for (int i = 0; i < s_message_count; i++) {
+    if (content_y >= s_message_y[i] && content_y < s_message_y[i] + s_message_h[i]) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+static bool touch_on_compose(GRect bounds, GPoint point) {
+  if (!s_at_newest || s_touch_keyboard_open) {
+    return false;
+  }
+  GRect compose = compose_rect_for_bounds(bounds);
+  return grect_contains_point(&compose, &point);
+}
+
+static void touch_chat_tap(GRect bounds, GPoint point) {
+  if (touch_on_compose(bounds, point)) {
+    if (touch_keyboard_supported()) {
+      open_touch_keyboard(KeyboardModeCompose, NULL, NULL);
+    } else {
+      s_selected_message = s_message_count;
+      show_action_window(ActionMenuMain);
+    }
+    return;
+  }
+  int index = touch_message_at(point);
+  if (index < 0) {
+    return;
+  }
+  if (s_touch_keyboard_open) {
+    close_touch_keyboard();  // Tapping the chat puts the keyboard away (draft is kept).
+  }
+  s_user_scrolled_messages = true;
+  s_selected_message = index;
+  prepare_selected_image_request();
+  layer_mark_dirty(s_messages_root);
+  show_action_window(ActionMenuMain);
+}
+
+static void touch_chat_hold(GRect bounds, GPoint point) {
+  int index = touch_message_at(point);
+  if (index < 0 || touch_on_compose(bounds, point)) {
+    return;
+  }
+  s_user_scrolled_messages = true;
+  s_selected_message = index;
+  layer_mark_dirty(s_messages_root);
+  vibes_short_pulse();
+  show_action_window(ActionMenuReactionGrid);  // Hold a message to react.
+}
+
+static void touch_chat_drag(int dy) {
+  finish_pending_chat_scroll();
+  set_chat_scroll_offset_quiet(s_chat_scroll_offset - dy);
+  s_user_scrolled_messages = true;
+  layer_mark_dirty(s_messages_root);
+}
+
+// After a drag, point the buttons at what's on screen and load what's needed.
+static void touch_chat_drag_end(GRect bounds) {
+  int visible_h = visible_message_height(bounds);
+  int max_offset = PG_MAX(0, s_chat_content_height - visible_h);
+  int center = s_chat_scroll_offset + visible_h / 2;
+  int best = -1;
+  int best_distance = 0x7fff;
+  for (int i = 0; i < s_message_count; i++) {
+    int mid = s_message_y[i] + s_message_h[i] / 2;
+    int distance = touch_abs(mid - center);
+    if (distance < best_distance) {
+      best_distance = distance;
+      best = i;
+    }
+  }
+  if (s_at_newest && s_chat_scroll_offset >= max_offset - 2) {
+    s_selected_message = s_message_count;  // At the bottom: "New message" is selected.
+  } else if (best >= 0) {
+    s_selected_message = best;
+  }
+  prepare_selected_image_request();
+  request_next_image();
+  if (s_chat_scroll_offset <= 0 && !s_at_oldest && !s_loading_older_messages) {
+    request_older_messages(false);
+  } else if (!s_at_newest && s_chat_scroll_offset >= max_offset - 2 && !s_loading_newer_messages) {
+    request_newer_messages(false);
+  }
+  layer_mark_dirty(s_messages_root);
+}
+
+// ---- Full text view -------------------------------------------------------
+
+static void touch_full_text_drag(int dy) {
+  if (!s_action_layer) {
+    return;
+  }
+  GRect bounds = layer_get_bounds(s_action_layer);
+  int max_scroll = PG_MAX(0, s_full_text_height - bounds.size.h + 8);
+  s_full_text_scroll_offset = PG_MAX(0, PG_MIN(max_scroll, s_full_text_scroll_offset - dy));
+  layer_mark_dirty(s_action_layer);
+}
+
+// ---- Dispatcher -----------------------------------------------------------
+
+static bool touch_full_text_on_top(void) {
+  return s_action_window && window_stack_get_top_window() == s_action_window &&
+         s_action_mode == ActionMenuFullText;
+}
+
+static void touch_long_press_callback(void *context) {
+  s_long_press_timer = NULL;
+  if (!s_gesture.down || s_gesture.dragging || s_gesture.keyboard) {
+    return;
+  }
+  if (window_stack_get_top_window() != s_main_window) {
+    return;
+  }
+  s_gesture.long_fired = true;
+  if (s_view_state == ViewStateChatList && s_chat_menu) {
+    touch_chat_list_hold(touch_point_in_layer(&(TouchEvent){.x = s_gesture.start.x,
+                                                              .y = s_gesture.start.y},
+                                              menu_layer_get_layer(s_chat_menu)));
+  } else if (s_view_state == ViewStateChat && s_messages_root) {
+    GRect frame = layer_get_frame(s_messages_root);
+    GPoint point = GPoint(s_gesture.start.x - frame.origin.x, s_gesture.start.y - frame.origin.y);
+    touch_chat_hold(layer_get_bounds(s_messages_root), point);
+  }
+}
+
+static void touch_handler(const TouchEvent *event, void *context) {
+  if (!event || !touch_keyboard_supported()) {
+    return;
+  }
+  // A touch that only woke the screen shouldn't do anything (PebbleOS 4.32+).
+  if (event->type == TouchEvent_Touchdown && event->non_navigational &&
+      kb_firmware_at_least(4, 32, 0)) {
+    s_gesture.down = false;
+    return;
+  }
+
+  Window *top = window_stack_get_top_window();
+  bool full_text = touch_full_text_on_top();
+  if (top != s_main_window && !full_text) {
+    // System menus and dictation handle their own input.
+    touch_cancel_long_press();
+    kb_reset_press();
+    s_gesture.down = false;
+    return;
+  }
+
+  GPoint screen = GPoint(event->x, event->y);
+
+  // The keyboard gets first go at touches inside it.
+  if (!full_text && s_view_state == ViewStateChat && s_messages_root) {
+    GRect bounds = layer_get_bounds(s_messages_root);
+    GPoint point = touch_point_in_layer(event, s_messages_root);
+    if ((event->type == TouchEvent_Touchdown || s_gesture.keyboard) &&
+        kb_handle_touch(event, bounds, point)) {
+      s_gesture.keyboard = event->type != TouchEvent_Liftoff;
+      s_gesture.down = false;
+      return;
+    }
+  }
+
+  switch (event->type) {
+    case TouchEvent_Touchdown:
+      touch_cancel_long_press();
+      s_gesture = (TouchGesture){.down = true, .start = screen, .last = screen};
+      s_long_press_timer = app_timer_register(TOUCH_LONG_PRESS_MS, touch_long_press_callback, NULL);
+      return;
+
+    case TouchEvent_PositionUpdate: {
+      if (!s_gesture.down || s_gesture.long_fired) {
+        return;
+      }
+      int dx = screen.x - s_gesture.start.x;
+      int dy_total = screen.y - s_gesture.start.y;
+      if (!s_gesture.dragging &&
+          (touch_abs(dx) > TOUCH_SLOP || touch_abs(dy_total) > TOUCH_SLOP)) {
+        s_gesture.dragging = true;
+        s_gesture.horizontal = touch_abs(dx) > touch_abs(dy_total);
+        touch_cancel_long_press();
+      }
+      if (s_gesture.dragging && !s_gesture.horizontal) {
+        int dy = screen.y - s_gesture.last.y;
+        if (full_text) {
+          touch_full_text_drag(dy);
+        } else if (s_view_state == ViewStateChat && s_messages_root) {
+          touch_chat_drag(dy);
+        } else if (s_view_state == ViewStateChatList && s_chat_menu) {
+          touch_chat_list_drag(dy);
+        }
+      }
+      s_gesture.last = screen;
+      return;
+    }
+
+    case TouchEvent_Liftoff: {
+      touch_cancel_long_press();
+      if (!s_gesture.down) {
+        return;
+      }
+      TouchGesture gesture = s_gesture;
+      s_gesture.down = false;
+      if (gesture.long_fired) {
+        return;
+      }
+      int dx = screen.x - gesture.start.x;
+      int dy = screen.y - gesture.start.y;
+
+      // Swipe right: go back.
+      if (gesture.dragging && gesture.horizontal && dx > TOUCH_SWIPE_BACK_MIN &&
+          touch_abs(dy) < dx / 2) {
+        if (full_text) {
+          action_back_click_handler(NULL, NULL);
+        } else if (s_view_state == ViewStateChat) {
+          main_back_click_handler(NULL, NULL);
+        }
+        return;
+      }
+
+      if (gesture.dragging) {
+        if (!full_text && s_view_state == ViewStateChat && s_messages_root) {
+          touch_chat_drag_end(layer_get_bounds(s_messages_root));
+        }
+        return;
+      }
+
+      // Tap.
+      if (full_text) {
+        return;
+      }
+      if (s_view_state == ViewStateChatList && s_chat_menu) {
+        touch_chat_list_tap(touch_point_in_layer(event, menu_layer_get_layer(s_chat_menu)));
+      } else if (s_view_state == ViewStateChat && s_messages_root) {
+        touch_chat_tap(layer_get_bounds(s_messages_root), touch_point_in_layer(event, s_messages_root));
+      }
+      return;
+    }
+  }
+}
+#endif
 
 static void click_config_provider(void *context) {
   window_single_click_subscribe(BUTTON_ID_SELECT, main_select_click_handler);

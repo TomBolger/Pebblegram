@@ -19,6 +19,7 @@ Pebblegram brings Telegram to Pebble watches with a PebbleKit JS Telegram client
 - Loads inline photo previews, GIF/video still previews, and text link previews
 - Sends replies with Pebble dictation
 - Types messages, replies and edits with an on-screen keyboard on touch watches (Pebble Time 2, Round 2)
+- Supports tap, hold, drag and swipe-back touch gestures on touch watches
 - Sends configurable canned replies
 - Sends emoji replies
 - Sends, updates, and removes Telegram reactions
@@ -55,6 +56,13 @@ Pebblegram 3.6 fixes login and reply bugs, brings back the on-screen keyboard, a
 - The text box scrolls so you can always see what you're typing, and on Round 2 the keys fit inside the circle.
 - Drafts survive menus and the Back button ("Continue draft"). A failed send is marked "not sent" and your text comes back.
 - New menu options: Keyboard, Type Reply, and Edit by Keyboard. Voice stays at the top of the menu.
+
+### Touch (Pebble Time 2 and Round 2)
+
+- Tap a chat to open it; hold a chat for Archive/Delete/Mute/Mark as Unread; drag to scroll the list.
+- In a chat, drag to scroll (pull down at the top to load older messages), tap a message for its menu, hold a message to react, and swipe right to go back.
+- In the full-message view, drag to scroll and swipe right to close.
+- The buttons still work exactly as before.
 
 ### Other
 
