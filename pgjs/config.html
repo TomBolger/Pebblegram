@@ -132,7 +132,7 @@
         <li>Choose <strong>API development tools</strong>. If Telegram asks you to create an app, fill in the required fields and submit it.</li>
         <li>Copy the <strong>App api_id</strong> into Telegram API ID, then copy the <strong>App api_hash</strong> into Telegram API hash.</li>
         <li>Enter your phone number in international format, including the plus sign and country code, such as <strong>+15551234567</strong>.</li>
-        <li>Tap <strong>Save</strong>. Telegram should send a login code in the Telegram app or by SMS.</li>
+        <li>Tap <strong>Save</strong>. Telegram usually sends the login code as a message from <strong>Telegram</strong> inside your Telegram app on another device, not by SMS. The watch shows where it was sent. Pebblegram will not request another code for five minutes.</li>
         <li>Open settings again, enter the Telegram login code. If you use Telegram two-step verification, enter your Telegram cloud password too.</li>
         <li>Tap <strong>Save</strong> again to finish login. If Telegram still asks for a password, return here one more time and enter it.</li>
       </ol>
@@ -147,7 +147,7 @@
 
       <label for="phone">Phone number</label>
       <input id="phone" type="tel" placeholder="+15551234567">
-      <div class="hint">Save with API ID, API hash, and phone number to request your Telegram login code.</div>
+      <div class="hint">Save with API ID, API hash, and phone number to request your Telegram login code. Pebblegram limits code requests to one every five minutes.</div>
     </div>
 
     <div id="codeBlock">
