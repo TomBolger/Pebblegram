@@ -2467,7 +2467,8 @@ static bool touch_keyboard_supported(void) {
   }
   if (!s_kb_touch_checked) {
     s_kb_touch_checked = true;
-    s_kb_touch_ok = kb_firmware_at_least(4, 9, 164) && touch_service_is_enabled();
+    // Emery/Gabbro builds require PebbleOS 4.32+, which always has the touch API.
+    s_kb_touch_ok = touch_service_is_enabled();
   }
   return s_kb_touch_ok;
 }
@@ -5409,7 +5410,11 @@ static ActionMenuLevel *native_create_emoji_level(bool as_reply) {
   if (!level) {
     return NULL;
   }
-  action_menu_level_set_display_mode(level, ActionMenuLevelDisplayModeThin);
+  // PebbleOS grids only let a tap pick the first emoji in each row, so touch
+  // watches get a one-per-row list where every tap lands exactly.
+  if (!touch_keyboard_supported()) {
+    action_menu_level_set_display_mode(level, ActionMenuLevelDisplayModeThin);
+  }
   for (int i = 0; i < count; i++) {
     native_add_action(level, emoji_reply_glyph_at(i),
                       as_reply ? ActionItemReplyEmoji : ActionItemEmoji, i);
@@ -5423,7 +5428,11 @@ static ActionMenuLevel *native_create_reaction_level(void) {
   if (!level) {
     return NULL;
   }
-  action_menu_level_set_display_mode(level, ActionMenuLevelDisplayModeThin);
+  // PebbleOS grids only let a tap pick the first emoji in each row, so touch
+  // watches get a one-per-row list where every tap lands exactly.
+  if (!touch_keyboard_supported()) {
+    action_menu_level_set_display_mode(level, ActionMenuLevelDisplayModeThin);
+  }
   for (int i = 0; i < count; i++) {
     native_add_action(level, reaction_grid_glyph_at(i), ActionItemReact, i);
   }
@@ -5774,6 +5783,11 @@ static void show_action_window(ActionMenuMode mode) {
   s_action_mode = mode;
   s_action_selected = 0;
   s_action_window = window_create();
+#if TOUCH_KEYBOARD_AVAILABLE
+  if (touch_keyboard_supported()) {
+    window_set_touch_bridge_disabled(s_action_window, true);
+  }
+#endif
   window_set_background_color(s_action_window, ACTION_BG);
   window_set_click_config_provider(s_action_window, action_click_config_provider);
   window_set_window_handlers(s_action_window, (WindowHandlers) {
@@ -6488,12 +6502,6 @@ static void init(void) {
   app_message_register_inbox_dropped(inbox_dropped_callback);
   app_message_register_outbox_failed(outbox_failed_callback);
   app_message_open(APP_INBOX_SIZE, APP_OUTBOX_SIZE);
-#if TOUCH_KEYBOARD_AVAILABLE
-  if (touch_keyboard_supported()) {
-    touch_service_subscribe(touch_handler, NULL);
-  }
-#endif
-
   s_main_window = window_create();
   window_set_click_config_provider(s_main_window, click_config_provider);
   window_set_window_handlers(s_main_window, (WindowHandlers) {
@@ -6502,6 +6510,16 @@ static void init(void) {
     .unload = main_window_unload
   });
   window_stack_push(s_main_window, true);
+#if TOUCH_KEYBOARD_AVAILABLE
+  if (touch_keyboard_supported()) {
+    touch_service_subscribe(touch_handler, NULL);
+    // Let PebbleOS's touch navigation drive the pop-up menus (Reply, React,
+    // Canned...). Pebblegram's own screens use its own gestures instead, so
+    // the system bridge is switched off for those windows.
+    app_touch_navigation_enable(true);
+    window_set_touch_bridge_disabled(s_main_window, true);
+  }
+#endif
   s_startup_wake_timer = app_timer_register(PHONE_WAKE_DELAY_MS, startup_wake_timer_callback, NULL);
 }
 

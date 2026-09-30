@@ -62,12 +62,13 @@ Pebblegram 3.6 fixes login and reply bugs, brings back the on-screen keyboard, a
 - Tap a chat to open it; hold a chat for Archive/Delete/Mute/Mark as Unread; drag to scroll the list.
 - In a chat, drag to scroll (pull down at the top to load older messages), tap a message for its menu, hold a message to react, and swipe right to go back.
 - In the full-message view, drag to scroll and swipe right to close.
+- Pop-up menus (Reply, React, Canned Message, Emoji, chat actions) respond to touch through PebbleOS touch navigation; turn it on in the watch's Settings if taps in menus don't work. On touch watches the React and Emoji menus are a one-per-row list so every tap picks exactly the emoji you touched.
 - The buttons still work exactly as before.
 
 ### Other
 
 - Added a native Pebble 2 Duo (Flint) build.
-- Built with the current Core Devices SDK, stamped to install on the same watch firmware as 3.5.
+- Pebble Time 2 and Round 2 now need PebbleOS 4.32 or newer (for touch in menus). Pebble Time, Time Steel, Pebble 2 and Pebble 2 Duo install on the same watch software as 3.5.
 
 Thanks to @SimonIlic (#8) and @twodotwill (#9) for tracking down the login bugs.
 
