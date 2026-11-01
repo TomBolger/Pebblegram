@@ -62,7 +62,7 @@ Pebblegram 3.6 fixes login and reply bugs, makes photos sharp and reliable, brin
 
 - Tap the gear in the Pebble app to open a new Appearance page (once you are logged in to Telegram). The Telegram account button on it takes you back to the login and quick reply settings.
 - Pick a Light or Dark theme. On colour watches you can also choose the accent, chat background and outgoing bubble colours; text colours adjust so they stay readable.
-- Choose the chat background pattern (doodles, dots, diagonal lines, grid or none), the message text size (small to extra large) and regular or bold text.
+- Choose the chat background pattern (five sets of doodles - classic, space, pets, food, travel and music & party - or dots, diagonal lines, grid or none), the message text size (small to extra large) and regular or bold text.
 - Turn profile photos in the chat list and the big 1-3 emoji messages on or off.
 
 ### Photos

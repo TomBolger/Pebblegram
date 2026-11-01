@@ -67,6 +67,11 @@ var config = [
         defaultValue: '0',
         options: [
           {label: 'Doodles', value: '0'},
+          {label: 'Doodles: Space', value: '5'},
+          {label: 'Doodles: Pets', value: '6'},
+          {label: 'Doodles: Food', value: '7'},
+          {label: 'Doodles: Travel', value: '8'},
+          {label: 'Doodles: Music & party', value: '9'},
           {label: 'Dots', value: '1'},
           {label: 'Diagonal lines', value: '2'},
           {label: 'Grid', value: '3'},
