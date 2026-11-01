@@ -400,7 +400,6 @@ typedef struct {
   int16_t pills_w, pills_h, pills_last_w;
   uint8_t emoji_only;
   uint8_t font_size;  // text size this message is drawn at (see message_font_size)
-  GBitmap *big_emoji;  // 2x copy of an emoji-only message (colour watches)
 } Message;
 
 // Telegram standard reactions the watch can draw, most popular first.
@@ -2268,9 +2267,6 @@ static void clear_message_slot(Message *message) {
     clear_active_image_request();
   }
   destroy_message_bitmap(message);
-  if (message->big_emoji) {
-    gbitmap_destroy(message->big_emoji);
-  }
   release_message_strings(message);
   memset(message, 0, sizeof(Message));
   init_message_strings(message);
@@ -2711,14 +2707,11 @@ static int bubble_text_trim(uint8_t size) {
   return 2 + size;
 }
 
-// PebbleOS emoji are fixed 16px images at every font size, so big emoji are
-// made by rendering once and copying the pixels out at 2x into a cached bitmap.
-#if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
-#define BIG_EMOJI_ENABLED 1
-#else
-#define BIG_EMOJI_ENABLED 0
-#endif
-#define EMOJI_SCALE (BIG_EMOJI_ENABLED ? 2 : 1)
+// Emoji-only messages use the biggest system font: PebbleOS draws its emoji at
+// the size of the font they are in (up to 28px).
+static GFont big_emoji_font(void) {
+  return fonts_get_system_font(FONT_KEY_GOTHIC_28);
+}
 
 static GFont pill_font(void) {
   return fonts_get_system_font(FONT_KEY_GOTHIC_18);
@@ -2869,12 +2862,8 @@ static void measure_message(Message *m, int max_w) {
 
   m->emoji_only = (m->image_placeholder || message_has_context(m) || m->reactions[0] || !s_appearance.big_emoji) ? 0 :
                   count_emoji_only(display_text, 3);
-  if (m->big_emoji) {
-    gbitmap_destroy(m->big_emoji);
-    m->big_emoji = NULL;
-  }
   m->font_size = m->emoji_only ? s_appearance.text_size : message_font_size(display_text, inner);
-  GFont font = m->emoji_only ? font_18() : bubble_text_font(m->font_size);
+  GFont font = m->emoji_only ? big_emoji_font() : bubble_text_font(m->font_size);
   m->meta_w = meta_width(m->meta);
   m->text_w = m->text_h = m->text_nw = m->text_nh = 0;
   if (display_text[0]) {
@@ -2934,8 +2923,8 @@ static int layout_message(int index, GRect bounds, int max_w) {
     box->flags |= BOX_EMOJI;
     box->text_y = 0;
     box->text_box_w = inner;
-    content_w = PG_MAX(m->text_w * EMOJI_SCALE, m->meta_w + 10);
-    box->meta_y = (m->text_h * EMOJI_SCALE) + 1;
+    content_w = PG_MAX(m->text_w, m->meta_w + 10);
+    box->meta_y = m->text_h + 1;
     h = box->meta_y + 16;
     box->w = content_w;
   } else {
@@ -4278,71 +4267,6 @@ static GRect compose_rect_for_bounds(GRect bounds) {
   return GRect(6, compose_y, bounds.size.w - 12, COMPOSE_BAR_H);
 }
 
-#if BIG_EMOJI_ENABLED
-// Render `text` small onto a key colour and read the pixels back.
-static void emoji_capture(GContext *ctx, Layer *layer, GRect scratch, const char *text, GColor key,
-                          uint8_t *out) {
-  graphics_context_set_fill_color(ctx, key);
-  graphics_fill_rect(ctx, scratch, 0, GCornerNone);
-  graphics_context_set_text_color(ctx, TG_TEXT);
-  graphics_draw_text(ctx, text, font_18(), GRect(scratch.origin.x, scratch.origin.y - 3,
-                                                          scratch.size.w, scratch.size.h + 3),
-                     GTextOverflowModeFill, GTextAlignmentLeft, NULL);
-  GPoint origin = layer_convert_point_to_screen(layer, scratch.origin);
-  GBitmap *fb = graphics_capture_frame_buffer(ctx);
-  if (!fb) {
-    memset(out, key.argb, scratch.size.w * scratch.size.h);
-    return;
-  }
-  for (int row = 0; row < scratch.size.h; row++) {
-    GBitmapDataRowInfo info = gbitmap_get_data_row_info(fb, origin.y + row);
-    for (int col = 0; col < scratch.size.w; col++) {
-      int x = origin.x + col;
-      out[row * scratch.size.w + col] = (x >= info.min_x && x <= info.max_x) ? info.data[x] : key.argb;
-    }
-  }
-  graphics_release_frame_buffer(ctx, fb);
-}
-
-// Build 2x bitmaps for visible emoji-only messages. Uses the screen as scratch
-// space, so it runs before the background is drawn over it.
-static void build_big_emoji(GContext *ctx, Layer *layer, GRect bounds) {
-  for (int i = 0; i < s_message_count; i++) {
-    Message *m = &s_messages[i];
-    int y = s_message_y[i] - s_chat_scroll_offset;
-    if (!m->emoji_only || m->big_emoji || y > bounds.size.h || y + s_message_h[i] < 0) {
-      continue;
-    }
-    int w = PG_MIN(m->text_w + 2, 64);
-    int h = PG_MIN(m->text_h, 24);
-    GRect scratch = GRect((bounds.size.w - w) / 2, bounds.size.h / 2 - h / 2, w, h);
-    uint8_t *a = malloc(w * h * 2);
-    if (!a) {
-      return;
-    }
-    uint8_t *b = a + (w * h);
-    emoji_capture(ctx, layer, scratch, m->text, GColorRed, a);
-    emoji_capture(ctx, layer, scratch, m->text, GColorBlue, b);
-    GBitmap *big = gbitmap_create_blank(GSize(w * 2, h * 2), GBitmapFormat8Bit);
-    if (big) {
-      uint8_t *data = gbitmap_get_data(big);
-      int stride = gbitmap_get_bytes_per_row(big);
-      for (int row = 0; row < h; row++) {
-        for (int col = 0; col < w; col++) {
-          // Same colour on both keys = part of the emoji; otherwise transparent.
-          uint8_t px = a[row * w + col] == b[row * w + col] ? a[row * w + col] : 0x00;
-          uint8_t *dst = data + (row * 2) * stride + col * 2;
-          dst[0] = dst[1] = px;
-          dst[stride] = dst[stride + 1] = px;
-        }
-      }
-      m->big_emoji = big;
-    }
-    free(a);
-  }
-}
-#endif
-
 static void draw_chat_background(GContext *ctx, GRect bounds) {
 #ifdef PBL_COLOR
   if (s_wallpaper) {
@@ -4357,9 +4281,6 @@ static void draw_chat_background(GContext *ctx, GRect bounds) {
 static void messages_root_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
   recalc_message_layout();
-#if BIG_EMOJI_ENABLED
-  build_big_emoji(ctx, layer, bounds);
-#endif
   draw_chat_background(ctx, bounds);
 
   if (s_message_count == 0) {
@@ -4401,18 +4322,11 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
         graphics_draw_round_rect(ctx, GRect(bubble.origin.x - 3, y - 2, bubble.size.w + 6, h + 3), 8);
         graphics_context_set_stroke_width(ctx, 1);
       }
-      int emoji_w = m->text_w * EMOJI_SCALE;
-      int emoji_x = m->outgoing ? box->x + box->w - emoji_w : box->x;
-      if (m->big_emoji) {
-        graphics_context_set_compositing_mode(ctx, GCompOpSet);
-        GSize size = gbitmap_get_bounds(m->big_emoji).size;
-        graphics_draw_bitmap_in_rect(ctx, m->big_emoji, GRect(emoji_x, y - 2, size.w, size.h));
-        graphics_context_set_compositing_mode(ctx, GCompOpAssign);
-      } else {
-        graphics_context_set_text_color(ctx, TG_TEXT);
-        graphics_draw_text(ctx, display_text, font_18(), GRect(emoji_x, y - 3, m->text_w + 4, m->text_h + 4),
-                           GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
-      }
+      int emoji_x = m->outgoing ? box->x + box->w - m->text_w : box->x;
+      graphics_context_set_text_color(ctx, TG_TEXT);
+      graphics_draw_text(ctx, display_text, big_emoji_font(),
+                         GRect(emoji_x, y - bubble_text_trim(3), m->text_w + 4, m->text_h + 8),
+                         GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
       if (m->meta_w) {
         int pill_w = m->meta_w + 10;
         int pill_x = m->outgoing ? box->x + box->w - pill_w : box->x;

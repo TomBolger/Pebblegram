@@ -9,7 +9,7 @@ Pebblegram brings Telegram to Pebble watches with a PebbleKit JS Telegram client
 
 ## Download
 
-- [Download Pebblegram 3.6 PBW](https://github.com/TomBolger/Pebblegram/releases/download/v3.6.0/Pebblegram.pbw)
+- [Download Pebblegram 3.7 PBW](https://github.com/TomBolger/Pebblegram/releases/download/v3.7.0/Pebblegram.pbw)
 
 ## What It Does
 
@@ -32,7 +32,7 @@ Pebblegram brings Telegram to Pebble watches with a PebbleKit JS Telegram client
 
 ## Changes Since 3.5
 
-Pebblegram 3.6 fixes login and reply bugs, makes photos sharp and reliable, brings back the on-screen keyboard, and adds much wider emoji support.
+Pebblegram 3.7 fixes login and reply bugs, makes photos sharp and reliable, adds an Appearance settings page with themes, colours and text sizes, brings back the on-screen keyboard, and adds much wider emoji support.
 
 ### Fixes
 
@@ -52,7 +52,7 @@ Pebblegram 3.6 fixes login and reply bugs, makes photos sharp and reliable, brin
   - Coloured sender names and small avatars in group chats; reply and forward quotes with a coloured bar.
   - Message time and read ticks tucked into the last line of text when they fit.
   - Reactions as rounded pills.
-  - Messages that are only 1-3 emoji show them twice as big, without a bubble.
+  - Messages that are only 1-3 emoji show them large, without a bubble.
   - A Telegram-style input bar with a mic button (tap it to dictate).
   - New splash screen, and a clean white full-message view.
 - Black-and-white watches get the same layout with outlines instead of colour.
@@ -77,6 +77,8 @@ Pebblegram 3.6 fixes login and reply bugs, makes photos sharp and reliable, brin
 ### Emoji
 
 - Much wider emoji support: on PebbleOS 4.29 and newer, all ~1,400 emoji the watch fonts include now show as emoji in messages, chat names, stickers and reactions. Anything the watch can't draw shows as its name, like `:partying_face:` or `:flag_de:`, instead of a generic `:emoji:`. Older firmware keeps its smaller set and names the rest.
+- Colour emoji on Pebble Time 2 and Round 2 with PebbleOS 4.39 or newer, and the newest emoji additions (like ♡).
+- Line breaks in messages are kept, so a Wordle share keeps its grid. If an emoji row would not fit at your text size, that message steps down a size so every row stays on one line.
 - The React menu now offers every Telegram standard reaction your watch can draw (69 on PebbleOS 4.29+), and the Emoji reply menu has 84 choices. Messages can show up to six reactions, and Premium custom-emoji reactions show the emoji they stand for.
 
 ### Keyboard (Pebble Time 2 and Round 2)
@@ -105,7 +107,7 @@ Thanks to @SimonIlic (#8) and @twodotwill (#9) for tracking down the login bugs.
 
 ## Quick Start
 
-1. Install [Pebblegram 3.6 PBW](https://github.com/TomBolger/Pebblegram/releases/download/v3.6.0/Pebblegram.pbw) with the Pebble/Rebble mobile app.
+1. Install [Pebblegram 3.7 PBW](https://github.com/TomBolger/Pebblegram/releases/download/v3.7.0/Pebblegram.pbw) with the Pebble/Rebble mobile app.
 2. Open Pebblegram settings in the Pebble mobile app.
 3. Enter your Telegram API ID, API hash, and phone number.
 4. Save once to request a Telegram login code.
@@ -149,4 +151,4 @@ For local testing with embedded API credentials, keep them in an ignored environ
 
 ## Status
 
-Pebblegram 3.6 is the current direct Telegram build. The core flows work, but this is still community software for an unsupported watch platform.
+Pebblegram 3.7 is the current direct Telegram build. The core flows work, but this is still community software for an unsupported watch platform.
