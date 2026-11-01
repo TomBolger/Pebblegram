@@ -56,7 +56,16 @@
       "ReplyText",
       "ForwardSender",
       "ForwardText",
-      "MessageMeta"
+      "MessageMeta",
+      "Theme",
+      "AccentColor",
+      "ChatBgColor",
+      "OutBubbleColor",
+      "BgPattern",
+      "TextSize",
+      "TextBold",
+      "ShowPhotos",
+      "BigEmoji"
     ],
     "resources": {
       "media": [
@@ -88,5 +97,8 @@
     "js-sha256": "0.11.1",
     "telegram": "2.26.22",
     "upng-js": "2.1.0"
+  },
+  "dependencies": {
+    "@rebble/clay": "^1.1.0"
   }
 }

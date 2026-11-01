@@ -1,6 +1,8 @@
 var MessageKeys = require('message_keys');
 var pgjsBackend = require('./pgjs/backend');
 var watchEmoji = require('./pgjs/emoji');
+var Clay = require('@rebble/clay');
+var appearance = require('./config');
 
 var DEBUG_LOGS = false;
 var TELEGRAM_SETTINGS_PAGE_URL = 'https://tombolger.github.io/Pebblegram/pgjs/config.html';
@@ -58,6 +60,9 @@ var topPrefetchSeq = 0;
 var sendFailureDelay = 250;
 var cancelledImageTransferSeq = 0;
 var watchReady = false;
+// The Appearance page. Events are routed by hand: the Telegram login page
+// shares the same settings button, and everything goes through sendToWatch().
+var clay = new Clay(appearance.config, appearance.pageScript, {autoHandleEvents: false});
 var phonePrewarmStarted = false;
 var postFirstPaintStarted = false;
 var postFirstPaintTimer = null;
@@ -79,6 +84,45 @@ function cannedReplies() {
 
 function settingsPageUrl() {
   return activePgjs().settingsPageUrl(TELEGRAM_SETTINGS_PAGE_URL);
+}
+
+function openSettings() {
+  if (!activePgjs().hasSession()) {
+    Pebble.openURL(settingsPageUrl());
+    return;
+  }
+  var info = null;
+  try {
+    info = Pebble.getActiveWatchInfo ? Pebble.getActiveWatchInfo() : null;
+  } catch (e) {
+    info = null;
+  }
+  clay.meta = {
+    // Without a watch connected, assume a colour one so no setting is hidden.
+    activeWatchInfo: info || {platform: 'basalt', firmware: {major: 4, minor: 0}},
+    accountToken: Pebble.getAccountToken(),
+    watchToken: Pebble.getWatchToken(),
+    userData: {loginUrl: settingsPageUrl()}
+  };
+  Pebble.openURL(clay.generateUrl());
+}
+
+function sendAppearance(settings) {
+  var payload = appearance.appearancePayload(settings, MessageKeys);
+  if (payload) {
+    sendToWatch(payload);
+  }
+}
+
+// A reinstalled watch app has lost its settings, so send them again.
+function sendSavedAppearance() {
+  var saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem('clay-settings'));
+  } catch (e) {
+    saved = null;
+  }
+  sendAppearance(saved);
 }
 
 function activePgjs() {
@@ -1894,6 +1938,7 @@ Pebble.addEventListener('ready', function() {
   watchReady = true;
   logLaunch('Pebble ready event');
   configureForPlatform();
+  sendSavedAppearance();
   debugLog('Pebblegram JS ready, backend=pgjs, canned=' + cannedReplies());
   prewarmPhoneBackend();
   getChats(false);
@@ -1954,19 +1999,19 @@ Pebble.addEventListener('appmessage', function(event) {
   }
 });
 
-Pebble.addEventListener('showConfiguration', function() {
-  Pebble.openURL(settingsPageUrl());
-});
+Pebble.addEventListener('showConfiguration', openSettings);
 
 Pebble.addEventListener('webviewclosed', function(event) {
   if (!event || !event.response) {
     return;
   }
-  var data;
-  try {
-    data = JSON.parse(decodeURIComponent(event.response));
-  } catch (e) {
-    debugLog('settings parse failed: ' + e.message);
+  var data = appearance.parseLoginResponse(event.response);
+  if (!data) {
+    try {
+      sendAppearance(clay.getSettings(event.response, false));
+    } catch (e) {
+      debugLog('settings parse failed: ' + e.message);
+    }
     return;
   }
 

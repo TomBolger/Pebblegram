@@ -48,31 +48,190 @@
 
 // ---- Telegram-style theme -------------------------------------------------
 // Colour watches get the Telegram look (blue header, green doodle wallpaper,
-// white/mint bubbles). Black-and-white watches fall back to clean outlines.
-#define TG_HEADER PBL_IF_COLOR_ELSE(GColorCobaltBlue, GColorBlack)
-#define TG_LIST_BG GColorWhite
-#define TG_LIST_SELECTED PBL_IF_COLOR_ELSE(GColorVividCerulean, GColorBlack)
-#define TG_TEXT GColorBlack
-#define TG_SUBTEXT PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack)
-#define TG_SEPARATOR PBL_IF_COLOR_ELSE(GColorLightGray, GColorBlack)
-#define TG_LINK PBL_IF_COLOR_ELSE(GColorCobaltBlue, GColorBlack)
-#define TG_BADGE PBL_IF_COLOR_ELSE(GColorMayGreen, GColorBlack)
-#define TG_BADGE_MUTED PBL_IF_COLOR_ELSE(GColorLightGray, GColorBlack)
-#define TG_CHAT_BG PBL_IF_COLOR_ELSE(GColorMayGreen, GColorWhite)
-#define TG_IN_BUBBLE GColorWhite
-#define TG_OUT_BUBBLE PBL_IF_COLOR_ELSE(GColorMintGreen, GColorWhite)
-#define TG_BUBBLE_SHADOW PBL_IF_COLOR_ELSE(GColorDarkGreen, GColorBlack)
-#define TG_IN_META PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack)
-#define TG_OUT_META PBL_IF_COLOR_ELSE(GColorIslamicGreen, GColorBlack)
-#define TG_SELECT_RING PBL_IF_COLOR_ELSE(GColorBlueMoon, GColorBlack)
-#define TG_ACCENT PBL_IF_COLOR_ELSE(GColorVividCerulean, GColorBlack)
-#define TG_PILL_IN PBL_IF_COLOR_ELSE(GColorCeleste, GColorWhite)
-#define TG_PILL_OUT PBL_IF_COLOR_ELSE(GColorWhite, GColorWhite)
-#define TG_SERVICE_PILL PBL_IF_COLOR_ELSE(GColorDarkGreen, GColorBlack)
+// white/mint bubbles) or its night mode. Black-and-white watches fall back to
+// clean outlines, inverted in the dark theme. The TG_* names read the current
+// theme, which theme_apply() refills whenever the Appearance settings change.
+typedef struct {
+  GColor header, list_bg, list_selected, text, subtext, separator, link, badge, badge_muted;
+  GColor chat_bg, in_bubble, out_bubble, bubble_shadow, in_meta, out_meta, out_accent;
+  GColor select_ring, accent, pill_in, pill_out, service_pill, ctx_in, ctx_out, wall_hi;
+  // Text on the coloured surfaces above: black or white, whichever reads better.
+  GColor on_header, on_selected, on_badge, on_service, on_out, on_accent, on_ring;
+} Theme;
+
+static Theme s_theme;
+
+#define TG_HEADER s_theme.header
+#define TG_LIST_BG s_theme.list_bg
+#define TG_LIST_SELECTED s_theme.list_selected
+#define TG_TEXT s_theme.text
+#define TG_SUBTEXT s_theme.subtext
+#define TG_SEPARATOR s_theme.separator
+#define TG_LINK s_theme.link
+#define TG_BADGE s_theme.badge
+#define TG_BADGE_MUTED s_theme.badge_muted
+#define TG_CHAT_BG s_theme.chat_bg
+#define TG_IN_BUBBLE s_theme.in_bubble
+#define TG_OUT_BUBBLE s_theme.out_bubble
+#define TG_BUBBLE_SHADOW s_theme.bubble_shadow
+#define TG_IN_META s_theme.in_meta
+#define TG_OUT_META s_theme.out_meta
+// Outgoing accent on a list or quote box rather than on the bubble itself.
+#define TG_OUT_ACCENT s_theme.out_accent
+#define TG_SELECT_RING s_theme.select_ring
+#define TG_ACCENT s_theme.accent
+#define TG_PILL_IN s_theme.pill_in
+#define TG_PILL_OUT s_theme.pill_out
+#define TG_SERVICE_PILL s_theme.service_pill
+#define TG_CTX_IN s_theme.ctx_in
+#define TG_CTX_OUT s_theme.ctx_out
+#define TG_ON_HEADER s_theme.on_header
+#define TG_ON_SELECTED s_theme.on_selected
+#define TG_ON_BADGE s_theme.on_badge
+#define TG_ON_SERVICE s_theme.on_service
+#define TG_ON_OUT s_theme.on_out
+#define TG_ON_ACCENT s_theme.on_accent
+#define TG_ON_RING s_theme.on_ring
 #define HEADER_H PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 26, 26, 26, 26, 32, 26, 46)
 // Chat list avatar radius. The phone sends profile photos at exactly this
 // diameter (see AVATAR_SIZE in index.js), so they are drawn pixel for pixel.
 #define CHAT_AVATAR_R PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 15, 15, 15, 15, 19, 15, 16)
+
+// ---- Appearance settings (Clay page on the phone) -------------------------
+typedef enum {
+  PatternDoodles,
+  PatternDots,
+  PatternLines,
+  PatternGrid,
+  PatternNone
+} WallpaperPattern;
+
+// Saved with persist_write_data. Colours are stored as raw GColor bytes.
+typedef struct {
+  uint8_t version;
+  uint8_t dark;
+  uint8_t pattern;
+  uint8_t text_size;  // 0-3: Gothic 14, 18, 24, 28
+  uint8_t bold;
+  uint8_t photos;
+  uint8_t big_emoji;
+  uint8_t accent;
+  uint8_t chat_bg;
+  uint8_t out_bubble;
+} Appearance;
+
+#define APPEARANCE_KEY 1
+#define APPEARANCE_VERSION 1
+// The pickers' defaults stand for "the theme's own colour"; see theme_apply().
+#define DEFAULT_ACCENT GColorCobaltBlue
+#define DEFAULT_CHAT_BG GColorMayGreen
+#define DEFAULT_OUT_BUBBLE GColorMintGreen
+
+static Appearance s_appearance;
+
+static void appearance_defaults(Appearance *a) {
+  memset(a, 0, sizeof(*a));
+  a->version = APPEARANCE_VERSION;
+  a->text_size = 1;
+  a->photos = 1;
+  a->big_emoji = 1;
+#ifdef PBL_COLOR
+  a->accent = DEFAULT_ACCENT.argb;
+  a->chat_bg = DEFAULT_CHAT_BG.argb;
+  a->out_bubble = DEFAULT_OUT_BUBBLE.argb;
+#endif
+}
+
+// Black or white, whichever reads better on `c` (channels are 0-3).
+static GColor contrast_on(GColor c) {
+  return (c.r * 3 + c.g * 6 + c.b) >= 17 ? GColorBlack : GColorWhite;
+}
+
+#ifdef PBL_COLOR
+// One step brighter (+1) or darker (-1) per channel: MayGreen <-> MintGreen.
+static GColor shade(GColor c, int step) {
+  GColor out = c;
+  out.r = PG_MAX(0, PG_MIN(3, c.r + step));
+  out.g = PG_MAX(0, PG_MIN(3, c.g + step));
+  out.b = PG_MAX(0, PG_MIN(3, c.b + step));
+  return out;
+}
+#endif
+
+static void theme_apply(void) {
+  Theme *t = &s_theme;
+#ifdef PBL_COLOR
+  bool dark = s_appearance.dark;
+  GColor accent = (GColor){.argb = s_appearance.accent};
+  GColor bg = (GColor){.argb = s_appearance.chat_bg};
+  GColor out = (GColor){.argb = s_appearance.out_bubble};
+  bool own_accent = !gcolor_equal(accent, DEFAULT_ACCENT);
+  bool own_out = !gcolor_equal(out, DEFAULT_OUT_BUBBLE);
+  if (dark) {
+    t->header = own_accent ? accent : GColorBlack;
+    t->list_bg = GColorOxfordBlue;
+    t->list_selected = own_accent ? accent : GColorCobaltBlue;
+    t->text = GColorWhite;
+    t->subtext = GColorLightGray;
+    t->separator = GColorDarkGray;
+    t->link = own_accent ? accent : GColorCeleste;
+    t->badge = own_accent ? accent : GColorMayGreen;
+    t->badge_muted = GColorDarkGray;
+    t->in_bubble = GColorDarkGray;
+    t->in_meta = GColorLightGray;
+    t->select_ring = own_accent ? accent : GColorVividCerulean;
+    t->accent = own_accent ? accent : GColorCobaltBlue;
+    t->pill_in = t->pill_out = t->ctx_in = t->ctx_out = GColorBlack;
+    if (gcolor_equal(bg, DEFAULT_CHAT_BG)) {
+      bg = GColorOxfordBlue;
+    }
+    if (!own_out) {
+      out = GColorCobaltBlue;
+    }
+  } else {
+    t->header = accent;
+    t->list_bg = GColorWhite;
+    t->list_selected = own_accent ? accent : GColorVividCerulean;
+    t->text = GColorBlack;
+    t->subtext = GColorDarkGray;
+    t->separator = GColorLightGray;
+    t->link = accent;
+    t->badge = own_accent ? accent : GColorMayGreen;
+    t->badge_muted = GColorLightGray;
+    t->in_bubble = GColorWhite;
+    t->in_meta = GColorDarkGray;
+    t->select_ring = own_accent ? accent : GColorBlueMoon;
+    t->accent = own_accent ? accent : GColorVividCerulean;
+    t->pill_in = t->ctx_in = GColorCeleste;
+    t->pill_out = t->ctx_out = GColorWhite;
+  }
+  t->chat_bg = bg;
+  t->out_bubble = out;
+  t->bubble_shadow = t->service_pill = shade(bg, -1);
+  t->wall_hi = shade(bg, gcolor_equal(contrast_on(bg), GColorWhite) ? 1 : -1);
+  if (own_out) {
+    t->out_meta = gcolor_equal(contrast_on(out), GColorBlack) ? GColorDarkGray : GColorLightGray;
+    t->out_accent = t->link;
+  } else {
+    t->out_meta = t->out_accent = dark ? GColorCeleste : GColorIslamicGreen;
+  }
+#else
+  GColor fg = s_appearance.dark ? GColorWhite : GColorBlack;
+  GColor bg = s_appearance.dark ? GColorBlack : GColorWhite;
+  t->header = t->list_selected = t->text = t->subtext = t->separator = t->link = fg;
+  t->badge = t->badge_muted = t->bubble_shadow = t->in_meta = t->out_meta = t->out_accent = fg;
+  t->select_ring = t->accent = t->service_pill = fg;
+  t->list_bg = t->chat_bg = t->in_bubble = t->out_bubble = bg;
+  t->pill_in = t->pill_out = t->ctx_in = t->ctx_out = bg;
+#endif
+  t->on_header = contrast_on(t->header);
+  t->on_selected = contrast_on(t->list_selected);
+  t->on_badge = contrast_on(t->badge);
+  t->on_service = contrast_on(t->service_pill);
+  t->on_out = contrast_on(t->out_bubble);
+  t->on_accent = contrast_on(t->accent);
+  t->on_ring = contrast_on(t->select_ring);
+}
 
 // Telegram's seven avatar and name colours, mapped to the Pebble palette.
 #ifdef PBL_COLOR
@@ -119,7 +278,9 @@ static const uint8_t TG_NAME_COLORS[7] = {
 #define VIEW_TRANSITION_MS 120
 #define TOUCH_KEYBOARD_ENABLED 1
 #define TOUCH_KEYBOARD_MAX_TEXT 400
-#ifdef _PBL_API_EXISTS_touch_service_subscribe
+// Only watches with a touchscreen. Pebble 2 Duo (flint) firmware exposes the
+// touch API too, but has no touchscreen and needs that RAM for itself.
+#if defined(_PBL_API_EXISTS_touch_service_subscribe) && (defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO))
 #define TOUCH_KEYBOARD_AVAILABLE 1
 #else
 #define TOUCH_KEYBOARD_AVAILABLE 0
@@ -746,7 +907,7 @@ static GColor tg_avatar_color(const char *key) {
 }
 
 static __attribute__((unused)) GColor tg_name_color(const char *name) {
-  return PBL_IF_COLOR_ELSE((GColor){.argb = TG_NAME_COLORS[tg_hash(name) % 7]}, GColorBlack);
+  return PBL_IF_COLOR_ELSE((GColor){.argb = TG_NAME_COLORS[tg_hash(name) % 7]}, TG_TEXT);
 }
 
 static int chat_bottom_pad(void) {
@@ -1786,12 +1947,14 @@ static void header_update_proc(Layer *layer, GContext *ctx) {
   graphics_context_set_fill_color(ctx, TG_HEADER);
   graphics_fill_rect(ctx, b, 0, GCornerNone);
   bool chat = s_view_state == ViewStateChat;
-  GColor sub_color = PBL_IF_COLOR_ELSE(GColorCeleste, GColorWhite);
+  GColor on_header = TG_ON_HEADER;
+  GColor sub_color = PBL_IF_COLOR_ELSE(gcolor_equal(on_header, GColorWhite) ? GColorCeleste : GColorDarkGray,
+                                       on_header);
   // In the chat list, a status ("Connecting...") replaces the title, as in Telegram.
   const char *title = chat ? s_current_chat_title :
                       (s_status_text[0] ? s_status_text : "Pebblegram");
   const char *subtitle = header_has_subtitle() ? s_status_text : NULL;
-  graphics_context_set_text_color(ctx, GColorWhite);
+  graphics_context_set_text_color(ctx, on_header);
 
   if (ROUND_UI) {
     int title_y = subtitle ? 9 : 15;
@@ -1799,7 +1962,7 @@ static void header_update_proc(Layer *layer, GContext *ctx) {
     int tw = PG_MIN(b.size.w - 90, text_width(title, font_bold18()));
     int x = (b.size.w - (tw + icon_w)) / 2;
     if (!chat) {
-      draw_paper_plane(ctx, GPoint(x, title_y + 7), 4, GColorWhite, TG_HEADER);
+      draw_paper_plane(ctx, GPoint(x, title_y + 7), 4, on_header, TG_HEADER);
     }
     graphics_draw_text(ctx, title, font_bold18(), GRect(x + icon_w, title_y, b.size.w - 90, 22),
                        GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
@@ -1814,7 +1977,7 @@ static void header_update_proc(Layer *layer, GContext *ctx) {
   int x = 8;
   int mid = b.size.h / 2;
   if (chat) {
-    draw_back_chevron(ctx, GPoint(x + 2, mid), GColorWhite);
+    draw_back_chevron(ctx, GPoint(x + 2, mid), on_header);
     x += 12;
     if (b.size.h >= 30) {
       int r = PG_MIN((b.size.h / 2) - 4, CHAT_AVATAR_R);
@@ -1822,11 +1985,11 @@ static void header_update_proc(Layer *layer, GContext *ctx) {
                        strcmp(s_chats[s_selected_chat].id, s_current_chat_id) == 0) ?
                       &s_chats[s_selected_chat] : NULL;
       draw_avatar(ctx, GPoint(x + r, mid), r, s_current_chat_id, s_current_chat_title,
-                  current ? header_avatar_for(current->avatar_bitmap, r) : NULL, TG_HEADER);
+                  current && s_appearance.photos ? header_avatar_for(current->avatar_bitmap, r) : NULL, TG_HEADER);
       x += (r * 2) + 7;
     }
   } else {
-    draw_paper_plane(ctx, GPoint(x, mid - 7), 4, GColorWhite, TG_HEADER);
+    draw_paper_plane(ctx, GPoint(x, mid - 7), 4, on_header, TG_HEADER);
     x += 24;
   }
   int w = b.size.w - x - 4;
@@ -1913,8 +2076,9 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
 
   Chat *chat = &s_chats[cell_index->row];
   GColor row_bg = selected ? TG_LIST_SELECTED : TG_LIST_BG;
-  GColor title_color = selected ? GColorWhite : TG_TEXT;
-  GColor sub_color = selected ? GColorWhite : TG_SUBTEXT;
+  GColor on_selected = TG_ON_SELECTED;
+  GColor title_color = selected ? on_selected : TG_TEXT;
+  GColor sub_color = selected ? on_selected : TG_SUBTEXT;
   if (selected) {
     graphics_context_set_fill_color(ctx, row_bg);
     if (ROUND_UI) {
@@ -1928,9 +2092,9 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
 
   int avatar_r = CHAT_AVATAR_R;
   GPoint avatar_c = GPoint(safe.origin.x + avatar_r + (ROUND_UI ? 0 : 4), bounds.size.h / 2);
-  draw_avatar(ctx, avatar_c, avatar_r, chat->id, chat->title, chat->avatar_bitmap, row_bg);
+  draw_avatar(ctx, avatar_c, avatar_r, chat->id, chat->title, s_appearance.photos ? chat->avatar_bitmap : NULL, row_bg);
   if (selected && BW_UI) {
-    graphics_context_set_stroke_color(ctx, GColorWhite);
+    graphics_context_set_stroke_color(ctx, on_selected);
     graphics_draw_circle(ctx, avatar_c, avatar_r);
   }
 
@@ -1949,7 +2113,7 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
   }
   if (chat->receipt) {
     draw_ticks(ctx, right - meta_w, line1_y + 8, chat->receipt,
-               selected ? GColorWhite : TG_OUT_META);
+               selected ? on_selected : TG_OUT_ACCENT);
   }
   int title_w = right - text_x - (meta_w ? meta_w + 4 : 0);
   graphics_context_set_text_color(ctx, title_color);
@@ -1960,8 +2124,8 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
   int badge_w = 0;
   if (chat->unread) {
     bool muted = chat->flags & CHAT_FLAG_MUTED;
-    GColor fill = selected ? GColorWhite : (muted ? TG_BADGE_MUTED : TG_BADGE);
-    GColor text = selected ? TG_LIST_SELECTED : GColorWhite;
+    GColor fill = selected ? on_selected : (muted ? TG_BADGE_MUTED : TG_BADGE);
+    GColor text = selected ? TG_LIST_SELECTED : TG_ON_BADGE;
     badge_w = draw_badge(ctx, right, line2_y + 11, chat->unread_count, fill, text) + 5;
   }
   int preview_x = text_x;
@@ -1974,7 +2138,7 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
     memcpy(sender, preview, len);
     sender[len] = '\0';
     int sender_w = PG_MIN(preview_w / 2, text_width(sender, font_18()));
-    graphics_context_set_text_color(ctx, selected ? GColorWhite : TG_LINK);
+    graphics_context_set_text_color(ctx, selected ? on_selected : TG_LINK);
     graphics_draw_text(ctx, sender, font_18(), GRect(preview_x, line2_y - 2, sender_w + 2, 22),
                        GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
     preview_x += sender_w + 4;
@@ -2420,7 +2584,55 @@ static void message_meta_time(const char *meta, char *dest, size_t dest_size) {
 #define BOX_META_ON_PHOTO 0x40
 
 #ifdef PBL_COLOR
+#define PATTERN_TILE 32
+
 static GBitmap *s_wallpaper;
+// Index 0 is the background and index 1 the pattern colour, as in the doodle
+// resource, so both kinds of wallpaper share this palette.
+static GColor s_wallpaper_palette[2];
+
+static bool pattern_pixel(int pattern, int x, int y) {
+  switch (pattern) {
+    case PatternDots:
+      return (x % 8) < 2 && (y % 8) < 2;
+    case PatternLines:
+      return (x + y) % 8 == 0;
+    default:
+      return x % 16 == 0 || y % 16 == 0;
+  }
+}
+
+// Doodles are tiled from the resource; the other patterns are tiny 1-bit
+// tiles drawn here. None leaves s_wallpaper empty so the colour is solid.
+static void wallpaper_rebuild(void) {
+  if (s_wallpaper) {
+    gbitmap_destroy(s_wallpaper);
+    s_wallpaper = NULL;
+  }
+  s_wallpaper_palette[0] = s_theme.chat_bg;
+  s_wallpaper_palette[1] = s_theme.wall_hi;
+  if (s_appearance.pattern == PatternDoodles) {
+    s_wallpaper = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_WALLPAPER);
+    if (s_wallpaper) {
+      gbitmap_set_palette(s_wallpaper, s_wallpaper_palette, false);
+    }
+  } else if (s_appearance.pattern != PatternNone) {
+    s_wallpaper = gbitmap_create_blank_with_palette(GSize(PATTERN_TILE, PATTERN_TILE), GBitmapFormat1BitPalette,
+                                                    s_wallpaper_palette, false);
+    if (s_wallpaper) {
+      uint8_t *data = gbitmap_get_data(s_wallpaper);
+      int stride = gbitmap_get_bytes_per_row(s_wallpaper);
+      memset(data, 0, stride * PATTERN_TILE);
+      for (int y = 0; y < PATTERN_TILE; y++) {
+        for (int x = 0; x < PATTERN_TILE; x++) {
+          if (pattern_pixel(s_appearance.pattern, x, y)) {
+            data[y * stride + x / 8] |= 0x80 >> (x % 8);  // leftmost pixel is the high bit
+          }
+        }
+      }
+    }
+  }
+}
 #endif
 
 static bool chat_is_group(void) {
@@ -2466,7 +2678,16 @@ static int message_image_frame_width(int bubble_w) {
 }
 
 static GFont bubble_text_font(void) {
-  return fonts_get_system_font(FONT_KEY_GOTHIC_18);
+  static const char *const keys[2][4] = {
+    {FONT_KEY_GOTHIC_14, FONT_KEY_GOTHIC_18, FONT_KEY_GOTHIC_24, FONT_KEY_GOTHIC_28},
+    {FONT_KEY_GOTHIC_14_BOLD, FONT_KEY_GOTHIC_18_BOLD, FONT_KEY_GOTHIC_24_BOLD, FONT_KEY_GOTHIC_28_BOLD}
+  };
+  return fonts_get_system_font(keys[s_appearance.bold ? 1 : 0][s_appearance.text_size]);
+}
+
+// Bigger fonts start their glyphs lower in the text box, so draw them higher.
+static int bubble_text_trim(void) {
+  return 2 + s_appearance.text_size;
 }
 
 // PebbleOS emoji are fixed 16px images at every font size, so big emoji are
@@ -2573,10 +2794,10 @@ static void layout_pills(GContext *ctx, const char *reactions, int max_w, GPoint
       graphics_context_set_fill_color(ctx, outgoing ? TG_PILL_OUT : TG_PILL_IN);
       graphics_fill_rect(ctx, pill, PILL_H / 2, GCornersAll);
       if (BW_UI) {
-        graphics_context_set_stroke_color(ctx, GColorBlack);
+        graphics_context_set_stroke_color(ctx, TG_TEXT);
         graphics_draw_round_rect(ctx, pill, PILL_H / 2);
       }
-      graphics_context_set_text_color(ctx, outgoing ? TG_OUT_META : TG_LINK);
+      graphics_context_set_text_color(ctx, outgoing ? TG_OUT_ACCENT : TG_LINK);
       graphics_draw_text(ctx, token, pill_font(), GRect(pill.origin.x + 6, pill.origin.y - 1, w - 10, PILL_H),
                          GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
     }
@@ -2601,13 +2822,13 @@ static void measure_message(Message *m, int max_w) {
   copy_cstr(display_text, sizeof(display_text), m->text);
   truncate_cstr_bytes(display_text, sizeof(display_text), MESSAGE_PREVIEW_TEXT, " ...");
 
-  m->emoji_only = (m->image_placeholder || message_has_context(m) || m->reactions[0]) ? 0 :
+  m->emoji_only = (m->image_placeholder || message_has_context(m) || m->reactions[0] || !s_appearance.big_emoji) ? 0 :
                   count_emoji_only(display_text);
   if (m->big_emoji) {
     gbitmap_destroy(m->big_emoji);
     m->big_emoji = NULL;
   }
-  GFont font = bubble_text_font();
+  GFont font = m->emoji_only ? font_18() : bubble_text_font();
   m->meta_w = meta_width(m->meta);
   m->text_w = m->text_h = m->text_nw = m->text_nh = 0;
   if (display_text[0]) {
@@ -3851,8 +4072,8 @@ static void draw_bubble(GContext *ctx, GRect r, bool outgoing, bool tail, bool s
   }
   draw_bubble_shape(ctx, r, outgoing, tail, outgoing ? TG_OUT_BUBBLE : TG_IN_BUBBLE);
 #else
-  draw_bubble_shape(ctx, r, outgoing, false, GColorWhite);
-  graphics_context_set_stroke_color(ctx, GColorBlack);
+  draw_bubble_shape(ctx, r, outgoing, false, TG_IN_BUBBLE);
+  graphics_context_set_stroke_color(ctx, TG_TEXT);
   graphics_draw_round_rect(ctx, r, BUBBLE_R);
   if (selected) {
     graphics_draw_round_rect(ctx, GRect(r.origin.x + 1, r.origin.y + 1, r.size.w - 2, r.size.h - 2),
@@ -3871,10 +4092,10 @@ static void draw_message_context(GContext *ctx, Message *m, GRect rect) {
     return;
   }
   message_context_strings(m, title, sizeof(title), body, sizeof(body));
-  GColor accent = m->outgoing ? TG_OUT_META :
+  GColor accent = m->outgoing ? TG_OUT_ACCENT :
                   (strncmp(title, "Fwd from ", 9) == 0 ? TG_LINK : tg_name_color(title));
 #ifdef PBL_COLOR
-  graphics_context_set_fill_color(ctx, m->outgoing ? GColorWhite : GColorCeleste);
+  graphics_context_set_fill_color(ctx, m->outgoing ? TG_CTX_OUT : TG_CTX_IN);
   graphics_fill_rect(ctx, rect, 4, GCornersAll);
 #endif
   graphics_context_set_fill_color(ctx, accent);
@@ -3916,12 +4137,12 @@ static void draw_message_image(GContext *ctx, Message *message, GRect image_rect
   graphics_context_set_fill_color(ctx, message->outgoing ? GColorMayGreen : GColorLightGray);
   graphics_fill_rect(ctx, image_rect, 6, GCornersAll);
 #else
-  graphics_context_set_stroke_color(ctx, GColorBlack);
+  graphics_context_set_stroke_color(ctx, TG_TEXT);
   graphics_draw_round_rect(ctx, image_rect, 6);
 #endif
   int label_h = message->image_failed ? PG_MIN(image_rect.size.h - 4, 46) : 22;
   int label_y = image_rect.origin.y + PG_MAX(2, (image_rect.size.h - label_h - (message->image_requested ? 16 : 0)) / 2);
-  graphics_context_set_text_color(ctx, PBL_IF_COLOR_ELSE(GColorWhite, GColorBlack));
+  graphics_context_set_text_color(ctx, PBL_IF_COLOR_ELSE(GColorWhite, TG_TEXT));
   graphics_draw_text(ctx, label, font_bold18(), GRect(image_rect.origin.x + 4, label_y, image_rect.size.w - 8, label_h),
                      message->image_failed ? GTextOverflowModeWordWrap : GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentCenter, NULL);
@@ -3931,10 +4152,10 @@ static void draw_message_image(GContext *ctx, Message *message, GRect image_rect
     graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(GColorWhite, GColorWhite));
     graphics_fill_rect(ctx, track, 2, GCornersAll);
     int fill_w = (bar_w * PG_MAX(0, PG_MIN(100, message->image_progress))) / 100;
-    graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(GColorBlueMoon, GColorBlack));
+    graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(GColorBlueMoon, TG_TEXT));
     graphics_fill_rect(ctx, GRect(track.origin.x, track.origin.y, PG_MAX(4, fill_w), 4), 2, GCornersAll);
     if (loading_detail[0] && image_rect.size.h >= 64) {
-      graphics_context_set_text_color(ctx, PBL_IF_COLOR_ELSE(GColorWhite, GColorBlack));
+      graphics_context_set_text_color(ctx, PBL_IF_COLOR_ELSE(GColorWhite, TG_TEXT));
       graphics_draw_text(ctx, loading_detail, font_14(),
                          GRect(image_rect.origin.x + 4, track.origin.y + 6, image_rect.size.w - 8, 18),
                          GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
@@ -3947,7 +4168,7 @@ static void draw_service_pill(GContext *ctx, GRect bounds, int y, const char *te
   GRect pill = GRect((bounds.size.w - w) / 2, y, w, 22);
   graphics_context_set_fill_color(ctx, TG_SERVICE_PILL);
   graphics_fill_rect(ctx, pill, 11, GCornersAll);
-  graphics_context_set_text_color(ctx, GColorWhite);
+  graphics_context_set_text_color(ctx, TG_ON_SERVICE);
   graphics_draw_text(ctx, text, font_bold14(), GRect(pill.origin.x, pill.origin.y + 2, w, 18),
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 }
@@ -3979,10 +4200,10 @@ static void draw_compose_bar(GContext *ctx, GRect compose, bool selected) {
   graphics_context_set_fill_color(ctx, TG_BUBBLE_SHADOW);
   graphics_fill_rect(ctx, GRect(field.origin.x, field.origin.y + 1, field.size.w, field.size.h), r, GCornersAll);
 #endif
-  graphics_context_set_fill_color(ctx, GColorWhite);
+  graphics_context_set_fill_color(ctx, TG_IN_BUBBLE);
   graphics_fill_rect(ctx, field, r, GCornersAll);
   if (selected || BW_UI) {
-    graphics_context_set_stroke_color(ctx, selected ? TG_SELECT_RING : GColorBlack);
+    graphics_context_set_stroke_color(ctx, selected ? TG_SELECT_RING : TG_TEXT);
     graphics_context_set_stroke_width(ctx, selected ? 2 : 1);
     graphics_draw_round_rect(ctx, field, r);
     graphics_context_set_stroke_width(ctx, 1);
@@ -3999,7 +4220,7 @@ static void draw_compose_bar(GContext *ctx, GRect compose, bool selected) {
 #endif
   graphics_context_set_fill_color(ctx, selected ? TG_SELECT_RING : TG_ACCENT);
   graphics_fill_circle(ctx, mc, r);
-  draw_mic_icon(ctx, mc, GColorWhite);
+  draw_mic_icon(ctx, mc, selected ? TG_ON_RING : TG_ON_ACCENT);
 }
 
 static GRect compose_rect_for_bounds(GRect bounds) {
@@ -4018,7 +4239,7 @@ static void emoji_capture(GContext *ctx, Layer *layer, GRect scratch, const char
   graphics_context_set_fill_color(ctx, key);
   graphics_fill_rect(ctx, scratch, 0, GCornerNone);
   graphics_context_set_text_color(ctx, TG_TEXT);
-  graphics_draw_text(ctx, text, bubble_text_font(), GRect(scratch.origin.x, scratch.origin.y - 3,
+  graphics_draw_text(ctx, text, font_18(), GRect(scratch.origin.x, scratch.origin.y - 3,
                                                           scratch.size.w, scratch.size.h + 3),
                      GTextOverflowModeFill, GTextAlignmentLeft, NULL);
   GPoint origin = layer_convert_point_to_screen(layer, scratch.origin);
@@ -4101,6 +4322,7 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
   }
 
   GFont text_font = bubble_text_font();
+  int trim = bubble_text_trim();
   int first = 0;
   while (first < s_message_count - 1 &&
          s_message_y[first] + s_message_h[first] < s_chat_scroll_offset - 12) {
@@ -4144,7 +4366,7 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
         graphics_context_set_compositing_mode(ctx, GCompOpAssign);
       } else {
         graphics_context_set_text_color(ctx, TG_TEXT);
-        graphics_draw_text(ctx, display_text, bubble_text_font(), GRect(emoji_x, y - 3, m->text_w + 4, m->text_h + 4),
+        graphics_draw_text(ctx, display_text, font_18(), GRect(emoji_x, y - 3, m->text_w + 4, m->text_h + 4),
                            GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
       }
       if (m->meta_w) {
@@ -4153,7 +4375,7 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
         GRect pill = GRect(pill_x, y + box->meta_y, pill_w, 16);
         graphics_context_set_fill_color(ctx, TG_SERVICE_PILL);
         graphics_fill_rect(ctx, pill, 8, GCornersAll);
-        draw_message_meta_at(ctx, m, pill.origin.x + pill_w - 5, pill.origin.y, GColorWhite);
+        draw_message_meta_at(ctx, m, pill.origin.x + pill_w - 5, pill.origin.y, TG_ON_SERVICE);
       }
       continue;
     }
@@ -4175,9 +4397,9 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
                                        box->image_w, box->image_h));
     }
     if (display_text[0] && m->text_h) {
-      graphics_context_set_text_color(ctx, TG_TEXT);
+      graphics_context_set_text_color(ctx, m->outgoing ? TG_ON_OUT : TG_TEXT);
       graphics_draw_text(ctx, display_text, text_font,
-                         GRect(left, y + box->text_y - 3, box->text_box_w, m->text_h + 4),
+                         GRect(left, y + box->text_y - trim, box->text_box_w, m->text_h + trim + 1),
                          GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
     }
     if (m->pills_h) {
@@ -5013,6 +5235,73 @@ static void send_selected_chat_action(const char *command) {
   send_command(command, s_chats[s_selected_chat].id, NULL, NULL, NULL);
 }
 
+static void appearance_load(void) {
+  Appearance saved;
+  if (persist_read_data(APPEARANCE_KEY, &saved, sizeof(saved)) == (int)sizeof(saved) &&
+      saved.version == APPEARANCE_VERSION && saved.text_size < 4 && saved.pattern <= PatternNone) {
+    s_appearance = saved;
+  } else {
+    appearance_defaults(&s_appearance);
+  }
+  theme_apply();
+}
+
+// Re-themes whatever is on screen after the settings changed.
+static void appearance_refresh(void *data) {
+  theme_apply();
+#ifdef PBL_COLOR
+  wallpaper_rebuild();
+#endif
+  // Cached bubble sizes were measured with the old font. Measuring them again
+  // needs a lot of stack (emoji reaction pills), more than the AppMessage and
+  // draw callbacks have to spare, so this whole function runs from a timer.
+  for (int i = 0; i < MAX_MESSAGES; i++) {
+    s_messages[i].layout_key = NULL;
+    if (s_message_stage) {
+      s_message_stage[i].layout_key = NULL;
+    }
+  }
+  recalc_message_layout();
+  window_set_background_color(s_main_window, TG_LIST_BG);
+  if (s_chat_menu) {
+    menu_layer_set_normal_colors(s_chat_menu, TG_LIST_BG, TG_TEXT);
+    layer_mark_dirty(menu_layer_get_layer(s_chat_menu));
+  }
+  if (s_header_layer) {
+    layer_mark_dirty(s_header_layer);
+  }
+  if (s_messages_root) {
+    layer_mark_dirty(s_messages_root);
+  }
+  if (s_action_layer) {
+    layer_mark_dirty(s_action_layer);
+  }
+}
+
+#ifdef PBL_COLOR
+static uint8_t tuple_color(DictionaryIterator *iter, uint32_t key, uint8_t fallback) {
+  Tuple *tuple = dict_find(iter, key);
+  return tuple ? GColorFromHEX(tuple->value->int32).argb : fallback;
+}
+#endif
+
+static void appearance_receive(DictionaryIterator *iter) {
+  Appearance *a = &s_appearance;
+  a->dark = tuple_int(iter, MESSAGE_KEY_Theme, a->dark) == 1;
+  a->pattern = PG_MAX(0, PG_MIN(PatternNone, tuple_int(iter, MESSAGE_KEY_BgPattern, a->pattern)));
+  a->text_size = PG_MAX(0, PG_MIN(3, tuple_int(iter, MESSAGE_KEY_TextSize, a->text_size)));
+  a->bold = tuple_int(iter, MESSAGE_KEY_TextBold, a->bold) == 1;
+  a->photos = tuple_int(iter, MESSAGE_KEY_ShowPhotos, a->photos) == 1;
+  a->big_emoji = tuple_int(iter, MESSAGE_KEY_BigEmoji, a->big_emoji) == 1;
+#ifdef PBL_COLOR
+  a->accent = tuple_color(iter, MESSAGE_KEY_AccentColor, a->accent);
+  a->chat_bg = tuple_color(iter, MESSAGE_KEY_ChatBgColor, a->chat_bg);
+  a->out_bubble = tuple_color(iter, MESSAGE_KEY_OutBubbleColor, a->out_bubble);
+#endif
+  persist_write_data(APPEARANCE_KEY, a, sizeof(*a));
+  app_timer_register(0, appearance_refresh, NULL);
+}
+
 static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   char *type = tuple_cstring(iter, MESSAGE_KEY_Type);
   if (!type) {
@@ -5038,6 +5327,11 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
 
   if (strcmp(type, "settings") == 0) {
     update_canned_replies(tuple_cstring(iter, MESSAGE_KEY_CannedReplies));
+    return;
+  }
+
+  if (strcmp(type, "appearance") == 0) {
+    appearance_receive(iter);
     return;
   }
 
@@ -6009,7 +6303,7 @@ static void native_action_perform(ActionMenu *action_menu, const ActionMenuItem 
 
 static void full_text_layer_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
-  graphics_context_set_fill_color(ctx, GColorWhite);
+  graphics_context_set_fill_color(ctx, TG_LIST_BG);
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
 
   char title[MAX_SENDER + 10];
@@ -6017,7 +6311,7 @@ static void full_text_layer_update_proc(Layer *layer, GContext *ctx) {
   const char *heading = NULL;
   const char *meta = NULL;
   bool outgoing = false;
-  GFont full_font = font_18();
+  GFont full_font = bubble_text_font();
   int pad = ROUND_UI ? 30 : 10;
   int text_w = bounds.size.w - (pad * 2);
   int header_h = ROUND_UI ? 50 : 30;
@@ -6068,13 +6362,14 @@ static void full_text_layer_update_proc(Layer *layer, GContext *ctx) {
       message_meta_time(meta, time_text, sizeof(time_text));
     }
     int time_w = time_text[0] ? text_width(time_text, font_14()) + 4 : 0;
-    graphics_context_set_text_color(ctx, GColorWhite);
+    graphics_context_set_text_color(ctx, TG_ON_HEADER);
     graphics_draw_text(ctx, heading, font_bold18(),
                        GRect(name_x, name_y, bounds.size.w - name_x - pad - time_w, 22),
                        GTextOverflowModeTrailingEllipsis,
                        ROUND_UI ? GTextAlignmentCenter : GTextAlignmentLeft, NULL);
     if (time_w) {
-      graphics_context_set_text_color(ctx, PBL_IF_COLOR_ELSE(GColorCeleste, GColorWhite));
+      graphics_context_set_text_color(ctx, PBL_IF_COLOR_ELSE(gcolor_equal(TG_ON_HEADER, GColorWhite) ? GColorCeleste : GColorDarkGray,
+                                                             TG_ON_HEADER));
       graphics_draw_text(ctx, time_text, font_14(),
                          GRect(bounds.size.w - pad - time_w, name_y + 4, time_w, 16),
                          GTextOverflowModeFill, GTextAlignmentRight, NULL);
@@ -6087,7 +6382,7 @@ static void full_text_layer_update_proc(Layer *layer, GContext *ctx) {
     int track_h = bounds.size.h - 8;
     int thumb_h = PG_MAX(16, (track_h * bounds.size.h) / s_full_text_height);
     int thumb_y = 4 + ((track_h - thumb_h) * s_full_text_scroll_offset) / max_scroll;
-    graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(GColorLightGray, GColorBlack));
+    graphics_context_set_fill_color(ctx, TG_SEPARATOR);
     graphics_fill_rect(ctx, GRect(bounds.size.w - 4, thumb_y, 3, thumb_h), 1, GCornersAll);
   }
 }
@@ -7557,7 +7852,7 @@ static void main_window_load(Window *window) {
   GRect bounds = layer_get_bounds(window_layer);
 
 #ifdef PBL_COLOR
-  s_wallpaper = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_WALLPAPER);
+  wallpaper_rebuild();
 #endif
   s_header_layer = layer_create(GRect(0, 0, bounds.size.w, HEADER_H));
   layer_set_update_proc(s_header_layer, header_update_proc);
@@ -7578,6 +7873,7 @@ static void main_window_load(Window *window) {
     .get_cell_height = chat_menu_get_cell_height_callback,
     .select_click = chat_menu_select_callback
   });
+  menu_layer_set_normal_colors(s_chat_menu, TG_LIST_BG, TG_TEXT);
   layer_add_child(window_layer, menu_layer_get_layer(s_chat_menu));
 }
 
@@ -7608,6 +7904,7 @@ static void main_window_appear(Window *window) {
 }
 
 static void init(void) {
+  appearance_load();
   s_view_state = ViewStateChatList;
   s_selected_message = -1;
   s_chats_loading = true;

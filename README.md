@@ -58,6 +58,13 @@ Pebblegram 3.6 fixes login and reply bugs, makes photos sharp and reliable, brin
 - Black-and-white watches get the same layout with outlines instead of colour.
 - Faster scrolling: message sizes are measured once and cached instead of on every frame, and the app binary is smaller (link-time optimisation).
 
+### Settings
+
+- Tap the gear in the Pebble app to open a new Appearance page (once you are logged in to Telegram). The Telegram account button on it takes you back to the login and quick reply settings.
+- Pick a Light or Dark theme. On colour watches you can also choose the accent, chat background and outgoing bubble colours; text colours adjust so they stay readable.
+- Choose the chat background pattern (doodles, dots, diagonal lines, grid or none), the message text size (small to extra large) and regular or bold text.
+- Turn profile photos in the chat list and the big 1-3 emoji messages on or off.
+
 ### Photos
 
 - Photos are sharp now. Each photo is drawn at the full width of its bubble, in the best colours your watch has memory for: full colour for photos, and crisp 4-colour or black-and-white for screenshots, so text in a screenshot is readable. Tall screenshots are no longer squashed; they keep full width and you scroll through them.

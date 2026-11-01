@@ -31,6 +31,9 @@ function create(options) {
         '&authStage=' + encodeURIComponent(state.authStage || '') +
         '&cannedReplies=' + encodeURIComponent(options.cannedReplies());
     },
+    hasSession: function() {
+      return auth.authState().hasSession;
+    },
     applySettings: function(data) {
       if (data && data.mode === 'pgjs') {
         auth.saveSettings(data);
