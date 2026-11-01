@@ -392,6 +392,7 @@ typedef struct {
   int16_t meta_w, name_w, ctx_w;
   int16_t pills_w, pills_h, pills_last_w;
   uint8_t emoji_only;
+  uint8_t font_size;  // text size this message is drawn at (see message_font_size)
   GBitmap *big_emoji;  // 2x copy of an emoji-only message (colour watches)
 } Message;
 
@@ -2677,17 +2678,17 @@ static int message_image_frame_width(int bubble_w) {
   return bubble_w - 4;
 }
 
-static GFont bubble_text_font(void) {
+static GFont bubble_text_font(uint8_t size) {
   static const char *const keys[2][4] = {
     {FONT_KEY_GOTHIC_14, FONT_KEY_GOTHIC_18, FONT_KEY_GOTHIC_24, FONT_KEY_GOTHIC_28},
     {FONT_KEY_GOTHIC_14_BOLD, FONT_KEY_GOTHIC_18_BOLD, FONT_KEY_GOTHIC_24_BOLD, FONT_KEY_GOTHIC_28_BOLD}
   };
-  return fonts_get_system_font(keys[s_appearance.bold ? 1 : 0][s_appearance.text_size]);
+  return fonts_get_system_font(keys[s_appearance.bold ? 1 : 0][size]);
 }
 
 // Bigger fonts start their glyphs lower in the text box, so draw them higher.
-static int bubble_text_trim(void) {
-  return 2 + s_appearance.text_size;
+static int bubble_text_trim(uint8_t size) {
+  return 2 + size;
 }
 
 // PebbleOS emoji are fixed 16px images at every font size, so big emoji are
@@ -2703,8 +2704,8 @@ static GFont pill_font(void) {
   return fonts_get_system_font(FONT_KEY_GOTHIC_18);
 }
 
-// 1-3 emoji and nothing else: Telegram shows these large, without a bubble.
-static uint8_t count_emoji_only(const char *text) {
+// Number of emoji in `text` if it holds nothing else (and no more than `max`), else 0.
+static uint8_t count_emoji_only(const char *text, uint8_t max) {
   uint8_t count = 0;
   const unsigned char *p = (const unsigned char *)text;
   if (!p || !*p) {
@@ -2737,7 +2738,7 @@ static uint8_t count_emoji_only(const char *text) {
     if (cp < 0x2000) {
       return 0;
     }
-    if (++count > 3) {
+    if (++count > max) {
       return 0;
     }
   }
@@ -2810,6 +2811,30 @@ static void layout_pills(GContext *ctx, const char *reactions, int max_w, GPoint
   if (out_last_w) *out_last_w = any ? x : 0;
 }
 
+// Emoji are wider than letters, so a row like a Wordle grid can be too wide for
+// the bubble at a big text size and wrap in the middle. A message with such
+// rows is drawn at the largest size where every one of them fits on its line.
+static uint8_t message_font_size(char *text, int inner) {
+  for (uint8_t size = s_appearance.text_size; size > 0; size--) {
+    bool fits = true;
+    for (char *line = text; line && fits;) {
+      char *end = strchr(line, '\n');
+      if (end) {
+        *end = '\0';
+      }
+      fits = !count_emoji_only(line, 255) || text_width(line, bubble_text_font(size)) <= inner;
+      if (end) {
+        *end = '\n';
+      }
+      line = end ? end + 1 : NULL;
+    }
+    if (fits) {
+      return size;
+    }
+  }
+  return 0;
+}
+
 // Measure a message once per content change.
 static void measure_message(Message *m, int max_w) {
   uint16_t img_key = m->image_placeholder ? (uint16_t)(1 + m->image_width * 31 + m->image_height) : 0;
@@ -2823,12 +2848,13 @@ static void measure_message(Message *m, int max_w) {
   truncate_cstr_bytes(display_text, sizeof(display_text), MESSAGE_PREVIEW_TEXT, " ...");
 
   m->emoji_only = (m->image_placeholder || message_has_context(m) || m->reactions[0] || !s_appearance.big_emoji) ? 0 :
-                  count_emoji_only(display_text);
+                  count_emoji_only(display_text, 3);
   if (m->big_emoji) {
     gbitmap_destroy(m->big_emoji);
     m->big_emoji = NULL;
   }
-  GFont font = m->emoji_only ? font_18() : bubble_text_font();
+  m->font_size = m->emoji_only ? s_appearance.text_size : message_font_size(display_text, inner);
+  GFont font = m->emoji_only ? font_18() : bubble_text_font(m->font_size);
   m->meta_w = meta_width(m->meta);
   m->text_w = m->text_h = m->text_nw = m->text_nh = 0;
   if (display_text[0]) {
@@ -4321,8 +4347,6 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
                       s_loading_messages ? "Loading messages..." : "No messages here yet");
   }
 
-  GFont text_font = bubble_text_font();
-  int trim = bubble_text_trim();
   int first = 0;
   while (first < s_message_count - 1 &&
          s_message_y[first] + s_message_h[first] < s_chat_scroll_offset - 12) {
@@ -4398,7 +4422,8 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
     }
     if (display_text[0] && m->text_h) {
       graphics_context_set_text_color(ctx, m->outgoing ? TG_ON_OUT : TG_TEXT);
-      graphics_draw_text(ctx, display_text, text_font,
+      int trim = bubble_text_trim(m->font_size);
+      graphics_draw_text(ctx, display_text, bubble_text_font(m->font_size),
                          GRect(left, y + box->text_y - trim, box->text_box_w, m->text_h + trim + 1),
                          GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
     }
@@ -6311,7 +6336,7 @@ static void full_text_layer_update_proc(Layer *layer, GContext *ctx) {
   const char *heading = NULL;
   const char *meta = NULL;
   bool outgoing = false;
-  GFont full_font = bubble_text_font();
+  GFont full_font = bubble_text_font(s_appearance.text_size);
   int pad = ROUND_UI ? 30 : 10;
   int text_w = bounds.size.w - (pad * 2);
   int header_h = ROUND_UI ? 50 : 30;

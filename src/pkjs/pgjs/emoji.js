@@ -66,7 +66,14 @@ function versionAtLeast(version, minimum) {
 // firmware: Pebble.getActiveWatchInfo().firmware ({major, minor, patch}).
 function setFirmware(firmware) {
   var version = firmware ? [firmware.major, firmware.minor, firmware.patch] : null;
-  activeTier = version && versionAtLeast(version, data.tiers['new'].minFirmware) ? 'new' : 'old';
+  activeTier = 'old';
+  ['newest', 'new'].some(function(name) {
+    if (version && data.tiers[name] && versionAtLeast(version, data.tiers[name].minFirmware)) {
+      activeTier = name;
+      return true;
+    }
+    return false;
+  });
   return activeTier;
 }
 

@@ -528,9 +528,8 @@ function shortenToken(token) {
   return clampUtf8Bytes(token, 21) + '...';
 }
 
-function watchText(value, maxLength) {
-  value = shortenWatchTechnicalTokens(shortenWatchLinks(summarizeWatchStackTrace(normalizeWatchString(value))))
-    .replace(/[\r\n\t]+/g, ' ')
+function watchLine(line) {
+  return line
     .replace(/\s+/g, ' ')
     .replace(/\b([A-Za-z0-9_.-]{2,})\/([A-Za-z0-9_.-]{2,})\b/g, '$1 / $2')
     .replace(/[^\s]{29,}/g, function(token) {
@@ -538,6 +537,14 @@ function watchText(value, maxLength) {
       return /:[a-z0-9_+-]{2,}:/i.test(token) ? token : shortenToken(token);
     })
     .trim();
+}
+
+// keepLines: message text keeps its line breaks (a Wordle grid is one row per
+// line); everything else is flattened to a single line.
+function watchText(value, maxLength, keepLines) {
+  value = shortenWatchTechnicalTokens(shortenWatchLinks(summarizeWatchStackTrace(normalizeWatchString(value))));
+  var lines = keepLines ? value.split(/\r\n|\r|\n/) : [value.replace(/[\r\n]+/g, ' ')];
+  value = lines.map(watchLine).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   return clampUtf8Bytes(value, maxLength);
 }
 
@@ -730,7 +737,7 @@ function messagePayload(message, type, index, count, transferId) {
   }
   payload[MessageKeys.MessageId] = clampText(message.id, 23);
   payload[MessageKeys.Sender] = clampText(message.sender, 35);
-  payload[MessageKeys.Text] = watchText(message.text, MAX_MESSAGE_TEXT);
+  payload[MessageKeys.Text] = watchText(message.text, MAX_MESSAGE_TEXT, true);
   if (message.reactions) {
     payload[MessageKeys.Reactions] = clampText(message.reactions, 63);
   }
@@ -1131,7 +1138,7 @@ function sendFullMessageText(chatId, messageId) {
   payload[MessageKeys.Type] = 'message_context';
   payload[MessageKeys.MessageId] = clampText(messageId, 23);
   payload[MessageKeys.Sender] = '';
-  payload[MessageKeys.Text] = watchText(message ? message.text : 'Message not loaded', MAX_CONTEXT_VIEW_TEXT);
+  payload[MessageKeys.Text] = watchText(message ? message.text : 'Message not loaded', MAX_CONTEXT_VIEW_TEXT, true);
   sendToWatch(payload);
 }
 

@@ -14,10 +14,13 @@ import json, re, struct, subprocess, sys
 REPO = sys.argv[1] if len(sys.argv) > 1 else '.'
 TIERS = {
     # PebbleOS 4.29.0 added ~1,200 Noto emoji to the system emoji fonts.
-    'new': {'minFirmware': '4.29.0', 'revs': ['v4.29.0', 'v4.38.0', 'HEAD']},
+    'new': {'minFirmware': '4.29.0', 'revs': ['v4.29.0', 'v4.38.0', 'v4.44.1', 'HEAD']},
+    # PebbleOS 4.39.0 added colour emoji fonts and U+2661 (white heart suit).
+    'newest': {'minFirmware': '4.39.0', 'revs': ['v4.39.0', 'v4.44.1', 'HEAD']},
     'old': {'minFirmware': '0.0.0', 'revs': ['55ac7aa05', 'b46135c43', 'bd5029d7a', 'v4.28.0']},
 }
-APP_FONTS = ['GOTHIC_14', 'GOTHIC_14_BOLD', 'GOTHIC_18', 'GOTHIC_18_BOLD', 'GOTHIC_24_BOLD']
+APP_FONTS = ['GOTHIC_14', 'GOTHIC_14_BOLD', 'GOTHIC_18', 'GOTHIC_18_BOLD', 'GOTHIC_24', 'GOTHIC_24_BOLD',
+             'GOTHIC_28', 'GOTHIC_28_BOLD']
 
 
 def show(rev, path):
@@ -41,7 +44,7 @@ def emoji_font(rev):
 
 
 def router(rev):
-    src = show(rev, 'src/fw/applib/fonts/codepoint.c').decode()
+    src = (show(rev, 'src/fw/applib/fonts/codepoint.c') or show(rev, 'fw/applib/fonts/codepoint.c')).decode()
     names = {m[0]: int(m[1], 16) for m in re.findall(r'#define (\w+)_CODEPOINT\s+(0x[0-9A-Fa-f]+)', src)}
     listed = re.search(r'NONSTANDARD_EMOJI_CODEPOINTS\[\] = \{(.*?)\};', src, re.S).group(1)
     listed = {int(x, 16) for x in re.findall(r'0x[0-9A-Fa-f]+', listed)}
