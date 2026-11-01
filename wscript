@@ -27,7 +27,9 @@ def configure(ctx):
     for platform in ctx.env.TARGET_PLATFORMS:
         env = ctx.all_envs[platform]
         env.append_value('CFLAGS', ['-flto'])
-        env.append_value('LINKFLAGS', ['-flto', '-Os'])
+        # Keep the app header symbol: LTO would otherwise drop it and the app
+        # would not install.
+        env.append_value('LINKFLAGS', ['-flto', '-Os', '-Wl,-u,__pbl_app_info'])
 
 
 @feature('js')
