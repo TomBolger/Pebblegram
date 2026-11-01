@@ -134,6 +134,15 @@
             "emery",
             "gabbro"
           ]
+        },
+        {
+          "type": "raw",
+          "name": "KB_WORDS",
+          "file": "data/kb_words.bin",
+          "targetPlatforms": [
+            "emery",
+            "gabbro"
+          ]
         }
       ]
     }
