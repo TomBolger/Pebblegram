@@ -75,16 +75,6 @@
             "emery",
             "gabbro"
           ]
-        },
-        {
-          "type": "bitmap",
-          "name": "IMAGE_TINT_SELECT",
-          "file": "images/tint_select.png",
-          "targetPlatforms": [
-            "basalt",
-            "emery",
-            "gabbro"
-          ]
         }
       ]
     }

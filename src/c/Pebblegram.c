@@ -2305,7 +2305,6 @@ static void message_meta_time(const char *meta, char *dest, size_t dest_size) {
 
 #ifdef PBL_COLOR
 static GBitmap *s_wallpaper;
-static GBitmap *s_tint_select;
 #endif
 
 static bool chat_is_group(void) {
@@ -3766,17 +3765,16 @@ static void draw_bubble_shape(GContext *ctx, GRect r, bool outgoing, bool tail, 
 
 static void draw_bubble(GContext *ctx, GRect r, bool outgoing, bool tail, bool selected) {
 #ifdef PBL_COLOR
-  // A 1px darker edge under each bubble, like Telegram's soft shadow.
-  draw_bubble_shape(ctx, GRect(r.origin.x, r.origin.y + 1, r.size.w, r.size.h), outgoing, tail,
-                    TG_BUBBLE_SHADOW);
-  draw_bubble_shape(ctx, r, outgoing, tail, outgoing ? TG_OUT_BUBBLE : TG_IN_BUBBLE);
   if (selected) {
-    graphics_context_set_stroke_color(ctx, TG_SELECT_RING);
-    graphics_context_set_stroke_width(ctx, 2);
-    graphics_draw_round_rect(ctx, GRect(r.origin.x - 1, r.origin.y - 1, r.size.w + 2, r.size.h + 2),
-                             BUBBLE_R + 1);
-    graphics_context_set_stroke_width(ctx, 1);
+    // The selection ring is the bubble's own shape (tail included), 2px larger.
+    draw_bubble_shape(ctx, GRect(r.origin.x - 2, r.origin.y - 2, r.size.w + 4, r.size.h + 4), outgoing, tail,
+                      TG_SELECT_RING);
+  } else {
+    // A 1px darker edge under each bubble, like Telegram's soft shadow.
+    draw_bubble_shape(ctx, GRect(r.origin.x, r.origin.y + 1, r.size.w, r.size.h), outgoing, tail,
+                      TG_BUBBLE_SHADOW);
   }
+  draw_bubble_shape(ctx, r, outgoing, tail, outgoing ? TG_OUT_BUBBLE : TG_IN_BUBBLE);
 #else
   draw_bubble_shape(ctx, r, outgoing, false, GColorWhite);
   graphics_context_set_stroke_color(ctx, GColorBlack);
@@ -4045,14 +4043,6 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
     bool selected = i == s_selected_message;
     GRect bubble = GRect(box->x, y, box->w, h);
 
-#ifdef PBL_COLOR
-    if (selected && s_tint_select) {
-      // Telegram's light blue "selected message" wash across the row.
-      graphics_context_set_compositing_mode(ctx, GCompOpSet);
-      graphics_draw_bitmap_in_rect(ctx, s_tint_select, GRect(0, y - 2, bounds.size.w, h + 4));
-      graphics_context_set_compositing_mode(ctx, GCompOpAssign);
-    }
-#endif
 
     if (box->flags & BOX_AVATAR) {
       draw_avatar(ctx, GPoint(message_side_inset(bounds) + GROUP_AVATAR_R - 2, y + h - GROUP_AVATAR_R),
@@ -6597,10 +6587,12 @@ static bool chat_step(int direction, bool repeating) {
   bool on_compose = sel < 0 || sel >= s_message_count;
 
   if (!on_compose) {
-    int top = s_message_y[sel] - margin;
-    int bottom = s_message_y[sel] + s_message_h[sel] + margin;
-    if (direction > 0 && bottom > offset + view_h) {
-      set_chat_scroll_offset(offset + PG_MIN(step, bottom - (offset + view_h)), !repeating);
+    // Where the view would sit to show this message's top / bottom edge,
+    // limited to how far the chat can actually scroll.
+    int top = clamp_scroll_offset(s_message_y[sel] - margin);
+    int bottom = clamp_scroll_offset(s_message_y[sel] + s_message_h[sel] + margin - view_h);
+    if (direction > 0 && bottom > offset) {
+      set_chat_scroll_offset(offset + PG_MIN(step, bottom - offset), !repeating);
       return true;
     }
     if (direction < 0 && top < offset) {
@@ -7463,7 +7455,6 @@ static void main_window_load(Window *window) {
 
 #ifdef PBL_COLOR
   s_wallpaper = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_WALLPAPER);
-  s_tint_select = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_TINT_SELECT);
 #endif
   s_header_layer = layer_create(GRect(0, 0, bounds.size.w, HEADER_H));
   layer_set_update_proc(s_header_layer, header_update_proc);
@@ -7505,10 +7496,6 @@ static void main_window_unload(Window *window) {
   if (s_wallpaper) {
     gbitmap_destroy(s_wallpaper);
     s_wallpaper = NULL;
-  }
-  if (s_tint_select) {
-    gbitmap_destroy(s_tint_select);
-    s_tint_select = NULL;
   }
 #endif
 }
