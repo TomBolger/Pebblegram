@@ -3208,7 +3208,7 @@ static void render_messages(void) {
 #define KB_SPACE_DRAG_START 6
 #define KB_SPACE_DRAG_STEP 7
 #define KB_SWIPE_OTHER_KEYS 2
-#define KB_SWIPE_KEYS_MAX 24
+#define KB_SWIPE_KEYS_MAX 41  // the word engine reads up to 40
 #define KB_SWIPE_SAMPLE_PX 4
 #define KB_TRAIL_POINTS 10
 #define KB_SUGGESTIONS 3
@@ -3272,6 +3272,11 @@ static int s_kb_skip_ac_start = -1;
 static bool s_kb_swiping;
 static uint8_t s_kb_swipe_others;
 static char s_kb_swipe_keys[KB_SWIPE_KEYS_MAX];
+// The finger path in word-engine keyboard units (see kb_words.h), for shape matching.
+#define KB_SWIPE_PTS 64
+static uint8_t s_kb_swipe_x[KB_SWIPE_PTS];
+static uint8_t s_kb_swipe_y[KB_SWIPE_PTS];
+static uint8_t s_kb_swipe_pts;
 static GPoint s_kb_last_point;
 static GPoint s_kb_trail[KB_TRAIL_POINTS];
 static uint8_t s_kb_trail_count;
@@ -3949,7 +3954,8 @@ static void kb_delete(void) {
 // one) and offers the alternatives in the strip.
 static void kb_commit_swipe(void) {
   char found[KB_SUGGESTIONS][KB_WORD_MAX];
-  int count = s_kb_words_ready ? kb_words_swipe(s_kb_swipe_keys, found, KB_SUGGESTIONS) : 0;
+  int count = s_kb_words_ready ? kb_words_swipe(s_kb_swipe_keys, s_kb_swipe_x, s_kb_swipe_y, s_kb_swipe_pts,
+                                                   found, KB_SUGGESTIONS) : 0;
   if (count <= 0) {
     show_status("No word found");
     return;
@@ -4052,6 +4058,7 @@ static void kb_reset_press(void) {
   s_kb_swiping = false;
   s_kb_swipe_others = 0;
   s_kb_swipe_keys[0] = '\0';
+  s_kb_swipe_pts = 0;
   s_kb_trail_count = 0;
   s_kb_space_drag = false;
 }
@@ -4577,6 +4584,35 @@ static bool kb_is_swipe_letter(KeyHit hit) {
   return hit.kind == KeyChar && hit.ch >= 'a' && hit.ch <= 'z' && !s_touch_keyboard_symbols;
 }
 
+// Records a finger position for the word engine, in its units: 8 per half key
+// across the letter rows' span (works on the round layout too), 16 per row.
+static void kb_swipe_add_point(GRect bounds, GPoint point) {
+  GRect keyboard_rect = touch_keyboard_rect_for_bounds(bounds);
+  int rows_top = kb_row_top(keyboard_rect, 0);
+  int y = ((point.y - rows_top) * 16) / KB_ROW_H;
+  y = PG_MAX(0, PG_MIN(47, y));
+  int row_top = kb_row_top(keyboard_rect, y / 16);
+  int x0;
+  int w;
+  kb_span(bounds, row_top, row_top + KB_ROW_H, &x0, &w);
+  int x = w > 0 ? ((point.x - x0) * KB_UNITS * 8) / w : 0;
+  x = PG_MAX(0, PG_MIN(KB_UNITS * 8 - 1, x));
+  int n = s_kb_swipe_pts;
+  if (n > 0) {
+    int dx = x - s_kb_swipe_x[n - 1];
+    int dy = y - s_kb_swipe_y[n - 1];
+    if (dx * dx + dy * dy < 16) {
+      return;  // under a quarter key from the last point
+    }
+    if (n == KB_SWIPE_PTS) {
+      n--;  // full: keep the latest point, so the end of the swipe is never lost
+    }
+  }
+  s_kb_swipe_x[n] = (uint8_t)x;
+  s_kb_swipe_y[n] = (uint8_t)y;
+  s_kb_swipe_pts = (uint8_t)(n + 1);
+}
+
 // Follows a drag that started on a letter: every letter key it crosses joins
 // the swipe path, and crossing KB_SWIPE_OTHER_KEYS other letters makes it a
 // swipe rather than a slide to a neighbouring key. Samples between two touch
@@ -4585,12 +4621,16 @@ static void kb_swipe_track(GRect bounds, GPoint point) {
   GPoint from = s_kb_last_point;
   int steps = (PG_MAX(abs(point.x - from.x), abs(point.y - from.y)) / KB_SWIPE_SAMPLE_PX) + 1;
   for (int i = 1; i <= steps; i++) {
-    KeyHit hit = kb_hit_test(bounds, GPoint(from.x + ((point.x - from.x) * i) / steps,
-                                            from.y + ((point.y - from.y) * i) / steps));
+    GPoint sample = GPoint(from.x + ((point.x - from.x) * i) / steps,
+                           from.y + ((point.y - from.y) * i) / steps);
+    KeyHit hit = kb_hit_test(bounds, sample);
+    kb_swipe_add_point(bounds, sample);
     size_t used = strlen(s_kb_swipe_keys);
-    if (!kb_is_swipe_letter(hit) || hit.ch == s_kb_swipe_keys[used - 1] ||
-        used + 1 >= sizeof(s_kb_swipe_keys)) {
+    if (!kb_is_swipe_letter(hit) || hit.ch == s_kb_swipe_keys[used - 1]) {
       continue;
+    }
+    if (used + 1 >= sizeof(s_kb_swipe_keys)) {
+      used--;  // full: keep the latest key, so the end of the swipe is never lost
     }
     s_kb_swipe_others += strchr(s_kb_swipe_keys, hit.ch) == NULL;  // a key not crossed before
     s_kb_swipe_keys[used] = hit.ch;
@@ -4658,6 +4698,8 @@ static bool kb_handle_touch(const TouchEvent *event, GRect bounds, GPoint point)
       } else if (kb_is_swipe_letter(hit)) {
         s_kb_swipe_keys[0] = hit.ch;
         s_kb_swipe_keys[1] = '\0';
+        s_kb_swipe_pts = 0;
+        kb_swipe_add_point(bounds, point);
         s_kb_trail[0] = point;
         s_kb_trail_count = 1;
       }

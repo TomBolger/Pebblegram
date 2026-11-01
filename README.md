@@ -91,7 +91,7 @@ Pebblegram 3.7 fixes login and reply bugs, makes photos sharp and reliable, adds
 - New menu options: Keyboard, Type Reply, and Edit by Keyboard. Voice stays at the top of the menu.
 - Word suggestions appear above the keys as you type; tap one to use it.
 - Common typos are fixed when you finish a word ("teh" becomes "the"). Tap delete or the original word to undo.
-- Swipe typing: slide your finger across the letters of a word without lifting, and Pebblegram guesses the word. Other guesses show above the keys.
+- Swipe typing: slide your finger across the letters of a word without lifting, and Pebblegram guesses the word from the shape of your swipe, so you don't need to hit every key. Other guesses show above the keys.
 - The text box grows to fit longer messages. Tap or drag inside the text to move the cursor, or slide along the space bar.
 
 ### Touch (Pebble Time 2 and Round 2)

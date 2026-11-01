@@ -4,6 +4,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define KB_WORD_MAX 24
 
@@ -22,8 +23,11 @@ bool kb_words_correct(const char *word, char *out, size_t out_size);
 
 // Swipe typing: `keys` is the lowercase sequence of letter keys the finger passed over in order
 // (consecutive duplicates removed; first and last are where the finger went down/up).
+// xs/ys (may be NULL) are npts points of the actual finger path in keyboard units: x = 8 per
+// half key across the 20-unit row (0..160), y = 16 per letter row from the top row (0..47).
 // Best candidates first. Returns count (<= max, at most 12).
-int kb_words_swipe(const char *keys, char out[][KB_WORD_MAX], int max);
+int kb_words_swipe(const char *keys, const uint8_t *xs, const uint8_t *ys, int npts,
+                   char out[][KB_WORD_MAX], int max);
 
 #else
 
@@ -32,6 +36,9 @@ static inline void kb_words_init(void) {}
 static inline void kb_words_deinit(void) {}
 static inline int kb_words_complete(const char *p, char out[][KB_WORD_MAX], int m) { (void)p; (void)out; (void)m; return 0; }
 static inline bool kb_words_correct(const char *w, char *o, size_t s) { (void)w; (void)o; (void)s; return false; }
-static inline int kb_words_swipe(const char *k, char out[][KB_WORD_MAX], int m) { (void)k; (void)out; (void)m; return 0; }
+static inline int kb_words_swipe(const char *k, const uint8_t *x, const uint8_t *y, int n,
+                                 char out[][KB_WORD_MAX], int m) {
+  (void)k; (void)x; (void)y; (void)n; (void)out; (void)m; return 0;
+}
 
 #endif

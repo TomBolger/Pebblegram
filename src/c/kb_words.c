@@ -15,16 +15,13 @@
 #define IDX_BASE 4
 #define MAX_RESULTS 12
 #define RD_BUF 256
-#define SW_PRELIM 24
 #define SW_MAXKEYS 40
-#define SW_MAXPATH 64
 
 static ResHandle s_res;
 static int8_t s_state;  // 0 = not checked, 1 = usable, -1 = missing or bad
 
 // ---- keyboard geometry (QWERTY, units of 1/16 key) ----
 
-static const char QWERTY[] = "qwertyuiopasdfghjklzxcvbnm";
 static const uint8_t QIDX[26] = {10, 23, 21, 12, 2, 13, 14, 15, 7, 16, 17, 18, 25,
                                  24, 8, 9, 0, 3, 11, 4, 6, 22, 1, 20, 5, 19};
 
@@ -45,37 +42,6 @@ static bool keys_adjacent(char a, char b) {
   key_center(b, &bx, &by);
   int dx = ax - bx, dy = ay - by;
   return dx * dx + dy * dy < 656;  // within 1.6 keys
-}
-
-static char key_at(int x, int y) {
-  int row = y < 0 ? 0 : (y >> 4);
-  if (row > 2) row = 2;
-  int off = row == 0 ? 0 : (row == 1 ? 8 : 24);
-  int maxc = row == 0 ? 9 : (row == 1 ? 8 : 6);
-  int col = x - off < 0 ? 0 : (x - off) >> 4;
-  if (col > maxc) col = maxc;
-  return QWERTY[(row == 0 ? 0 : (row == 1 ? 10 : 19)) + col];
-}
-
-// Keys a straight finger path over the letters of `l` crosses, consecutive duplicates removed.
-static int ideal_path(const char *l, int m, char *out, int cap) {
-  int n = 0;
-  int px, py;
-  key_center(l[0], &px, &py);
-  out[n++] = l[0];
-  for (int i = 1; i < m; i++) {
-    int qx, qy;
-    key_center(l[i], &qx, &qy);
-    int dx = qx - px, dy = qy - py;
-    int steps = (abs(dx) > abs(dy) ? abs(dx) : abs(dy)) / 3 + 1;
-    for (int s = 1; s <= steps; s++) {
-      char k = key_at(px + dx * s / steps, py + dy * s / steps);
-      if (k != out[n - 1] && n < cap) out[n++] = k;
-    }
-    px = qx;
-    py = qy;
-  }
-  return n;
 }
 
 // ---- resource access ----
@@ -367,20 +333,70 @@ bool kb_words_correct(const char *word, char *out, size_t out_size) {
   return result;
 }
 
+// ---- swipe typing ----
+// Shape matching, made for sloppy fingers on a small screen: the trace (centres of the keys the
+// finger crossed) and each candidate word's ideal path (centres of its letters) are both resampled
+// to SW_N evenly spaced points, and the word's score is its frequency minus the average distance
+// between matching points. Missing a key, clipping a neighbour or cutting a corner costs little;
+// only the overall shape and where the finger went down and up matter.
+
+#define SW_N 24        // resampled points per path
+#define SW_DIST 9      // score lost per 1/16 key of average distance (about 40 fq = 10x as common)
+#define SW_END 12      // bonus each when the word starts / ends on the exact down / up key
+#define SW_EW 3        // the first and last points (finger down / up) count this many times
+#define SW_MAXPTS 64
+
 typedef struct {
   Rd rd;
   Ent e;
-  Item top[SW_PRELIM];
-  char path[SW_MAXPATH];
+  Item top[MAX_RESULTS];
+  int16_t tx[SW_N], ty[SW_N];  // resampled trace
+  int16_t wx[SW_N], wy[SW_N];  // resampled word path
+  int px[SW_MAXPTS], py[SW_MAXPTS], seg[SW_MAXPTS];
 } SwipeCtx;
 
-#define SW_MISS 10
-#define SW_END 40
+static int resample(const int *x, const int *y, int n, int *seg, int16_t *ox, int16_t *oy);
 
-// A word that starts and ends exactly on the keys where the finger went down and up is far
-// more likely than one that only starts or ends on a neighbouring key.
-static int ends_bonus(char wf, char wl, char kf, char kl) {
-  return (wf == kf ? SW_END : 0) + (wl == kl ? SW_END : 0);
+// Fills c->px/py with the centres of letters l[0..m) and resamples them into wx/wy.
+static int word_path(SwipeCtx *c, const char *l, int m) {
+  for (int i = 0; i < m; i++) key_center(l[i], &c->px[i], &c->py[i]);
+  return resample(c->px, c->py, m, c->seg, c->wx, c->wy);
+}
+
+static int isqrt(int v) {
+  int r = 0, b = 1 << 14;
+  while (b > v) b >>= 2;
+  while (b) {
+    if (v >= r + b) { v -= r + b; r = (r >> 1) + b; }
+    else r >>= 1;
+    b >>= 2;
+  }
+  return r;
+}
+
+// Resamples the polyline x/y[0..n) to SW_N evenly spaced points. Returns its length.
+static int resample(const int *x, const int *y, int n, int *seg, int16_t *ox, int16_t *oy) {
+  int total = 0;
+  for (int i = 1; i < n; i++) {
+    int dx = x[i] - x[i - 1], dy = y[i] - y[i - 1];
+    seg[i] = isqrt(dx * dx + dy * dy);
+    total += seg[i];
+  }
+  int i = 1, done = 0;  // done = length of the segments before segment i
+  for (int p = 0; p < SW_N; p++) {
+    int want = total * p / (SW_N - 1);
+    while (i < n - 1 && done + seg[i] < want) done += seg[i++];
+    if (n < 2 || seg[i] == 0) {
+      ox[p] = (int16_t)x[n < 2 ? 0 : i];
+      oy[p] = (int16_t)y[n < 2 ? 0 : i];
+      continue;
+    }
+    int t = want - done;
+    if (t > seg[i]) t = seg[i];
+    ox[p] = (int16_t)(x[i - 1] + (x[i] - x[i - 1]) * t / seg[i]);
+    oy[p] = (int16_t)(y[i - 1] + (y[i] - y[i - 1]) * t / seg[i]);
+  }
+  return total;
 }
 
 static uint32_t key_mask(char k) {
@@ -390,22 +406,8 @@ static uint32_t key_mask(char k) {
   return m;
 }
 
-// Number of keys in common (longest common subsequence) of two short key strings.
-static int lcs(const char *a, int la, const char *b, int lb) {
-  uint8_t row[SW_MAXPATH + 1];
-  memset(row, 0, (size_t)lb + 1);
-  for (int i = 0; i < la; i++) {
-    int diag = 0;
-    for (int j = 0; j < lb; j++) {
-      int up = row[j + 1];
-      row[j + 1] = a[i] == b[j] ? (uint8_t)(diag + 1) : (up > row[j] ? (uint8_t)up : row[j]);
-      diag = up;
-    }
-  }
-  return row[lb];
-}
-
-int kb_words_swipe(const char *keys, char out[][KB_WORD_MAX], int max) {
+int kb_words_swipe(const char *keys, const uint8_t *xs, const uint8_t *ys, int npts,
+                   char out[][KB_WORD_MAX], int max) {
   if (!keys || !out || max <= 0) return 0;
   if (max > MAX_RESULTS) max = MAX_RESULTS;
   int n = (int)strlen(keys);
@@ -414,13 +416,23 @@ int kb_words_swipe(const char *keys, char out[][KB_WORD_MAX], int max) {
     if (keys[i] < 'a' || keys[i] > 'z') return 0;
   SwipeCtx *c = malloc(sizeof *c);
   if (!c) return 0;
+  // The trace: the real finger path when given, else the centres of the keys crossed.
+  int tlen;
+  if (xs && ys && npts >= 2) {
+    if (npts > SW_MAXPTS) npts = SW_MAXPTS;
+    for (int i = 0; i < npts; i++) { c->px[i] = xs[i]; c->py[i] = ys[i]; }
+    tlen = resample(c->px, c->py, npts, c->seg, c->tx, c->ty);
+  } else {
+    for (int i = 0; i < n; i++) key_center(keys[i], &c->px[i], &c->py[i]);
+    tlen = resample(c->px, c->py, n, c->seg, c->tx, c->ty);
+  }
   uint32_t fm = key_mask(keys[0]), lm = key_mask(keys[n - 1]);
   int np = 0;
   for (char f = 'a'; f <= 'z'; f++) {
     if (!(fm & (1u << (f - 'a'))) || !open_first_letter(&c->rd, f)) continue;
     c->e.len = 0;
     while (rd_next(&c->rd, &c->e)) {
-      if (c->e.fq == 0 || !(lm & (1u << (c->e.w[c->e.len - 1] - 'a')))) continue;
+      if (c->e.fq == 0) continue;
       // Letters of the word without apostrophes and doubled letters.
       char l[KB_WORD_MAX];
       int m = 0;
@@ -429,41 +441,24 @@ int kb_words_swipe(const char *keys, char out[][KB_WORD_MAX], int max) {
         if (ch == '\'' || (m > 0 && l[m - 1] == ch)) continue;
         l[m++] = ch;
       }
-      if (m < 2 || m > n || !(lm & (1u << (l[m - 1] - 'a')))) continue;
-      int ti = 1;
-      bool ok = true;
-      for (int k = 1; k < m - 1 && ok; k++) {
-        while (ti < n - 1 && keys[ti] != l[k]) ti++;
-        if (ti >= n - 1) ok = false;
-        ti++;
+      if (m < 2 || !(lm & (1u << (l[m - 1] - 'a')))) continue;
+      int wlen = word_path(c, l, m);
+      // A path much shorter or longer than the trace is a different word; skip the point loop.
+      int dl = wlen - tlen;
+      if (dl < 0) dl = -dl;
+      if (dl > 48 + tlen / 2) continue;
+      int sum = 0;
+      for (int p = 0; p < SW_N; p++) {
+        int dx = c->wx[p] - c->tx[p], dy = c->wy[p] - c->ty[p];
+        if (dx < 0) dx = -dx;
+        if (dy < 0) dy = -dy;
+        int d = dx > dy ? dx + dy * 3 / 8 : dy + dx * 3 / 8;  // close to the true distance
+        sum += (p == 0 || p == SW_N - 1) ? d * SW_EW : d;
       }
-      if (!ok) continue;
-      list_add(c->top, &np, SW_PRELIM, c->e.w,
-               c->e.fq - 5 * (n - m) + ends_bonus(l[0], l[m - 1], keys[0], keys[n - 1]), c->e.fq);
+      int score = c->e.fq - SW_DIST * sum / (SW_N + 2 * SW_EW - 2) - dl / 8 +
+                  (l[0] == keys[0] ? SW_END : 0) + (l[m - 1] == keys[n - 1] ? SW_END : 0);
+      list_add(c->top, &np, MAX_RESULTS, c->e.w, score, c->e.fq);
     }
-  }
-  // Re-rank the survivors by how well each word's ideal finger path explains the trace.
-  for (int i = 0; i < np; i++) {
-    char l[KB_WORD_MAX];
-    int m = 0;
-    for (const char *p = c->top[i].w; *p; p++)
-      if (*p != '\'' && (m == 0 || l[m - 1] != *p)) l[m++] = *p;
-    if (m == 0) { c->top[i].s = -9999; continue; }
-    int pl = ideal_path(l, m, c->path, SW_MAXPATH);
-    int common = lcs(keys, n, c->path, pl);
-    int fq = c->top[i].fq;
-    c->top[i].s = (int16_t)(fq - SW_MISS * (n - common) - SW_MISS * (pl - common) +
-                            ends_bonus(l[0], l[m - 1], keys[0], keys[n - 1]));
-  }
-  // np is small: insertion sort by the new score.
-  for (int i = 1; i < np; i++) {
-    Item t = c->top[i];
-    int j = i;
-    while (j > 0 && c->top[j - 1].s < t.s) {
-      c->top[j] = c->top[j - 1];
-      j--;
-    }
-    c->top[j] = t;
   }
   if (np > max) np = max;
   for (int i = 0; i < np; i++) strcpy(out[i], c->top[i].w);
