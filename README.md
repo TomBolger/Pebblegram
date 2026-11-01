@@ -89,6 +89,10 @@ Pebblegram 3.7 fixes login and reply bugs, makes photos sharp and reliable, adds
 - The text box scrolls so you can always see what you're typing, and on Round 2 the keys fit inside the circle.
 - Drafts survive menus and the Back button ("Continue draft"). A failed send is marked "not sent" and your text comes back.
 - New menu options: Keyboard, Type Reply, and Edit by Keyboard. Voice stays at the top of the menu.
+- Word suggestions appear above the keys as you type; tap one to use it.
+- Common typos are fixed when you finish a word ("teh" becomes "the"). Tap delete or the original word to undo.
+- Swipe typing: slide your finger across the letters of a word without lifting, and Pebblegram guesses the word. Other guesses show above the keys.
+- The text box grows to fit longer messages. Tap or drag inside the text to move the cursor, or slide along the space bar.
 
 ### Touch (Pebble Time 2 and Round 2)
 
@@ -148,6 +152,10 @@ For local testing with embedded API credentials, keep them in an ignored environ
 - Do not commit `.env`, `.env.*`, Telegram session files, generated personal PBWs, ngrok configs, or account tokens.
 - Public release builds must not embed a personal Telegram API ID or API hash.
 - Telegram API ID/hash are required by Telegram's MTProto API. The public PBW does not embed a personal API ID/hash.
+
+## Credits
+
+Keyboard word list derived from [wordfreq](https://github.com/rspeer/wordfreq) (Robyn Speer et al., CC BY-SA 4.0).
 
 ## Status
 
