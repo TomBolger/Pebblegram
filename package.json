@@ -84,6 +84,56 @@
             "emery",
             "gabbro"
           ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_WALLPAPER_SPACE",
+          "file": "images/doodles_space.png",
+          "targetPlatforms": [
+            "basalt",
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_WALLPAPER_PETS",
+          "file": "images/doodles_pets.png",
+          "targetPlatforms": [
+            "basalt",
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_WALLPAPER_FOOD",
+          "file": "images/doodles_food.png",
+          "targetPlatforms": [
+            "basalt",
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_WALLPAPER_TRAVEL",
+          "file": "images/doodles_travel.png",
+          "targetPlatforms": [
+            "basalt",
+            "emery",
+            "gabbro"
+          ]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_WALLPAPER_PARTY",
+          "file": "images/doodles_party.png",
+          "targetPlatforms": [
+            "basalt",
+            "emery",
+            "gabbro"
+          ]
         }
       ]
     }

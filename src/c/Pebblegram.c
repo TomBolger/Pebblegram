@@ -103,7 +103,14 @@ typedef enum {
   PatternDots,
   PatternLines,
   PatternGrid,
-  PatternNone
+  PatternNone,
+  // Appended after None so settings saved by older versions keep their meaning.
+  PatternSpace,
+  PatternPets,
+  PatternFood,
+  PatternTravel,
+  PatternParty,
+  PatternLast = PatternParty
 } WallpaperPattern;
 
 // Saved with persist_write_data. Colours are stored as raw GColor bytes.
@@ -2602,6 +2609,19 @@ static bool pattern_pixel(int pattern, int x, int y) {
   }
 }
 
+// The doodle wallpapers are 1-bit resources; 0 means the pattern is drawn in code.
+static uint32_t wallpaper_resource(int pattern) {
+  switch (pattern) {
+    case PatternDoodles: return RESOURCE_ID_IMAGE_WALLPAPER;
+    case PatternSpace: return RESOURCE_ID_IMAGE_WALLPAPER_SPACE;
+    case PatternPets: return RESOURCE_ID_IMAGE_WALLPAPER_PETS;
+    case PatternFood: return RESOURCE_ID_IMAGE_WALLPAPER_FOOD;
+    case PatternTravel: return RESOURCE_ID_IMAGE_WALLPAPER_TRAVEL;
+    case PatternParty: return RESOURCE_ID_IMAGE_WALLPAPER_PARTY;
+    default: return 0;
+  }
+}
+
 // Doodles are tiled from the resource; the other patterns are tiny 1-bit
 // tiles drawn here. None leaves s_wallpaper empty so the colour is solid.
 static void wallpaper_rebuild(void) {
@@ -2611,8 +2631,8 @@ static void wallpaper_rebuild(void) {
   }
   s_wallpaper_palette[0] = s_theme.chat_bg;
   s_wallpaper_palette[1] = s_theme.wall_hi;
-  if (s_appearance.pattern == PatternDoodles) {
-    s_wallpaper = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_WALLPAPER);
+  if (wallpaper_resource(s_appearance.pattern)) {
+    s_wallpaper = gbitmap_create_with_resource(wallpaper_resource(s_appearance.pattern));
     if (s_wallpaper) {
       gbitmap_set_palette(s_wallpaper, s_wallpaper_palette, false);
     }
@@ -5238,7 +5258,7 @@ static void send_selected_chat_action(const char *command) {
 static void appearance_load(void) {
   Appearance saved;
   if (persist_read_data(APPEARANCE_KEY, &saved, sizeof(saved)) == (int)sizeof(saved) &&
-      saved.version == APPEARANCE_VERSION && saved.text_size < 4 && saved.pattern <= PatternNone) {
+      saved.version == APPEARANCE_VERSION && saved.text_size < 4 && saved.pattern <= PatternLast) {
     s_appearance = saved;
   } else {
     appearance_defaults(&s_appearance);
@@ -5288,7 +5308,7 @@ static uint8_t tuple_color(DictionaryIterator *iter, uint32_t key, uint8_t fallb
 static void appearance_receive(DictionaryIterator *iter) {
   Appearance *a = &s_appearance;
   a->dark = tuple_int(iter, MESSAGE_KEY_Theme, a->dark) == 1;
-  a->pattern = PG_MAX(0, PG_MIN(PatternNone, tuple_int(iter, MESSAGE_KEY_BgPattern, a->pattern)));
+  a->pattern = PG_MAX(0, PG_MIN(PatternLast, tuple_int(iter, MESSAGE_KEY_BgPattern, a->pattern)));
   a->text_size = PG_MAX(0, PG_MIN(3, tuple_int(iter, MESSAGE_KEY_TextSize, a->text_size)));
   a->bold = tuple_int(iter, MESSAGE_KEY_TextBold, a->bold) == 1;
   a->photos = tuple_int(iter, MESSAGE_KEY_ShowPhotos, a->photos) == 1;
