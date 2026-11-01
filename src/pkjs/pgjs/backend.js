@@ -87,8 +87,11 @@ function create(options) {
     markUnread: function(chatId) {
       return telegramApi().markUnread(chatId);
     },
-    imageBytes: function(chatId, messageId, width, height, colors, maxBytes, maxPixels, retryLevel, maxCost, forceTall, status) {
-      return imageApi().imageBytes(chatId, messageId, width, height, colors, maxBytes, maxPixels, retryLevel, maxCost, forceTall, status);
+    imageBytes: function(chatId, messageId, request, status) {
+      return imageApi().imageBytes(chatId, messageId, request, status);
+    },
+    packBits: function(bytes) {
+      return imageApi().packBits(bytes);
     },
     avatarBytes: function(chatId, width, height, colors, maxBytes) {
       return imageApi().avatarBytes(chatId, width, height, colors, maxBytes);

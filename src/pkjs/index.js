@@ -17,12 +17,9 @@ var MESSAGE_EDGE_BUFFER_ROWS = 4;
 var MAX_MESSAGE_TEXT = 460;
 var MAX_CONTEXT_VIEW_TEXT = 1200;
 var MESSAGE_WINDOW_BUDGET = 5400;
-var IMAGE_SIZE = 120;
-var IMAGE_WIDTH = 130;
-var IMAGE_COLORS = 64;
-var IMAGE_MAX_BYTES = 10000;
-var IMAGE_MAX_PIXELS = 36000;
-var IMAGE_CHUNK_SIZE = 500;
+var IMAGE_BLACK_AND_WHITE = false;
+// Photo chunks fill most of the watch's 2 KB inbox: fewer round trips.
+var IMAGE_CHUNK_SIZE = 1600;
 var AVATAR_SIZE = 28;
 var AVATAR_COLORS = 16;
 var AVATAR_MAX_BYTES = 3000;
@@ -117,11 +114,6 @@ function configureForPlatform() {
     MAX_MESSAGE_TEXT = 460;
     MAX_CONTEXT_VIEW_TEXT = 1200;
     MESSAGE_WINDOW_BUDGET = 5400;
-    IMAGE_SIZE = 198;
-    IMAGE_WIDTH = 198;
-    IMAGE_MAX_BYTES = 40000;
-    IMAGE_MAX_PIXELS = 56000;
-    IMAGE_CHUNK_SIZE = 500;
   } else if (info && info.platform === 'gabbro') {
     INITIAL_MESSAGE_ROWS = 9;
     OLDER_MESSAGE_ROWS = 7;
@@ -130,27 +122,12 @@ function configureForPlatform() {
     MAX_MESSAGE_TEXT = 460;
     MAX_CONTEXT_VIEW_TEXT = 1200;
     MESSAGE_WINDOW_BUDGET = 5400;
-    IMAGE_SIZE = 144;
-    IMAGE_WIDTH = 152;
-    IMAGE_MAX_BYTES = 23000;
-    IMAGE_MAX_PIXELS = 40000;
-    IMAGE_CHUNK_SIZE = 500;
   } else if (info && (info.platform === 'diorite' || info.platform === 'flint')) {
     // Pebble 2 Duo (flint) shares Diorite's 144x168 black-and-white screen.
-    IMAGE_SIZE = 108;
-    IMAGE_WIDTH = 112;
-    IMAGE_COLORS = 4;
-    IMAGE_MAX_BYTES = 8500;
-    IMAGE_MAX_PIXELS = 24000;
+    IMAGE_BLACK_AND_WHITE = true;
     AVATAR_SIZE = 24;
     AVATAR_COLORS = 4;
     AVATAR_MAX_BYTES = 2200;
-  } else if (info && info.platform === 'basalt') {
-    IMAGE_SIZE = 108;
-    IMAGE_WIDTH = 116;
-    IMAGE_COLORS = 16;
-    IMAGE_MAX_BYTES = 9500;
-    IMAGE_MAX_PIXELS = 27000;
   }
 }
 
@@ -1726,46 +1703,32 @@ function chatAction(kind, chatId) {
   });
 }
 
+// The watch asks as "retryLevel:byteBudget:width:height".
 function imageRequestOptions(value) {
-  var text = String(value || '');
-  var parts = text.split(':');
-  var level = parseInt(parts[0], 10);
-  var maxCost = parseInt(parts[1], 10);
-  if (!isFinite(level) || level < 0) {
-    level = 0;
-  }
-  if (!isFinite(maxCost) || maxCost <= 0) {
-    maxCost = 0;
+  var parts = String(value || '').split(':');
+  function number(index, fallback) {
+    var parsed = parseInt(parts[index], 10);
+    return isFinite(parsed) && parsed > 0 ? parsed : fallback;
   }
   return {
-    retryLevel: Math.min(3, level),
-    maxCost: Math.min(65000, maxCost)
+    retryLevel: Math.min(3, number(0, 0)),
+    budget: Math.min(65000, number(1, 6000)),
+    width: Math.min(400, number(2, 120)),
+    height: Math.min(1024, number(3, 120))
   };
-}
-
-function messageNeedsSafeImagePath(message) {
-  return message && message.image_width > 0 && message.image_height > 0 &&
-    message.image_height > message.image_width &&
-    message.image_height / message.image_width >= 1.2;
 }
 
 function sendImage(chatId, messageId, requestText) {
   var startedAt = DEBUG_LOGS ? Date.now() : 0;
-  var requestOptions = imageRequestOptions(requestText);
-  var message = storedMessage(chatId, messageId);
-  var forceTall = messageNeedsSafeImagePath(message);
-  debugLog('PGIMG phone request chat=' + chatId + ' msg=' + messageId +
-           ' retry=' + requestOptions.retryLevel +
-           ' maxCost=' + requestOptions.maxCost +
-           ' forceTall=' + (forceTall ? 1 : 0));
+  var request = imageRequestOptions(requestText);
+  request.blackAndWhite = IMAGE_BLACK_AND_WHITE;
+  debugLog('PGIMG phone request chat=' + chatId + ' msg=' + messageId + ' req=' + requestText);
   cancelQueuedAvatarTransfers();
   cancelQueuedImageTransfers();
   imageTransferActive = true;
   var requestSeq = imageRequestSeq;
-  sendImageStatus(messageId, requestOptions.retryLevel > 0 ? 'Resizing' : 'Preparing');
-  withTimeout(activePgjs().imageBytes(chatId, messageId, IMAGE_WIDTH, IMAGE_SIZE, IMAGE_COLORS, IMAGE_MAX_BYTES,
-                                      IMAGE_MAX_PIXELS, requestOptions.retryLevel, requestOptions.maxCost, forceTall,
-                                      function(text) {
+  sendImageStatus(messageId, request.retryLevel > 0 ? 'Resizing' : 'Preparing');
+  withTimeout(activePgjs().imageBytes(chatId, messageId, request, function(text) {
                 if (requestSeq === imageRequestSeq && currentChatId === chatId) {
                   sendImageStatus(messageId, text);
                 }
@@ -1777,7 +1740,6 @@ function sendImage(chatId, messageId, requestText) {
     if (DEBUG_LOGS) {
       logDuration('image prepare ' + messageId, startedAt);
     }
-    sendImageStatus(messageId, 'Sending');
     sendImageBytes(messageId, bytes);
   }).catch(function(err) {
     if (requestSeq !== imageRequestSeq || currentChatId !== chatId) {
@@ -1802,78 +1764,37 @@ function sendImageStatus(messageId, text) {
   sendToWatch(payload);
 }
 
-function readUint32BE(bytes, offset) {
-  return ((bytes[offset] << 24) >>> 0) +
-         (bytes[offset + 1] << 16) +
-         (bytes[offset + 2] << 8) +
-         bytes[offset + 3];
-}
-
 function readUint16LE(bytes, offset) {
   return bytes[offset] | (bytes[offset + 1] << 8);
 }
 
-function pngDimensions(bytes) {
-  if (!bytes || bytes.length < 24 ||
-      bytes[0] !== 0x89 || bytes[1] !== 0x50 || bytes[2] !== 0x4e || bytes[3] !== 0x47) {
-    return null;
-  }
-  return {
-    width: readUint32BE(bytes, 16),
-    height: readUint32BE(bytes, 20)
-  };
-}
-
-function pbiDimensions(bytes) {
-  if (!bytes || bytes.length < 12 || pngDimensions(bytes)) {
-    return null;
-  }
-  var flags = readUint16LE(bytes, 2);
-  var format = (flags >> 1) & 31;
-  var width = readUint16LE(bytes, 8);
-  var height = readUint16LE(bytes, 10);
-  if (format > 4 || width <= 0 || height <= 0 || width > 512 || height > 512) {
-    return null;
-  }
-  return {
-    width: width,
-    height: height
-  };
-}
-
+// Photos are Pebble bitmaps; flat ones (screenshots) go out PackBits-packed.
 function sendImageBytes(messageId, bytes) {
   var start = {};
-  var dimensions = pngDimensions(bytes);
-  var isPbi = false;
-  if (!dimensions) {
-    dimensions = pbiDimensions(bytes);
-    isPbi = !!dimensions;
-  }
+  var width = readUint16LE(bytes, 8);
+  var height = readUint16LE(bytes, 10);
+  var packed = activePgjs().packBits(bytes);
+  var usePacked = packed.length < bytes.length * 0.9;
+  var wire = usePacked ? packed : bytes;
   var transferId = ++imageTransferSeq;
   imageTransferActive = true;
   start[MessageKeys.Type] = 'image_start';
   start[MessageKeys.MessageId] = String(messageId || '');
   start[MessageKeys.ImageSize] = bytes.length;
   start[MessageKeys.ImageTransferId] = transferId;
-  if (isPbi) {
-    start[MessageKeys.Text] = 'pbi';
-  }
-  if (dimensions && dimensions.width > 0 && dimensions.height > 0) {
-    start[MessageKeys.ImageWidth] = dimensions.width;
-    start[MessageKeys.ImageHeight] = dimensions.height;
-  }
+  start[MessageKeys.Text] = usePacked ? 'pbz' : 'pbi';
+  start[MessageKeys.ImageWidth] = width;
+  start[MessageKeys.ImageHeight] = height;
   debugLog('PGIMG phone image_start msg=' + messageId +
            ' transfer=' + transferId +
-           ' bytes=' + bytes.length +
-           ' format=' + (isPbi ? 'pbi' : 'png') +
-           ' dims=' + (dimensions ? dimensions.width + 'x' + dimensions.height : 'unknown') +
-           ' chunks=' + Math.ceil(bytes.length / IMAGE_CHUNK_SIZE));
+           ' bytes=' + bytes.length + ' wire=' + wire.length +
+           ' dims=' + width + 'x' + height +
+           ' chunks=' + Math.ceil(wire.length / IMAGE_CHUNK_SIZE));
   sendToWatch(start);
 
-  // PNGs are chunked through AppMessage and reassembled by the C app.
-  for (var offset = 0; offset < bytes.length; offset += IMAGE_CHUNK_SIZE) {
+  for (var offset = 0; offset < wire.length; offset += IMAGE_CHUNK_SIZE) {
     var chunk = {};
-    var slice = bytes.subarray(offset, Math.min(offset + IMAGE_CHUNK_SIZE, bytes.length));
+    var slice = wire.subarray(offset, Math.min(offset + IMAGE_CHUNK_SIZE, wire.length));
     var data = [];
     for (var i = 0; i < slice.length; i++) {
       data.push(slice[i]);
@@ -1890,8 +1811,6 @@ function sendImageBytes(messageId, bytes) {
   donePayload[MessageKeys.Type] = 'image_done';
   donePayload[MessageKeys.MessageId] = String(messageId || '');
   donePayload[MessageKeys.ImageTransferId] = transferId;
-  debugLog('PGIMG phone image_done queued msg=' + messageId +
-           ' transfer=' + transferId);
   sendToWatch(donePayload);
 }
 

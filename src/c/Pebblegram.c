@@ -18,11 +18,18 @@
 #define MAX_CONTEXT_TEXT PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 60, 60, 60, 56, 72, 56, 64)
 #define MAX_ID 24
 #define MAX_IMAGE_ERROR 32
-#define MAX_IMAGE_BYTES PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 13000, 9500, 9500, 8500, 40000, 8500, 23000)
+// Photos arrive as ready-to-draw Pebble bitmaps (see image_start), so the bytes
+// on the wire are exactly the heap a photo occupies; nothing is decoded on the
+// watch. MAX_IMAGE_BYTES caps one photo, IMAGE_HEAP_RESERVE is kept free for
+// menus, the keyboard and incoming messages, and IMAGE_TALL_MAX_H is how tall a
+// screenshot may be drawn before it is scaled down to fit.
+#define MAX_IMAGE_BYTES PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 14000, 16000, 16000, 7000, 48000, 7000, 48000)
+#define IMAGE_HEAP_RESERVE PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 5000, 5000, 5000, 4500, 12000, 4500, 12000)
+#define IMAGE_MIN_BUDGET 1500
+#define IMAGE_TALL_MAX_H PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 420, 460, 460, 420, 640, 420, 600)
+#define IMAGE_BITS_PER_PIXEL PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 8, 8, 8, 1, 8, 1, 8)
 #define MAX_AVATAR_BYTES PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 3000, 3000, 3000, 2200, 3000, 2200, 3000)
-#define MAX_LOADED_IMAGES 1
 #define IMAGE_THUMB_SIZE PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 132, 108, 108, 108, 198, 108, 144)
-#define IMAGE_FRAME_EXTRA_W PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 10, 8, 8, 6, 14, 6, 10)
 #define APP_INBOX_SIZE 2048
 #define APP_OUTBOX_SIZE PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 512, 512, 512, 512, 1024, 512, 1024)
 #define BW_UI PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 0, 0, 0, 1, 0, 1, 0)
@@ -77,8 +84,8 @@ static const uint8_t TG_NAME_COLORS[7] = {
 #define CHAT_FLAG_GROUP 0x01
 #define CHAT_FLAG_MUTED 0x02
 #define CHAT_FLAG_PINNED 0x04
-#define CHAT_SCROLL_STEPS 4
-#define CHAT_SCROLL_FRAME_MS 2
+#define CHAT_SCROLL_STEPS 5
+#define CHAT_SCROLL_FRAME_MS 20
 #define CHAT_SCROLL_DELTA 30
 #define REPEAT_SCROLL_MS 140
 #define MESSAGE_MODE_INITIAL 0
@@ -96,13 +103,10 @@ static const uint8_t TG_NAME_COLORS[7] = {
 #define CHAT_COMMAND_MAX_ATTEMPTS 4
 #define CHAT_FIRST_PAINT_ROWS PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 3, 3, 3, 3, 5, 3, 5)
 #define PHONE_WAKE_DELAY_MS 180
-#define IMAGE_KEEP_SCREEN_MARGIN 48
-#define IMAGE_LOAD_SCREEN_MARGIN 24
-#define IMAGE_TALL_MAX_MULTIPLIER 2
-#define IMAGE_DECODE_HEADROOM_BYTES 12000
-#define IMAGE_DECODE_HEADROOM_PIXELS 16000
-#define IMAGE_DECODE_FINAL_HEADROOM_BYTES PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 8000, 7000, 7000, 6000, 10000, 6000, 8000)
-#define IMAGE_DECODE_MAX_DIMENSION 512
+// Photos within this many pixels of the screen start loading early; a photo
+// that is loading keeps going until it is farther away than IMAGE_KEEP_MARGIN.
+#define IMAGE_LOAD_MARGIN 40
+#define IMAGE_KEEP_MARGIN 160
 #define IMAGE_RETRY_MAX_LEVEL 3
 #define IMAGE_DIAG_LOGS 0
 #define STATUS_CLEAR_MS 1000
@@ -311,6 +315,8 @@ typedef struct {
   int16_t pills_y;
   int16_t meta_y;
   int16_t text_box_w;
+  int16_t image_w;
+  int16_t image_h;
   uint8_t flags;
 } MsgBox;
 
@@ -327,12 +333,15 @@ static int s_image_size;
 static int s_image_received;
 static int s_image_expected_offset;
 static int s_image_transfer_id;
-static bool s_image_is_pbi;
+static bool s_image_packed;       // chunks are PackBits-compressed
+static int s_image_written;       // bitmap bytes filled so far
+static int16_t s_pack_literal;    // PackBits: literal bytes still to copy
+static int16_t s_pack_repeat;     // PackBits: run waiting for its byte
+static uint16_t s_image_budget_cap;  // lowered after an out-of-memory retry
 static int s_avatar_size;
 static int s_avatar_received;
 static int s_avatar_expected_offset;
 static int s_avatar_transfer_id;
-static int s_loaded_image_count;
 static char s_canned[MAX_CANNED][CANNED_TEXT_LEN] = {
   "Yes",
   "No",
@@ -410,14 +419,12 @@ static void request_next_image(void);
 static void startup_wake_timer_callback(void *data);
 static void chat_retry_timer_callback(void *data);
 static void clear_active_image_request(void);
-static bool selected_message_needs_image(void);
 static void image_retry_timer_callback(void *data);
 static void request_older_messages(bool silent);
 static void request_newer_messages(bool silent);
-static void refresh_loaded_image_count(void);
 static void destroy_message_images(void);
-static void destroy_offscreen_message_images(void);
-static bool destroy_unselected_loaded_image(void);
+static void release_images_for_heap(void);
+static int clamp_scroll_offset(int offset);
 static void main_back_click_handler(ClickRecognizerRef recognizer, void *context);
 static void send_text_message(const char *text, bool as_reply);
 static void edit_selected_message(const char *text);
@@ -444,7 +451,6 @@ static void show_loading_text(const char *message, bool is_error);
 static void click_config_provider(void *context);
 static void copy_cstr(char *dest, size_t dest_size, const char *src);
 static int message_bubble_width(GRect bounds);
-static int message_image_frame_width(int bubble_w);
 static int message_image_top(int index, GRect bounds);
 static void show_action_window(ActionMenuMode mode);
 static void start_dictation(void);
@@ -853,10 +859,6 @@ static bool ensure_transfer_buffer(uint8_t **buffer, uint16_t *capacity,
   return true;
 }
 
-static bool ensure_image_transfer_buffer(int image_size) {
-  return ensure_transfer_buffer(&s_image_buffer, &s_image_buffer_capacity,
-                                image_size, MAX_IMAGE_BYTES);
-}
 
 static bool ensure_avatar_transfer_buffer(int image_size) {
   return ensure_transfer_buffer(&s_avatar_buffer, &s_avatar_buffer_capacity,
@@ -870,7 +872,49 @@ static void reset_image_transfer_state(void) {
   s_image_received = 0;
   s_image_expected_offset = 0;
   s_image_transfer_id = 0;
-  s_image_is_pbi = false;
+  s_image_packed = false;
+  s_image_written = 0;
+  s_pack_literal = 0;
+  s_pack_repeat = 0;
+}
+
+// Appends one received chunk to the photo bitmap. Packed chunks are PackBits
+// runs (what the phone uses for flat screenshots) and are expanded straight
+// into the bitmap, so compression costs no extra memory.
+static bool image_write_chunk(const uint8_t *data, int length) {
+  if (!s_image_packed) {
+    if (s_image_written + length > s_image_size) {
+      return false;
+    }
+    memcpy(s_image_buffer + s_image_written, data, length);
+    s_image_written += length;
+    return true;
+  }
+  for (int i = 0; i < length; i++) {
+    uint8_t byte = data[i];
+    if (s_pack_literal > 0) {
+      if (s_image_written >= s_image_size) {
+        return false;
+      }
+      s_image_buffer[s_image_written++] = byte;
+      s_pack_literal--;
+    } else if (s_pack_repeat > 0) {
+      if (s_image_written + s_pack_repeat > s_image_size) {
+        return false;
+      }
+      memset(s_image_buffer + s_image_written, byte, s_pack_repeat);
+      s_image_written += s_pack_repeat;
+      s_pack_repeat = 0;
+    } else {
+      int8_t header = (int8_t)byte;
+      if (header >= 0) {
+        s_pack_literal = header + 1;
+      } else if (header != -128) {
+        s_pack_repeat = 1 - header;
+      }
+    }
+  }
+  return true;
 }
 
 static void reset_avatar_transfer_state(void) {
@@ -1036,32 +1080,11 @@ static void destroy_message_bitmap(Message *message) {
     gbitmap_destroy(message->image_bitmap);
     message->image_bitmap = NULL;
     message->image_requested = false;
-    if (s_loaded_image_count > 0) {
-      s_loaded_image_count--;
-    }
   }
   if (message && message->image_data) {
     free(message->image_data);
     message->image_data = NULL;
   }
-}
-
-static void refresh_loaded_image_count(void) {
-  s_loaded_image_count = 0;
-  for (int i = 0; i < MAX_MESSAGES; i++) {
-    if (s_messages[i].image_bitmap) {
-      s_loaded_image_count++;
-    }
-  }
-}
-
-static void destroy_other_message_images(Message *keep) {
-  for (int i = 0; i < MAX_MESSAGES; i++) {
-    if (&s_messages[i] != keep) {
-      destroy_message_bitmap(&s_messages[i]);
-    }
-  }
-  refresh_loaded_image_count();
 }
 
 static void destroy_message_images(void) {
@@ -1076,7 +1099,6 @@ static void destroy_message_images(void) {
     s_messages[i].image_error[0] = '\0';
     s_messages[i].image_progress = 0;
   }
-  s_loaded_image_count = 0;
   reset_image_transfer_state();
   s_selected_image_focus_id[0] = '\0';
 }
@@ -1111,33 +1133,23 @@ static bool message_needs_image(Message *message) {
          !message->image_requested && !message->image_failed && !message->image_bitmap;
 }
 
-static int message_image_display_width(const Message *message, int max_w) {
-  if (!message || message->image_width <= 0 || message->image_height <= 0) {
-    return max_w;
+// Size a photo is drawn at inside a bubble whose photo area is frame_w wide.
+// Photos fill the bubble width (never upscaled); tall screenshots keep that
+// width until they reach IMAGE_TALL_MAX_H, so their text stays readable. The
+// size only depends on the photo's original shape, so the bubble never jumps
+// when the photo arrives. The phone renders to exactly this size.
+static GSize message_image_plan(const Message *message, int frame_w) {
+  frame_w = PG_MAX(24, frame_w);
+  if (!message || message->image_width == 0 || message->image_height == 0) {
+    return GSize(frame_w, PG_MIN(frame_w, IMAGE_THUMB_SIZE));
   }
-  int max_h = message->image_height > message->image_width ?
-              IMAGE_THUMB_SIZE * IMAGE_TALL_MAX_MULTIPLIER : IMAGE_THUMB_SIZE;
-  int w = max_w;
-  int h = (message->image_height * w) / message->image_width;
-  if (h > max_h) {
-    h = max_h;
-    w = (message->image_width * h) / message->image_height;
+  int w = PG_MIN(frame_w, (int)message->image_width);
+  int h = (int)(((int32_t)message->image_height * w) / message->image_width);
+  if (h > IMAGE_TALL_MAX_H) {
+    h = IMAGE_TALL_MAX_H;
+    w = (int)(((int32_t)message->image_width * h) / message->image_height);
   }
-  return PG_MAX(32, PG_MIN(PG_MIN(max_w, (int)message->image_width), w));
-}
-
-static int message_image_display_height(const Message *message, int max_w) {
-  if (!message || message->image_width <= 0 || message->image_height <= 0) {
-    return IMAGE_THUMB_SIZE;
-  }
-  int max_h = message->image_height > message->image_width ?
-              IMAGE_THUMB_SIZE * IMAGE_TALL_MAX_MULTIPLIER : IMAGE_THUMB_SIZE;
-  int w = max_w;
-  int h = (message->image_height * w) / message->image_width;
-  if (h > max_h) {
-    h = max_h;
-  }
-  return PG_MAX(32, PG_MIN(PG_MIN(max_h, (int)message->image_height), h));
+  return GSize(PG_MAX(24, w), PG_MAX(24, h));
 }
 
 static int message_index_from_ptr(Message *message) {
@@ -1165,26 +1177,6 @@ static void set_message_image_progress(Message *message, int percent) {
   }
 }
 
-static bool message_image_near_viewport(int index, int margin) {
-  if (index < 0 || index >= s_message_count || !s_messages[index].image_placeholder) {
-    return false;
-  }
-  if (!s_messages_root) {
-    return false;
-  }
-  GRect bounds = layer_get_bounds(s_messages_root);
-  int bubble_w = message_bubble_width(bounds);
-  int image_h = message_image_display_height(&s_messages[index], message_image_frame_width(bubble_w));
-  int image_top = message_image_top(index, bounds);
-  int image_bottom = image_top + image_h;
-  return image_bottom >= s_chat_scroll_offset - margin &&
-         image_top <= s_chat_scroll_offset + bounds.size.h + margin;
-}
-
-static bool message_image_visible(int index) {
-  return message_image_near_viewport(index, 0);
-}
-
 static int visible_message_height(GRect bounds) {
 #if TOUCH_KEYBOARD_AVAILABLE
   return s_touch_keyboard_open ? touch_keyboard_viewport_height(bounds) : bounds.size.h;
@@ -1194,117 +1186,65 @@ static int visible_message_height(GRect bounds) {
 }
 
 static int message_image_top(int index, GRect bounds) {
-  if (index < 0 || index >= s_message_count || !s_messages[index].image_placeholder) {
-    return s_message_y[index];
-  }
   (void)bounds;
   return s_message_y[index] + s_box[index].image_y;
+}
+
+// How far (in pixels) a photo is from the part of the chat on screen; 0 when
+// any of it is visible. While the chat is animating a scroll this measures from
+// where the scroll is heading, so photos load for where the user is going.
+static int message_image_distance(int index) {
+  if (index < 0 || index >= s_message_count || !s_messages[index].image_placeholder || !s_messages_root) {
+    return 0x3fffffff;
+  }
+  GRect bounds = layer_get_bounds(s_messages_root);
+  int view_top = s_chat_scroll_timer ? clamp_scroll_offset(s_chat_scroll_target) : s_chat_scroll_offset;
+  int view_bottom = view_top + visible_message_height(bounds);
+  int top = message_image_top(index, bounds);
+  int bottom = top + s_box[index].image_h;
+  if (bottom < view_top) {
+    return view_top - bottom;
+  }
+  if (top > view_bottom) {
+    return top - view_bottom;
+  }
+  return 0;
+}
+
+static bool message_image_near_viewport(int index, int margin) {
+  return message_image_distance(index) <= margin;
 }
 
 static bool message_image_scrolls_tall(int index, GRect bounds, int margin) {
   if (index < 0 || index >= s_message_count || !s_messages[index].image_placeholder) {
     return false;
   }
-  int bubble_w = message_bubble_width(bounds);
-  int image_h = message_image_display_height(&s_messages[index], message_image_frame_width(bubble_w));
-  return image_h > visible_message_height(bounds) - (margin * 2);
+  return s_box[index].image_h > visible_message_height(bounds) - (margin * 2);
 }
 
 static int message_image_edge_scroll_target(int index, GRect bounds, int margin, bool align_top) {
-  int bubble_w = message_bubble_width(bounds);
-  int image_h = message_image_display_height(&s_messages[index], message_image_frame_width(bubble_w));
   int image_top = message_image_top(index, bounds);
-  int image_bottom = image_top + image_h;
+  int image_bottom = image_top + s_box[index].image_h;
   return align_top ? image_top - margin : image_bottom + margin - visible_message_height(bounds);
 }
 
-static bool message_image_should_keep(int index) {
-  if (index < 0 || index >= s_message_count) {
-    return false;
-  }
-  if (index == s_selected_message) {
-    return true;
-  }
-  return message_image_near_viewport(index, IMAGE_KEEP_SCREEN_MARGIN);
-}
-
-static int message_image_focus_distance(int index) {
-  if (s_selected_message >= 0 && s_selected_message < s_message_count) {
-    return abs(index - s_selected_message) * 1000;
-  }
-  if (!s_messages_root) {
-    return index * 1000;
-  }
-  GRect bounds = layer_get_bounds(s_messages_root);
-  int focus_y = s_chat_scroll_offset + (bounds.size.h / 2);
-  int bubble_w = message_bubble_width(bounds);
-  int image_h = message_image_display_height(&s_messages[index], message_image_frame_width(bubble_w));
-  int image_y = s_message_y[index] + s_message_h[index] - (image_h / 2) - 4;
-  return abs(image_y - focus_y);
-}
-
-static bool message_needs_decode_headroom(const Message *message, int image_size) {
-  if (!message) {
-    return image_size >= IMAGE_DECODE_HEADROOM_BYTES;
-  }
-  if (image_size >= IMAGE_DECODE_HEADROOM_BYTES) {
-    return true;
-  }
-  if (!s_messages_root) {
-    return false;
-  }
-  GRect bounds = layer_get_bounds(s_messages_root);
-  int bubble_w = message_bubble_width(bounds);
-  int image_w = message_image_display_width(message, message_image_frame_width(bubble_w));
-  int image_h = message_image_display_height(message, message_image_frame_width(bubble_w));
-  return image_w * image_h >= IMAGE_DECODE_HEADROOM_PIXELS;
-}
-
-static size_t message_image_bitmap_heap_estimate(const Message *message) {
-  if (!message || message->image_width == 0 || message->image_height == 0) {
-    return 0;
-  }
-  size_t row_bytes = (size_t)((message->image_width + 3) & ~3);
-  return row_bytes * message->image_height;
-}
-
-static bool message_image_decode_has_headroom(const Message *message) {
+static size_t image_heap_free(void) {
 #ifdef _PBL_API_EXISTS_heap_bytes_free
-  size_t estimate = message_image_bitmap_heap_estimate(message);
-  if (estimate > 0) {
-    size_t needed = estimate + IMAGE_DECODE_FINAL_HEADROOM_BYTES;
-    size_t available = heap_bytes_free();
-    if (available < needed) {
-      APP_LOG(APP_LOG_LEVEL_WARNING, "Photo decode skipped, heap %u need %u",
-              (unsigned)available, (unsigned)needed);
-      return false;
-    }
-  }
-#endif
-  return true;
-}
-
-static unsigned image_request_decode_cost_budget(void) {
-#ifdef _PBL_API_EXISTS_heap_bytes_free
-  size_t available = heap_bytes_free();
-  size_t reserve = IMAGE_DECODE_FINAL_HEADROOM_BYTES + 4096;
-  if (available <= reserve) {
-    return 0;
-  }
-  size_t budget = available - reserve;
-  return (unsigned)PG_MIN(budget, 65000);
+  return heap_bytes_free();
 #else
-  return 0;
+  return MAX_IMAGE_BYTES + IMAGE_HEAP_RESERVE;
 #endif
+}
+
+// Heap a new photo may use without eating into the reserve.
+static size_t image_heap_available(void) {
+  size_t free_bytes = image_heap_free();
+  return free_bytes > IMAGE_HEAP_RESERVE ? free_bytes - IMAGE_HEAP_RESERVE : 0;
 }
 
 #if IMAGE_DIAG_LOGS
 static unsigned image_diag_heap_free(void) {
-#ifdef _PBL_API_EXISTS_heap_bytes_free
-  return (unsigned)heap_bytes_free();
-#else
-  return 0;
-#endif
+  return (unsigned)image_heap_free();
 }
 #endif
 
@@ -1312,14 +1252,18 @@ static bool message_is_gif(const Message *message) {
   return message && strncmp(message->text, "[GIF", 4) == 0;
 }
 
-static bool destroy_farthest_loaded_image(void) {
+// Frees the loaded photo farthest from the screen, but only one that is
+// farther away than min_distance and not on screen. Photos are only unloaded
+// to make room for a photo closer to the screen, or when the heap runs low, so
+// two photos can never keep evicting each other.
+static bool evict_farthest_image(int min_distance) {
   int farthest_index = -1;
-  int farthest_distance = -1;
+  int farthest_distance = min_distance;
   for (int i = 0; i < s_message_count; i++) {
-    if (!s_messages[i].image_bitmap || message_image_visible(i)) {
+    if (!s_messages[i].image_bitmap) {
       continue;
     }
-    int distance = message_image_focus_distance(i);
+    int distance = message_image_distance(i);
     if (distance > farthest_distance) {
       farthest_distance = distance;
       farthest_index = i;
@@ -1328,8 +1272,37 @@ static bool destroy_farthest_loaded_image(void) {
   if (farthest_index < 0) {
     return false;
   }
+  IMAGE_DIAG("PGIMG evict index=%d distance=%d heap=%u", farthest_index, farthest_distance,
+             image_diag_heap_free());
   destroy_message_bitmap(&s_messages[farthest_index]);
   return true;
+}
+
+// Keeps the reserve free: if something else (a menu, new messages) has used
+// heap, drop off-screen photos until the reserve is back.
+static void release_images_for_heap(void) {
+  while (image_heap_free() < IMAGE_HEAP_RESERVE && evict_farthest_image(0)) {
+  }
+}
+
+// Bytes a photo would take at the best quality this watch can show.
+static size_t image_ideal_bytes(int index) {
+  size_t w = (size_t)s_box[index].image_w;
+  size_t h = (size_t)s_box[index].image_h;
+  size_t row = BW_UI ? ((w + 31) / 32) * 4 : (w * IMAGE_BITS_PER_PIXEL + 7) / 8;
+  return PG_MIN((size_t)MAX_IMAGE_BYTES, row * h + 32);
+}
+
+// How many bytes the phone may send for this photo. Makes room first by
+// unloading photos that are farther from the screen than this one.
+static size_t image_budget_for(int index) {
+  size_t wanted = image_ideal_bytes(index);
+  int distance = message_image_distance(index);
+  size_t available = image_heap_available();
+  while (available < wanted && evict_farthest_image(distance)) {
+    available = image_heap_available();
+  }
+  return PG_MIN(available, (size_t)MAX_IMAGE_BYTES);
 }
 
 static void prepare_selected_image_request(void) {
@@ -1342,14 +1315,13 @@ static void prepare_selected_image_request(void) {
   Message *selected = &s_messages[s_selected_message];
   if (strcmp(s_selected_image_focus_id, selected->image_token) != 0) {
     copy_cstr(s_selected_image_focus_id, sizeof(s_selected_image_focus_id), selected->image_token);
-    selected->image_failed = false;
-    selected->image_error[0] = '\0';
-    selected->image_progress = 0;
-    selected->image_retry_level = 0;
-  }
-
-  if (s_image_message_id[0] && strcmp(s_image_message_id, selected->image_token) != 0) {
-    clear_active_image_request();
+    // Selecting a photo that failed gives it a fresh try.
+    if (selected->image_failed) {
+      selected->image_failed = false;
+      selected->image_error[0] = '\0';
+      selected->image_progress = 0;
+      selected->image_retry_level = 0;
+    }
   }
 }
 
@@ -1361,6 +1333,10 @@ static void clear_active_image_request(void) {
   }
   if (message) {
     message->image_requested = false;
+    if (!message->image_bitmap && !message->image_failed) {
+      message->image_error[0] = '\0';
+      message->image_progress = 0;
+    }
   }
   reset_image_transfer_state();
 }
@@ -1369,89 +1345,22 @@ static bool click_is_repeating(ClickRecognizerRef recognizer) {
   return recognizer && click_number_of_clicks_counted(recognizer) > 1;
 }
 
-static void sync_message_images(void) {
-  for (int i = 0; i < MAX_MESSAGES; i++) {
-    if (!message_image_should_keep(i)) {
-      destroy_message_bitmap(&s_messages[i]);
-      s_messages[i].image_failed = false;
-      s_messages[i].image_error[0] = '\0';
-      s_messages[i].image_progress = 0;
-    }
-  }
-
-  if (s_image_message_id[0]) {
-    Message *message = find_message_by_image_token(s_image_message_id);
-    int image_index = message_index_from_ptr(message);
-    if (!message_image_should_keep(image_index)) {
-      clear_active_image_request();
-    }
-  }
-
-  refresh_loaded_image_count();
-  while (s_loaded_image_count > MAX_LOADED_IMAGES && destroy_farthest_loaded_image()) {
-    refresh_loaded_image_count();
-  }
-  while (s_loaded_image_count > MAX_LOADED_IMAGES && destroy_unselected_loaded_image()) {
-    refresh_loaded_image_count();
-  }
-}
-
-static void destroy_offscreen_message_images(void) {
-  sync_message_images();
-}
-
-static bool message_is_at_or_below_selection(int index) {
-  return s_selected_message < 0 || s_selected_message >= s_message_count || index >= s_selected_message;
-}
-
-static bool selected_message_needs_image(void) {
-  return s_selected_message >= 0 && s_selected_message < s_message_count &&
-         s_messages[s_selected_message].image_placeholder &&
-         s_messages[s_selected_message].image_token[0] &&
-         !s_messages[s_selected_message].image_failed &&
-         !s_messages[s_selected_message].image_bitmap;
-}
-
-static bool destroy_unselected_loaded_image(void) {
-  int farthest_index = -1;
-  int farthest_distance = -1;
-  for (int i = 0; i < s_message_count; i++) {
-    if (i == s_selected_message || !s_messages[i].image_bitmap) {
-      continue;
-    }
-    int distance = message_image_focus_distance(i);
-    if (distance > farthest_distance) {
-      farthest_distance = distance;
-      farthest_index = i;
-    }
-  }
-  if (farthest_index < 0) {
-    return false;
-  }
-  destroy_message_bitmap(&s_messages[farthest_index]);
-  return true;
-}
-
-static int find_best_image_candidate(bool visible_only, bool prefer_below_selection) {
+// Next photo to fetch: the one closest to the screen, preferring the selected
+// message when several are on screen.
+static int find_best_image_candidate(void) {
   int best_index = -1;
-  int best_distance = 2147483647;
+  int best_score = 0x3fffffff;
   for (int i = 0; i < s_message_count; i++) {
     if (!message_needs_image(&s_messages[i])) {
       continue;
     }
-    if (visible_only) {
-      if (!message_image_visible(i)) {
-        continue;
-      }
-    } else if (!message_image_near_viewport(i, IMAGE_LOAD_SCREEN_MARGIN)) {
+    int distance = message_image_distance(i);
+    if (distance > IMAGE_LOAD_MARGIN) {
       continue;
     }
-    if (prefer_below_selection && !message_is_at_or_below_selection(i)) {
-      continue;
-    }
-    int distance = message_image_focus_distance(i);
-    if (distance < best_distance) {
-      best_distance = distance;
+    int score = distance * 4 + (i == s_selected_message ? 0 : 1);
+    if (score < best_score) {
+      best_score = score;
       best_index = i;
     }
   }
@@ -1966,12 +1875,14 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
   }
 }
 
+#define CHAT_ROW_H PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 44, 44, 44, 44, 48, 44, 46)
+
 static int16_t chat_menu_get_cell_height_callback(struct MenuLayer *menu_layer, MenuIndex *cell_index, void *data) {
   if (s_chat_count == 0) {
     Layer *layer = menu_layer_get_layer(menu_layer);
     return layer_get_bounds(layer).size.h;
   }
-  return PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 44, 44, 44, 44, 48, 44, 46);
+  return CHAT_ROW_H;
 }
 
 static void chat_menu_select_callback(struct MenuLayer *menu_layer, MenuIndex *cell_index, void *data) {
@@ -2109,6 +2020,9 @@ static void clear_message_stage(void) {
 static bool prepare_message_stage(void) {
   clear_message_stage();
   s_message_stage = malloc(sizeof(Message) * MAX_MESSAGES);
+  while (!s_message_stage && evict_farthest_image(0)) {
+    s_message_stage = malloc(sizeof(Message) * MAX_MESSAGES);
+  }
   if (!s_message_stage) {
     destroy_message_images();
     s_message_stage = malloc(sizeof(Message) * MAX_MESSAGES);
@@ -2175,7 +2089,6 @@ static void commit_message_stage(int count) {
   free(s_message_stage);
   s_message_stage = NULL;
   s_message_stage_count = 0;
-  refresh_loaded_image_count();
 }
 
 static bool message_transfer_matches(DictionaryIterator *iter) {
@@ -2208,8 +2121,8 @@ static void populate_message_from_tuple(Message *message, DictionaryIterator *it
   message->outgoing = tuple_int(iter, MESSAGE_KEY_IsOutgoing, 0) != 0;
   copy_cstr(message->image_token, sizeof(message->image_token), incoming_image_token);
   message->image_placeholder = message->image_token[0] != '\0';
-  message->image_width = tuple_int(iter, MESSAGE_KEY_ImageWidth, message->image_placeholder ? IMAGE_THUMB_SIZE : 0);
-  message->image_height = tuple_int(iter, MESSAGE_KEY_ImageHeight, message->image_placeholder ? IMAGE_THUMB_SIZE : 0);
+  message->image_width = tuple_int(iter, MESSAGE_KEY_ImageWidth, 0);
+  message->image_height = tuple_int(iter, MESSAGE_KEY_ImageHeight, 0);
   if (!preserve_image_state) {
     message->image_requested = false;
     message->image_failed = false;
@@ -2374,7 +2287,7 @@ static void message_meta_time(const char *meta, char *dest, size_t dest_size) {
 #define BUBBLE_NAME_H 16
 #define BUBBLE_CTX_H 34
 #define BUBBLE_META_H 15
-#define BUBBLE_GAP_SAME 2
+#define BUBBLE_GAP_SAME 4
 #define BUBBLE_GAP_OTHER 6
 #define PILL_H 22
 #define PILL_GAP 4
@@ -2388,6 +2301,7 @@ static void message_meta_time(const char *meta, char *dest, size_t dest_size) {
 #define BOX_META_INLINE 0x08
 #define BOX_EMOJI 0x10
 #define BOX_META_ON_PILLS 0x20
+#define BOX_META_ON_PHOTO 0x40
 
 #ifdef PBL_COLOR
 static GBitmap *s_wallpaper;
@@ -2418,8 +2332,22 @@ static int message_bubble_width(GRect bounds) {
   return max_w;
 }
 
+// Photo bubbles may be wider than text bubbles: every extra pixel of width
+// makes text in a screenshot easier to read.
+static int message_photo_bubble_width(GRect bounds) {
+  if (ROUND_UI) {
+    return message_bubble_width(bounds);
+  }
+  int w = bounds.size.w - (message_side_inset(bounds) * 2);
+  if (group_avatars_enabled()) {
+    w -= GROUP_AVATAR_COL;
+  }
+  return w;
+}
+
+// Photos sit 2px inside their bubble, like Telegram's.
 static int message_image_frame_width(int bubble_w) {
-  return PG_MIN(IMAGE_THUMB_SIZE + IMAGE_FRAME_EXTRA_W, bubble_w - (BUBBLE_PAD_X * 2));
+  return bubble_w - 4;
 }
 
 static GFont bubble_text_font(void) {
@@ -2606,6 +2534,9 @@ static int layout_message(int index, GRect bounds, int max_w) {
   MsgBox *box = &s_box[index];
   Message *prev = index > 0 ? &s_messages[index - 1] : NULL;
   Message *next = index + 1 < s_message_count ? &s_messages[index + 1] : NULL;
+  if (m->image_placeholder) {
+    max_w = message_photo_bubble_width(bounds);
+  }
   measure_message(m, max_w);
   memset(box, 0, sizeof(*box));
 
@@ -2638,11 +2569,21 @@ static int layout_message(int index, GRect bounds, int max_w) {
       h += BUBBLE_CTX_H + 2;
     }
     if (m->image_placeholder) {
-      int image_w = message_image_display_width(m, message_image_frame_width(max_w));
-      int image_h = message_image_display_height(m, message_image_frame_width(max_w));
-      box->image_y = h + 1;
-      content_w = PG_MAX(content_w, image_w);
-      h += image_h + 4;
+      GSize plan = message_image_plan(m, message_image_frame_width(max_w));
+      box->image_w = plan.w;
+      box->image_h = plan.h;
+      if (h == BUBBLE_PAD_TOP) {
+        h = 2;  // photo at the top of the bubble sits on the 2px border
+      }
+      box->image_y = h;
+      content_w = PG_MAX(content_w, plan.w - (BUBBLE_PAD_X * 2) + 4);
+      h += plan.h + 3;
+      if (!m->text_h && !m->pills_h && m->meta_w) {
+        // Photo-only message: time sits on the photo, as in Telegram.
+        box->flags |= BOX_META_ON_PHOTO;
+        box->meta_y = box->image_y + plan.h - 18;
+        h = box->image_y + plan.h + 2 - BUBBLE_PAD_BOTTOM;
+      }
     }
     bool meta_placed = false;
     box->text_y = h;
@@ -2670,6 +2611,9 @@ static int layout_message(int index, GRect bounds, int max_w) {
         box->meta_y = h - BUBBLE_META_H - 2;
         meta_placed = true;
       }
+    }
+    if (box->flags & BOX_META_ON_PHOTO) {
+      meta_placed = true;
     }
     if (!meta_placed && m->meta_w) {
       content_w = PG_MAX(content_w, m->meta_w);
@@ -2708,7 +2652,9 @@ static void recalc_message_layout(void) {
 
   for (int i = 0; i < s_message_count; i++) {
     if (i > 0) {
-      y += same_author(&s_messages[i - 1], &s_messages[i]) ? BUBBLE_GAP_SAME : BUBBLE_GAP_OTHER;
+      // Photos are square-edged, so they always get the wider gap.
+      bool photo = s_messages[i - 1].image_placeholder || s_messages[i].image_placeholder;
+      y += (same_author(&s_messages[i - 1], &s_messages[i]) && !photo) ? BUBBLE_GAP_SAME : BUBBLE_GAP_OTHER;
     }
     s_message_y[i] = y;
     s_message_h[i] = layout_message(i, bounds, max_w);
@@ -2740,7 +2686,6 @@ static void scroll_to_bottom(bool animated) {
   recalc_message_layout();
   s_selected_message = s_at_newest ? s_message_count : (s_message_count > 0 ? s_message_count - 1 : -1);
   set_chat_scroll_offset(s_chat_content_height, animated);
-  destroy_offscreen_message_images();
   request_next_image();
 }
 
@@ -2843,13 +2788,6 @@ static void select_message_with_alignment(int index, bool align_top, bool animat
   int top = s_message_y[s_selected_message] - margin;
   int bottom = s_message_y[s_selected_message] + s_message_h[s_selected_message] + margin;
   int target = s_chat_scroll_offset;
-
-  if (message_image_scrolls_tall(s_selected_message, bounds, margin)) {
-    target = message_image_edge_scroll_target(s_selected_message, bounds, margin, align_top);
-    set_chat_scroll_offset(target, animated);
-    request_next_image();
-    return;
-  }
 
   if (s_message_h[s_selected_message] > visible_message_height(bounds) - (margin * 2)) {
     target = align_top ? top : bottom - visible_message_height(bounds);
@@ -3879,7 +3817,19 @@ static void draw_message_context(GContext *ctx, Message *m, GRect rect) {
 
 static void draw_message_image(GContext *ctx, Message *message, GRect image_rect) {
   if (message->image_bitmap) {
-    graphics_draw_bitmap_in_rect(ctx, message->image_bitmap, image_rect);
+    GSize size = gbitmap_get_bounds(message->image_bitmap).size;
+    if (size.w < image_rect.size.w || size.h < image_rect.size.h) {
+      // Sent smaller than planned (the watch was short on memory): centre it.
+      graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(GColorLightGray, GColorWhite));
+      graphics_fill_rect(ctx, image_rect, 0, GCornerNone);
+    }
+    GRect draw = GRect(image_rect.origin.x + (image_rect.size.w - size.w) / 2,
+                       image_rect.origin.y + (image_rect.size.h - size.h) / 2,
+                       PG_MIN(size.w, image_rect.size.w), PG_MIN(size.h, image_rect.size.h));
+    if (size.w > image_rect.size.w || size.h > image_rect.size.h) {
+      draw.origin = image_rect.origin;
+    }
+    graphics_draw_bitmap_in_rect(ctx, message->image_bitmap, draw);
     return;
   }
   bool gif = message_is_gif(message);
@@ -4156,10 +4106,8 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
       draw_message_context(ctx, m, GRect(left, y + box->ctx_y, inner_w, BUBBLE_CTX_H - 2));
     }
     if (m->image_placeholder) {
-      int max_image_w = message_image_frame_width(message_bubble_width(bounds));
-      int image_w = message_image_display_width(m, max_image_w);
-      int image_h = message_image_display_height(m, max_image_w);
-      draw_message_image(ctx, m, GRect(left + (inner_w - image_w) / 2, y + box->image_y, image_w, image_h));
+      draw_message_image(ctx, m, GRect(box->x + (box->w - box->image_w) / 2, y + box->image_y,
+                                       box->image_w, box->image_h));
     }
     if (display_text[0] && m->text_h) {
       graphics_context_set_text_color(ctx, TG_TEXT);
@@ -4171,7 +4119,14 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
       layout_pills(ctx, m->reactions, box->w - (BUBBLE_PAD_X * 2), GPoint(left, y + box->pills_y),
                    m->outgoing, NULL, NULL, NULL);
     }
-    if (m->meta_w) {
+    if (box->flags & BOX_META_ON_PHOTO) {
+      int pill_w = m->meta_w + 10;
+      int right = box->x + (box->w + box->image_w) / 2 - 4;
+      GRect pill = GRect(right - pill_w, y + box->meta_y, pill_w, 16);
+      graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack));
+      graphics_fill_rect(ctx, pill, 8, GCornersAll);
+      draw_message_meta_at(ctx, m, right - 5, pill.origin.y, GColorWhite);
+    } else if (m->meta_w) {
       draw_message_meta_at(ctx, m, box->x + box->w - BUBBLE_PAD_X + 1, y + box->meta_y,
                            m->outgoing ? TG_OUT_META : TG_IN_META);
     }
@@ -4548,33 +4503,42 @@ static void message_timeout_timer_callback(void *data) {
   }
 }
 
-// Load the first photo that is visible or just about to enter view. This keeps
-// heap use predictable while still prefetching as the user scrolls.
+// Asks the phone for the active photo. The request says exactly what size to
+// draw it at and how many bytes of heap it may use; the phone picks the best
+// colour depth (and only shrinks the photo) to fit that budget.
 static bool send_active_image_request(void) {
   if (!s_image_message_id[0]) {
     return false;
   }
   Message *message = find_message_by_image_token(s_image_message_id);
-  if (!message || message->image_bitmap) {
-    clear_active_image_request();
-    return false;
-  }
   int image_index = message_index_from_ptr(message);
-  if (image_index != s_selected_message &&
-      !message_image_near_viewport(image_index, IMAGE_KEEP_SCREEN_MARGIN)) {
-    IMAGE_DIAG("PGIMG watch request cancel offscreen msg=%s index=%d selected=%d",
-               message->image_token, image_index, s_selected_message);
+  if (!message || message->image_bitmap || image_index < 0 ||
+      !message_image_near_viewport(image_index, IMAGE_KEEP_MARGIN)) {
     clear_active_image_request();
     return false;
   }
-  unsigned budget = image_request_decode_cost_budget();
-  char request_text[18];
-  snprintf(request_text, sizeof(request_text), "%u:%u",
-           (unsigned)message->image_retry_level,
-           budget);
-  IMAGE_DIAG("PGIMG watch request msg=%s attempt=%u index=%d selected=%d budget=%u heap=%u",
-             message->image_token, (unsigned)message->image_retry_level,
-             image_index, s_selected_message, budget, image_diag_heap_free());
+  // A restarted request drops whatever arrived before.
+  free_image_transfer_buffer();
+  s_image_transfer_id = 0;
+  s_image_expected_offset = 0;
+  s_image_written = 0;
+  size_t budget = image_budget_for(image_index);
+  if (s_image_budget_cap && budget > s_image_budget_cap) {
+    budget = s_image_budget_cap;
+  }
+  if (budget < IMAGE_MIN_BUDGET) {
+    // Not enough memory right now (other photos on screen hold it). Try again
+    // when the user scrolls.
+    IMAGE_DIAG("PGIMG watch no budget msg=%s heap=%u", message->image_token, image_diag_heap_free());
+    clear_active_image_request();
+    return false;
+  }
+  char request_text[32];
+  snprintf(request_text, sizeof(request_text), "%u:%u:%d:%d",
+           (unsigned)message->image_retry_level, (unsigned)budget,
+           s_box[image_index].image_w, s_box[image_index].image_h);
+  IMAGE_DIAG("PGIMG watch request msg=%s req=%s heap=%u", message->image_token, request_text,
+             image_diag_heap_free());
   if (send_command_with_status("get_image", s_current_chat_id, request_text, NULL, message->image_token, false)) {
     schedule_image_prepare_timeout();
     return true;
@@ -4583,35 +4547,29 @@ static bool send_active_image_request(void) {
   return false;
 }
 
-static bool retry_active_image_request(Message *message, const char *detail) {
+// Asks again for the active photo, optionally with a smaller byte budget.
+static bool retry_active_image_request(Message *message, const char *detail, unsigned budget_cap) {
   int image_index = message_index_from_ptr(message);
-  if (!message || !message->image_token[0] ||
-      image_index < 0 ||
-      (image_index != s_selected_message &&
-       !message_image_near_viewport(image_index, IMAGE_KEEP_SCREEN_MARGIN)) ||
+  if (!message || !message->image_token[0] || image_index < 0 ||
+      !message_image_near_viewport(image_index, IMAGE_KEEP_MARGIN) ||
       message->image_retry_level >= IMAGE_RETRY_MAX_LEVEL) {
-    IMAGE_DIAG("PGIMG watch retry blocked msg=%s index=%d selected=%d attempt=%u detail=%s",
-               message ? message->image_token : "(null)", image_index, s_selected_message,
-               message ? (unsigned)message->image_retry_level : 0,
-               detail && detail[0] ? detail : "");
     return false;
   }
-
-  IMAGE_DIAG("PGIMG watch retry msg=%s fromAttempt=%u detail=%s heap=%u",
-             message->image_token, (unsigned)message->image_retry_level,
-             detail && detail[0] ? detail : "", image_diag_heap_free());
   if (s_image_retry_timer) {
     app_timer_cancel(s_image_retry_timer);
     s_image_retry_timer = NULL;
   }
   reset_image_transfer_state();
   copy_cstr(s_image_message_id, sizeof(s_image_message_id), message->image_token);
+  if (budget_cap) {
+    s_image_budget_cap = (uint16_t)PG_MIN(budget_cap, 65000);
+  }
   message->image_retry_level++;
   message->image_requested = true;
   message->image_failed = false;
   message->image_progress = 0;
   copy_cstr(message->image_error, sizeof(message->image_error),
-            detail && detail[0] ? detail : "Resizing");
+            detail && detail[0] ? detail : "Retrying");
   set_message_image_progress(message, 12);
   if (!send_active_image_request()) {
     schedule_image_retry();
@@ -4622,76 +4580,55 @@ static bool retry_active_image_request(Message *message, const char *detail) {
   return true;
 }
 
+// Called whenever the chat scrolls, the selection moves or a transfer ends.
+// Photos load one at a time, closest to the screen first. Loaded photos stay
+// until their memory is needed for a photo nearer the screen.
 static void request_next_image(void) {
   if (!s_messages_root || s_message_count == 0) {
     return;
   }
-  refresh_loaded_image_count();
-
-  if (s_image_message_id[0]) {
-    Message *active_message = find_message_by_image_token(s_image_message_id);
-    int active_index = message_index_from_ptr(active_message);
-    if ((active_index != s_selected_message &&
-         !message_image_near_viewport(active_index, IMAGE_KEEP_SCREEN_MARGIN)) ||
-        (selected_message_needs_image() && active_index != s_selected_message)) {
-      IMAGE_DIAG("PGIMG watch active cleared msg=%s active=%d selected=%d selectedNeeds=%d",
-                 s_image_message_id, active_index, s_selected_message,
-                 selected_message_needs_image() ? 1 : 0);
-      clear_active_image_request();
-    } else {
-      return;
+  release_images_for_heap();
+  for (int i = 0; i < s_message_count; i++) {
+    // A photo that failed gets another try once the user scrolls back to it.
+    if (s_messages[i].image_failed && message_image_distance(i) > IMAGE_KEEP_MARGIN) {
+      s_messages[i].image_failed = false;
+      s_messages[i].image_error[0] = '\0';
+      s_messages[i].image_progress = 0;
+      s_messages[i].image_retry_level = 0;
     }
   }
 
   if (s_image_message_id[0]) {
-    return;
+    Message *active_message = find_message_by_image_token(s_image_message_id);
+    int active_index = message_index_from_ptr(active_message);
+    int active_distance = message_image_distance(active_index);
+    bool abandon = active_index < 0 || active_distance > IMAGE_KEEP_MARGIN;
+    if (!abandon && active_distance > 0 && !s_image_buffer) {
+      // Nothing has arrived yet; if another photo is now on screen, switch.
+      int best = find_best_image_candidate();
+      abandon = best >= 0 && message_image_distance(best) == 0;
+    }
+    if (!abandon) {
+      return;
+    }
+    IMAGE_DIAG("PGIMG watch active dropped msg=%s distance=%d", s_image_message_id, active_distance);
+    clear_active_image_request();
   }
 
-  int image_index = selected_message_needs_image() ? s_selected_message : -1;
-  if (image_index < 0) {
-    image_index = find_best_image_candidate(true, true);
-  }
-  if (image_index < 0) {
-    image_index = find_best_image_candidate(true, false);
-  }
-
+  int image_index = find_best_image_candidate();
   if (image_index < 0) {
     return;
   }
 
   Message *message = &s_messages[image_index];
-  IMAGE_DIAG("PGIMG watch candidate msg=%s index=%d selected=%d loaded=%d failed=%d heap=%u",
-             message->image_token, image_index, s_selected_message, s_loaded_image_count,
-             message->image_failed ? 1 : 0, image_diag_heap_free());
-  if (image_index == s_selected_message && s_loaded_image_count > 0) {
-    destroy_other_message_images(message);
-  }
-  refresh_loaded_image_count();
-
-  if (s_loaded_image_count >= MAX_LOADED_IMAGES) {
-    if (destroy_farthest_loaded_image()) {
-      refresh_loaded_image_count();
-    }
-    if (s_loaded_image_count >= MAX_LOADED_IMAGES && image_index == s_selected_message &&
-        destroy_unselected_loaded_image()) {
-      refresh_loaded_image_count();
-    }
-    if (s_loaded_image_count >= MAX_LOADED_IMAGES) {
-      return;
-    }
-  }
-
   message->image_failed = false;
   copy_cstr(message->image_error, sizeof(message->image_error), "Waiting phone");
   message->image_requested = true;
   set_message_image_progress(message, 5);
+  reset_image_transfer_state();
+  s_image_budget_cap = 0;
   copy_cstr(s_image_message_id, sizeof(s_image_message_id), message->image_token);
-  free_image_transfer_buffer();
-  s_image_size = 0;
-  s_image_received = 0;
-  s_image_expected_offset = 0;
-  s_image_transfer_id = 0;
-  if (!send_active_image_request()) {
+  if (!send_active_image_request() && s_image_message_id[0]) {
     schedule_image_retry();
   }
   if (s_messages_root) {
@@ -4719,9 +4656,9 @@ static void request_older_messages(bool silent) {
     }
     return;
   }
-  if (!silent) {
-    destroy_message_images();
-  }
+  // Photos on screen stay put while the next page loads; the page's messages
+  // are staged and matched back to their loaded photos.
+  release_images_for_heap();
   if (s_loading_older_messages) {
     if (silent) {
       return;
@@ -4779,9 +4716,7 @@ static void request_newer_messages(bool silent) {
   if (s_loading_newer_messages) {
     return;
   }
-  if (!silent) {
-    destroy_message_images();
-  }
+  release_images_for_heap();
   recalc_message_layout();
   if (s_selected_message >= 0 && s_selected_message < s_message_count) {
     copy_cstr(s_newer_anchor_id, sizeof(s_newer_anchor_id), s_messages[s_selected_message].id);
@@ -5001,6 +4936,8 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   if (!type) {
     return;
   }
+  // Incoming messages need heap; make sure photos have left the reserve free.
+  release_images_for_heap();
 
   if (strcmp(type, "status") == 0) {
     char *status = tuple_cstring(iter, MESSAGE_KEY_Status);
@@ -5601,10 +5538,10 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     return;
   }
 
-	  if (strcmp(type, "image_start") == 0) {
-	    char *message_id = tuple_cstring(iter, MESSAGE_KEY_MessageId);
-	    int image_size = tuple_int(iter, MESSAGE_KEY_ImageSize, 0);
-	    int transfer_id = tuple_int(iter, MESSAGE_KEY_ImageTransferId, 0);
+  if (strcmp(type, "image_start") == 0) {
+    char *message_id = tuple_cstring(iter, MESSAGE_KEY_MessageId);
+    int image_size = tuple_int(iter, MESSAGE_KEY_ImageSize, 0);
+    int transfer_id = tuple_int(iter, MESSAGE_KEY_ImageTransferId, 0);
     int image_width = tuple_int(iter, MESSAGE_KEY_ImageWidth, 0);
     int image_height = tuple_int(iter, MESSAGE_KEY_ImageHeight, 0);
     char *image_format = tuple_cstring(iter, MESSAGE_KEY_Text);
@@ -5613,116 +5550,100 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     IMAGE_DIAG("PGIMG watch image_start msg=%s active=%d transfer=%d bytes=%d dims=%dx%d fmt=%s heap=%u",
                message_id ? message_id : "(null)", is_active_image ? 1 : 0,
                transfer_id, image_size, image_width, image_height,
-               image_format && image_format[0] ? image_format : "png",
-               image_diag_heap_free());
+               image_format && image_format[0] ? image_format : "?", image_diag_heap_free());
     if (!message || !is_active_image) {
       request_next_image();
       return;
     }
     int image_index = message_index_from_ptr(message);
-    if (!message_id || transfer_id <= 0 || image_size <= 0 || image_size > MAX_IMAGE_BYTES) {
-      bool retrying_image = image_size > MAX_IMAGE_BYTES &&
-                             retry_active_image_request(message, "Resizing");
-      IMAGE_DIAG("PGIMG watch image_start rejected msg=%s size=%d retry=%d",
-                 message_id ? message_id : "(null)", image_size, retrying_image ? 1 : 0);
-      if (!retrying_image) {
-        message->image_requested = false;
-        message->image_failed = true;
-        set_message_image_error(message, image_size > MAX_IMAGE_BYTES ? "Photo too large" : "Photo start failed");
-      }
+    bool packed = image_format && strcmp(image_format, "pbz") == 0;
+    bool known_format = packed || (image_format && strcmp(image_format, "pbi") == 0);
+    if (transfer_id <= 0 || image_size <= 12 || image_size > MAX_IMAGE_BYTES || !known_format ||
+        image_width <= 0 || image_height <= 0) {
+      message->image_requested = false;
+      message->image_failed = true;
+      set_message_image_error(message, "Photo failed");
+      reset_image_transfer_state();
       if (s_messages_root) {
         layer_mark_dirty(s_messages_root);
       }
-      if (!retrying_image && message_id && strcmp(message_id, s_image_message_id) == 0) {
-        reset_image_transfer_state();
-      }
-      if (!retrying_image) {
-        request_next_image();
-      }
+      request_next_image();
       return;
     }
-  if (image_width > 0 && image_height > 0 &&
-        image_width <= IMAGE_DECODE_MAX_DIMENSION && image_height <= IMAGE_DECODE_MAX_DIMENSION) {
-      bool dimensions_changed = message->image_width != image_width || message->image_height != image_height;
-      bool selected_image = image_index == s_selected_message;
+    if (message->image_width == 0 || message->image_height == 0) {
+      // The phone did not know this photo's shape up front; size the bubble now.
       message->image_width = (uint16_t)image_width;
       message->image_height = (uint16_t)image_height;
-      if (dimensions_changed) {
-        recalc_message_layout();
-        if (selected_image && s_messages_root) {
-          GRect bounds = layer_get_bounds(s_messages_root);
-          int margin = 6;
-          if (message_image_scrolls_tall(image_index, bounds, margin)) {
-            bool align_top = s_message_scroll_direction >= 0;
-            set_chat_scroll_offset_quiet(message_image_edge_scroll_target(image_index, bounds, margin, align_top));
-          }
+      recalc_message_layout();
+      if (image_index == s_selected_message && s_messages_root) {
+        GRect bounds = layer_get_bounds(s_messages_root);
+        if (message_image_scrolls_tall(image_index, bounds, 6)) {
+          set_chat_scroll_offset_quiet(message_image_edge_scroll_target(image_index, bounds, 6,
+                                                                         s_message_scroll_direction >= 0));
         }
       }
     }
-	    if (image_index == s_selected_message || message_needs_decode_headroom(message, image_size)) {
-	      destroy_other_message_images(message);
-	    }
+    free_image_transfer_buffer();
     reset_avatar_transfer_state();
-    free_full_text_body();
-    if (!ensure_image_transfer_buffer(image_size)) {
-      destroy_other_message_images(message);
+    s_image_buffer = malloc(image_size);
+    if (!s_image_buffer) {
+      int distance = message_image_distance(image_index);
+      while (!s_image_buffer && evict_farthest_image(distance)) {
+        s_image_buffer = malloc(image_size);
+      }
     }
-    if (!ensure_image_transfer_buffer(image_size)) {
-      bool retrying_image = retry_active_image_request(message, "Resizing");
-      IMAGE_DIAG("PGIMG watch image_start buffer_fail msg=%s size=%d retry=%d heap=%u",
-                 message_id ? message_id : "(null)", image_size, retrying_image ? 1 : 0,
-                 image_diag_heap_free());
-      if (!retrying_image) {
+    if (!s_image_buffer) {
+      // The heap is too fragmented or full for this size; ask for a smaller one.
+      IMAGE_DIAG("PGIMG watch alloc fail msg=%s size=%d heap=%u", message_id, image_size, image_diag_heap_free());
+      if (!retry_active_image_request(message, "Resizing", (unsigned)(image_size * 3) / 4)) {
         message->image_requested = false;
         message->image_failed = true;
-        set_message_image_error(message, "Photo too large");
+        set_message_image_error(message, "Not enough memory");
         reset_image_transfer_state();
+        request_next_image();
       }
       if (s_messages_root) {
         layer_mark_dirty(s_messages_root);
       }
-      if (!retrying_image) {
-        request_next_image();
-      }
       return;
     }
-    copy_cstr(s_image_message_id, sizeof(s_image_message_id), message_id);
+    s_image_buffer_capacity = (uint16_t)image_size;
     s_image_size = image_size;
-	    s_image_received = 0;
-	    s_image_expected_offset = 0;
-	    s_image_transfer_id = transfer_id;
-    s_image_is_pbi = image_format && strcmp(image_format, "pbi") == 0;
-	    copy_cstr(message->image_error, sizeof(message->image_error), "Receiving");
-	    set_message_image_progress(message, 25);
-	    schedule_image_transfer_timeout();
-	    if (s_messages_root) {
-	      layer_mark_dirty(s_messages_root);
-	    }
-	    return;
-	  }
+    s_image_received = 0;
+    s_image_expected_offset = 0;
+    s_image_written = 0;
+    s_pack_literal = 0;
+    s_pack_repeat = 0;
+    s_image_packed = packed;
+    s_image_transfer_id = transfer_id;
+    copy_cstr(message->image_error, sizeof(message->image_error), "Receiving");
+    set_message_image_progress(message, 25);
+    schedule_image_transfer_timeout();
+    if (s_messages_root) {
+      layer_mark_dirty(s_messages_root);
+    }
+    return;
+  }
 
-	  if (strcmp(type, "image_status") == 0) {
-	    char *message_id = tuple_cstring(iter, MESSAGE_KEY_MessageId);
-	    char *detail = tuple_cstring(iter, MESSAGE_KEY_Error);
-	    Message *message = find_message_by_image_token(message_id);
-	    bool is_active_image = message_id && strcmp(message_id, s_image_message_id) == 0;
-    IMAGE_DIAG("PGIMG watch image_status msg=%s active=%d detail=%s",
-               message_id ? message_id : "(null)", is_active_image ? 1 : 0,
-               detail && detail[0] ? detail : "");
-	    if (message && is_active_image && message->image_requested && !message->image_failed) {
-	      copy_cstr(message->image_error, sizeof(message->image_error), detail && detail[0] ? detail : "Preparing");
-	      set_message_image_progress(message, image_loading_phase_percent(message->image_error));
+  if (strcmp(type, "image_status") == 0) {
+    char *message_id = tuple_cstring(iter, MESSAGE_KEY_MessageId);
+    char *detail = tuple_cstring(iter, MESSAGE_KEY_Error);
+    Message *message = find_message_by_image_token(message_id);
+    bool is_active_image = message_id && strcmp(message_id, s_image_message_id) == 0;
+    if (message && is_active_image && message->image_requested && !message->image_failed) {
+      copy_cstr(message->image_error, sizeof(message->image_error), detail && detail[0] ? detail : "Preparing");
+      set_message_image_progress(message, image_loading_phase_percent(message->image_error));
       if (!s_image_buffer) {
         schedule_image_prepare_timeout();
       }
-	      if (s_messages_root) {
-	        layer_mark_dirty(s_messages_root);
-	      }
-	    }
-	    return;
-	  }
+      if (s_messages_root) {
+        layer_mark_dirty(s_messages_root);
+      }
+    }
+    return;
+  }
 
-	  if (strcmp(type, "image") == 0) {
+  if (strcmp(type, "image") == 0) {
     char *message_id = tuple_cstring(iter, MESSAGE_KEY_MessageId);
     int offset = tuple_int(iter, MESSAGE_KEY_Index, -1);
     int transfer_id = tuple_int(iter, MESSAGE_KEY_ImageTransferId, 0);
@@ -5732,35 +5653,29 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
         transfer_id != s_image_transfer_id || !data) {
       return;
     }
-    if (!s_image_buffer ||
-        !transfer_chunk_fits(offset, data_len, s_image_expected_offset,
-                             s_image_size, s_image_buffer_capacity)) {
+    Message *message = find_message_by_image_token(message_id);
+    if (!s_image_buffer || offset != s_image_expected_offset || data_len <= 0 ||
+        !image_write_chunk(data->value->data, data_len)) {
       APP_LOG(APP_LOG_LEVEL_WARNING, "Image transfer gap for %s at %d expected %d",
               message_id, offset, s_image_expected_offset);
-      Message *message = find_message_by_image_token(message_id);
-      if (message) {
-        message->image_requested = false;
-        message->image_failed = true;
-        set_message_image_error(message, "Photo transfer gap");
+      if (!retry_active_image_request(message, "Retrying", 0)) {
+        if (message) {
+          message->image_requested = false;
+          message->image_failed = true;
+          set_message_image_error(message, "Photo transfer failed");
+        }
+        clear_active_image_request();
+        request_next_image();
       }
-      clear_active_image_request();
       if (s_messages_root) {
         layer_mark_dirty(s_messages_root);
       }
-      request_next_image();
       return;
     }
-    memcpy(s_image_buffer + offset, data->value->data, data_len);
     s_image_received = offset + data_len;
     s_image_expected_offset = s_image_received;
-    Message *message = find_message_by_image_token(message_id);
     if (message) {
-      set_message_image_progress(message, 25 + ((progress_percent(s_image_received, s_image_size) * 75) / 100));
-    }
-    if (offset == 0 || s_image_received == s_image_size) {
-      IMAGE_DIAG("PGIMG watch image_chunk msg=%s transfer=%d offset=%d len=%d received=%d/%d",
-                 message_id ? message_id : "(null)", transfer_id, offset, data_len,
-                 s_image_received, s_image_size);
+      set_message_image_progress(message, 25 + ((progress_percent(s_image_written, s_image_size) * 75) / 100));
     }
     schedule_image_transfer_timeout();
     if (s_messages_root) {
@@ -5773,84 +5688,51 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     char *message_id = tuple_cstring(iter, MESSAGE_KEY_MessageId);
     int transfer_id = tuple_int(iter, MESSAGE_KEY_ImageTransferId, 0);
     Message *message = find_message_by_image_token(message_id);
-    int image_index = message_index_from_ptr(message);
-    bool transfer_complete = s_image_received == s_image_size && s_image_buffer;
-    bool should_keep_image = message_image_near_viewport(image_index, IMAGE_KEEP_SCREEN_MARGIN);
     bool is_active_image = message_id && strcmp(message_id, s_image_message_id) == 0 &&
                            transfer_id == s_image_transfer_id;
+    if (!message || !is_active_image) {
+      return;
+    }
+    bool transfer_complete = s_image_buffer && s_image_written == s_image_size;
     bool retrying_image = false;
-    IMAGE_DIAG("PGIMG watch image_done msg=%s active=%d transfer=%d complete=%d received=%d/%d pbi=%d keep=%d heap=%u",
-               message_id ? message_id : "(null)", is_active_image ? 1 : 0, transfer_id,
-               transfer_complete ? 1 : 0, s_image_received, s_image_size,
-               s_image_is_pbi ? 1 : 0, should_keep_image ? 1 : 0,
+    IMAGE_DIAG("PGIMG watch image_done msg=%s complete=%d written=%d/%d heap=%u",
+               message_id, transfer_complete ? 1 : 0, s_image_written, s_image_size,
                image_diag_heap_free());
-    if (message && is_active_image) {
-      if (transfer_complete) {
-        bool attempted_decode = false;
-        destroy_message_bitmap(message);
-        destroy_other_message_images(message);
-        reset_avatar_transfer_state();
-        free_full_text_body();
-        if (s_image_is_pbi) {
-          attempted_decode = true;
-          message->image_bitmap = gbitmap_create_with_data(s_image_buffer);
-          if (message->image_bitmap) {
-            message->image_data = s_image_buffer;
-            s_image_buffer = NULL;
-            s_image_buffer_capacity = 0;
-          }
-        } else if (message_image_decode_has_headroom(message)) {
-          attempted_decode = true;
-          message->image_bitmap = gbitmap_create_from_png_data(s_image_buffer, s_image_size);
-        }
-        if (!s_image_is_pbi && !message->image_bitmap && s_loaded_image_count > 0) {
-          destroy_other_message_images(message);
-          message->image_bitmap = gbitmap_create_from_png_data(s_image_buffer, s_image_size);
-        }
-        if (message->image_bitmap) {
-          message->image_failed = false;
-          message->image_error[0] = '\0';
-          s_loaded_image_count++;
-          sync_message_images();
-          IMAGE_DIAG("PGIMG watch decode_success msg=%s pbi=%d loaded=%d heap=%u",
-                     message_id ? message_id : "(null)", s_image_is_pbi ? 1 : 0,
-                     s_loaded_image_count, image_diag_heap_free());
-        } else {
-          retrying_image = retry_active_image_request(message, "Resizing");
-          IMAGE_DIAG("PGIMG watch decode_fail msg=%s attempted=%d retry=%d heap=%u",
-                     message_id ? message_id : "(null)", attempted_decode ? 1 : 0,
-                     retrying_image ? 1 : 0, image_diag_heap_free());
-          if (!retrying_image) {
-            message->image_failed = true;
-            set_message_image_error(message, attempted_decode ? "Photo decode failed" : "Photo too large");
-          }
-        }
-      } else if (should_keep_image) {
-        retrying_image = retry_active_image_request(message, "Retrying");
-        IMAGE_DIAG("PGIMG watch incomplete msg=%s retry=%d",
-                   message_id ? message_id : "(null)", retrying_image ? 1 : 0);
-        if (!retrying_image) {
-          message->image_failed = true;
-          set_message_image_error(message, "Photo transfer incomplete");
-        }
-      } else {
+    if (transfer_complete) {
+      destroy_message_bitmap(message);
+      // The received bytes are a complete Pebble bitmap: wrap them in place.
+      message->image_bitmap = gbitmap_create_with_data(s_image_buffer);
+      if (message->image_bitmap) {
+        message->image_data = s_image_buffer;
+        s_image_buffer = NULL;
+        s_image_buffer_capacity = 0;
         message->image_failed = false;
         message->image_error[0] = '\0';
-        message->image_progress = 0;
+        message->image_retry_level = 0;
+      } else {
+        retrying_image = retry_active_image_request(message, "Retrying", (unsigned)(s_image_size * 3) / 4);
+        if (!retrying_image) {
+          message->image_failed = true;
+          set_message_image_error(message, "Photo failed");
+        }
       }
+    } else {
+      retrying_image = retry_active_image_request(message, "Retrying", 0);
       if (!retrying_image) {
-        message->image_requested = false;
-      }
-      if (s_messages_root) {
-        layer_mark_dirty(s_messages_root);
+        message->image_failed = message_image_near_viewport(message_index_from_ptr(message), IMAGE_KEEP_MARGIN);
+        set_message_image_error(message, "Photo transfer failed");
       }
     }
-    if (is_active_image && !retrying_image) {
+    if (!retrying_image) {
+      message->image_requested = false;
       if (s_image_retry_timer) {
         app_timer_cancel(s_image_retry_timer);
         s_image_retry_timer = NULL;
       }
       reset_image_transfer_state();
+    }
+    if (s_messages_root) {
+      layer_mark_dirty(s_messages_root);
     }
     if (!retrying_image) {
       request_next_image();
@@ -5858,7 +5740,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     return;
   }
 
-	  if (strcmp(type, "image_error") == 0) {
+  if (strcmp(type, "image_error") == 0) {
     char *message_id = tuple_cstring(iter, MESSAGE_KEY_MessageId);
     char *detail = tuple_cstring(iter, MESSAGE_KEY_Error);
     int transfer_id = tuple_int(iter, MESSAGE_KEY_ImageTransferId, s_image_transfer_id);
@@ -5866,14 +5748,14 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     int image_index = message_index_from_ptr(message);
     bool is_active_image = message_id && strcmp(message_id, s_image_message_id) == 0 &&
                            transfer_id == s_image_transfer_id;
-    IMAGE_DIAG("PGIMG watch image_error msg=%s active=%d transfer=%d detail=%s",
+    IMAGE_DIAG("PGIMG watch image_error msg=%s active=%d detail=%s",
                message_id ? message_id : "(null)", is_active_image ? 1 : 0,
-               transfer_id, detail && detail[0] ? detail : "");
+               detail && detail[0] ? detail : "");
     if (message && is_active_image) {
       message->image_requested = false;
-      message->image_failed = message_image_near_viewport(image_index, IMAGE_KEEP_SCREEN_MARGIN);
+      message->image_failed = message_image_near_viewport(image_index, IMAGE_KEEP_MARGIN);
       if (message->image_failed) {
-        set_message_image_error(message, detail && detail[0] ? detail : "Photo prepare failed");
+        set_message_image_error(message, detail && detail[0] ? detail : "Photo failed");
       } else {
         message->image_error[0] = '\0';
         message->image_progress = 0;
@@ -6556,6 +6438,7 @@ static void native_action_perform(ActionMenu *action_menu, const ActionMenuItem 
 }
 
 static void show_action_window(ActionMenuMode mode) {
+  release_images_for_heap();
   if (mode != ActionMenuFullText) {
     if (!show_native_action_menu(mode)) {
       show_status("Menu unavailable");
@@ -6698,6 +6581,61 @@ static void main_select_long_click_handler(ClickRecognizerRef recognizer, void *
   }
 }
 
+// One button press in a chat. Every press moves the view by at most half a
+// screen, so tall messages and photos scroll through smoothly and a press never
+// jumps past the part you haven't seen. While the selected message still has
+// more above/below the screen, the press scrolls within it; otherwise it
+// selects the next message and brings it into view. Returns false at the
+// start/end of the loaded messages.
+static bool chat_step(int direction, bool repeating) {
+  GRect bounds = layer_get_bounds(s_messages_root);
+  int view_h = visible_message_height(bounds);
+  int step = view_h / 2;
+  int margin = 6;
+  int offset = s_chat_scroll_offset;
+  int sel = s_selected_message;
+  bool on_compose = sel < 0 || sel >= s_message_count;
+
+  if (!on_compose) {
+    int top = s_message_y[sel] - margin;
+    int bottom = s_message_y[sel] + s_message_h[sel] + margin;
+    if (direction > 0 && bottom > offset + view_h) {
+      set_chat_scroll_offset(offset + PG_MIN(step, bottom - (offset + view_h)), !repeating);
+      return true;
+    }
+    if (direction < 0 && top < offset) {
+      set_chat_scroll_offset(offset - PG_MIN(step, offset - top), !repeating);
+      return true;
+    }
+  }
+
+  int next = on_compose ? (direction < 0 ? s_message_count - 1 : -1) : sel + direction;
+  if (next < 0 || next >= s_message_count) {
+    return false;
+  }
+  s_selected_message = next;
+  prepare_selected_image_request();
+  int top = s_message_y[next] - margin;
+  int bottom = s_message_y[next] + s_message_h[next] + margin;
+  bool tall = bottom - top > view_h;
+  int target = offset;
+  if (direction > 0) {
+    // Show the new message from its top; a short one fits completely.
+    int wanted = tall ? top : bottom - view_h;
+    if (wanted > offset) {
+      target = offset + PG_MIN(step, wanted - offset);
+    }
+  } else {
+    // Moving up, a tall message shows its end first, then scrolls up.
+    int wanted = tall ? bottom - view_h : top;
+    if (wanted < offset) {
+      target = offset - PG_MIN(step, offset - wanted);
+    }
+  }
+  set_chat_scroll_offset(target, !repeating);
+  return true;
+}
+
 static void main_up_click_handler(ClickRecognizerRef recognizer, void *context) {
   bool repeating = click_is_repeating(recognizer);
   if (s_view_state == ViewStateChatList && s_chat_menu) {
@@ -6724,22 +6662,7 @@ static void main_up_click_handler(ClickRecognizerRef recognizer, void *context) 
     clear_active_image_request();
   }
 
-  if (compose_target_is_selected() || s_selected_message < 0) {
-    select_message_with_alignment(s_message_count - 1, true, !repeating);
-    if (!reversed_direction) {
-      maybe_prefetch_older_messages();
-    }
-    return;
-  }
-
-  GRect bounds = layer_get_bounds(s_messages_root);
-  int margin = 6;
-  int current_offset = s_chat_scroll_offset;
-  bool selected_image_tall = message_image_scrolls_tall(s_selected_message, bounds, margin);
-  int top = selected_image_tall ? message_image_top(s_selected_message, bounds) - margin :
-                                  s_message_y[s_selected_message] - margin;
-  int visible_top = clamp_scroll_offset(top);
-  if (s_selected_message == 0 && current_offset <= visible_top + 2) {
+  if (!chat_step(-1, repeating)) {
     if (s_loading_older_messages) {
       show_status("Loading older...");
     } else {
@@ -6747,29 +6670,8 @@ static void main_up_click_handler(ClickRecognizerRef recognizer, void *context) 
     }
     return;
   }
-  if (!repeating && (selected_image_tall ||
-      s_message_h[s_selected_message] > visible_message_height(bounds) - (margin * 2)) &&
-      current_offset > visible_top) {
-    set_chat_scroll_offset(PG_MAX(visible_top, current_offset - LONG_MESSAGE_SCROLL_DELTA), true);
-    if (!reversed_direction) {
-      maybe_prefetch_older_messages();
-    }
-    return;
-  }
-  if (s_selected_message > 0) {
-    int prev_index = s_selected_message - 1;
-    bool prev_is_tall = message_image_scrolls_tall(prev_index, bounds, margin) ||
-                        s_message_h[prev_index] > visible_message_height(bounds) - (margin * 2);
-    select_message_with_alignment(prev_index, !prev_is_tall, !repeating);
-    if (!reversed_direction) {
-      maybe_prefetch_older_messages();
-    }
-  } else {
-    if (s_loading_older_messages) {
-      show_status("Loading older...");
-    } else {
-      request_older_messages(false);
-    }
+  if (!reversed_direction) {
+    maybe_prefetch_older_messages();
   }
 }
 
@@ -6799,50 +6701,22 @@ static void main_down_click_handler(ClickRecognizerRef recognizer, void *context
     clear_active_image_request();
   }
 
-  if (compose_target_is_selected() || s_selected_message < 0) {
-    if (s_at_newest) {
-      scroll_to_bottom(!repeating);
-    } else if (s_message_count > 0) {
-      select_message_with_alignment(s_message_count - 1, false, !repeating);
-      if (!reversed_direction) {
-        maybe_prefetch_newer_messages();
-      }
-    }
-    return;
-  }
-
-  GRect bounds = layer_get_bounds(s_messages_root);
-  int margin = 6;
-  int current_offset = s_chat_scroll_offset;
-  bool selected_image_tall = message_image_scrolls_tall(s_selected_message, bounds, margin);
-  int bottom = selected_image_tall ?
-               message_image_edge_scroll_target(s_selected_message, bounds, margin, false) +
-               visible_message_height(bounds) :
-               s_message_y[s_selected_message] + s_message_h[s_selected_message] + margin;
-  if (!repeating && (selected_image_tall ||
-      s_message_h[s_selected_message] > visible_message_height(bounds) - (margin * 2)) &&
-      current_offset + visible_message_height(bounds) < bottom) {
-    set_chat_scroll_offset(PG_MIN(bottom - visible_message_height(bounds),
-                                  current_offset + LONG_MESSAGE_SCROLL_DELTA), true);
-    if (!reversed_direction) {
-      maybe_prefetch_newer_messages();
-    }
-    return;
-  }
-  if (s_selected_message < s_message_count - 1) {
-    int next_index = s_selected_message + 1;
-    bool next_is_tall = message_image_scrolls_tall(next_index, bounds, margin) ||
-                        s_message_h[next_index] > visible_message_height(bounds) - (margin * 2);
-    select_message_with_alignment(next_index, next_is_tall, !repeating);
-    if (!reversed_direction) {
-      maybe_prefetch_newer_messages();
-    }
-  } else if (s_loading_newer_messages) {
-    show_status("Loading newer...");
-  } else if (s_at_newest) {
+  if (compose_target_is_selected()) {
     scroll_to_bottom(!repeating);
-  } else {
-    request_newer_messages(false);
+    return;
+  }
+  if (!chat_step(1, repeating)) {
+    if (s_loading_newer_messages) {
+      show_status("Loading newer...");
+    } else if (s_at_newest) {
+      scroll_to_bottom(!repeating);
+    } else {
+      request_newer_messages(false);
+    }
+    return;
+  }
+  if (!reversed_direction) {
+    maybe_prefetch_newer_messages();
   }
 }
 
@@ -7079,6 +6953,7 @@ static void open_emoji_grid(EmojiGridMode mode, bool as_reply) {
   if (s_grid_window) {
     return;
   }
+  release_images_for_heap();
   s_grid_mode = mode;
   s_grid_as_reply = as_reply;
   s_grid_selected = 0;
@@ -7164,7 +7039,6 @@ typedef struct {
   bool keyboard;
   GPoint start;
   GPoint last;
-  int list_accum;
 } TouchGesture;
 
 static TouchGesture s_gesture;
@@ -7194,9 +7068,12 @@ static int touch_chat_row_at(GPoint point) {
   }
   ScrollLayer *scroll = menu_layer_get_scroll_layer(s_chat_menu);
   GPoint offset = scroll_layer_get_content_offset(scroll);
-  int cell_h = ROUND_UI ? 42 : 46;
-  int row = (point.y - offset.y) / cell_h;
-  return (row >= 0 && row < s_chat_count) ? row : -1;
+  int content_y = point.y - offset.y;
+  if (content_y < 0) {
+    return -1;
+  }
+  int row = content_y / CHAT_ROW_H;
+  return row < s_chat_count ? row : -1;
 }
 
 static void touch_chat_list_select(int row, bool animated) {
@@ -7232,19 +7109,32 @@ static void touch_chat_list_hold(GPoint point) {
   show_action_window(ActionMenuChat);
 }
 
-// Dragging moves the selection one row per row-height of finger travel.
+// Dragging scrolls the list with the finger, pixel for pixel. The highlight
+// follows quietly: it only moves when the selected chat would leave the screen,
+// and then just to the nearest chat that is fully visible.
 static void touch_chat_list_drag(int dy) {
-  int cell_h = ROUND_UI ? 42 : 46;
-  s_gesture.list_accum += dy;
-  while (s_gesture.list_accum <= -cell_h / 2) {
-    s_gesture.list_accum += cell_h / 2;
-    menu_layer_set_selected_next(s_chat_menu, false, MenuRowAlignCenter, false);
+  if (s_chat_count == 0) {
+    return;
   }
-  while (s_gesture.list_accum >= cell_h / 2) {
-    s_gesture.list_accum -= cell_h / 2;
-    menu_layer_set_selected_next(s_chat_menu, true, MenuRowAlignCenter, false);
+  ScrollLayer *scroll = menu_layer_get_scroll_layer(s_chat_menu);
+  GRect frame = layer_get_frame(menu_layer_get_layer(s_chat_menu));
+  int content_h = s_chat_count * CHAT_ROW_H;
+  int min_y = PG_MIN(0, frame.size.h - content_h);
+  GPoint offset = scroll_layer_get_content_offset(scroll);
+  offset.y = PG_MAX(min_y, PG_MIN(0, offset.y + dy));
+  scroll_layer_set_content_offset(scroll, offset, false);
+
+  int first_full = (-offset.y + CHAT_ROW_H - 1) / CHAT_ROW_H;
+  int last_full = (-offset.y + frame.size.h) / CHAT_ROW_H - 1;
+  first_full = PG_MAX(0, PG_MIN(s_chat_count - 1, first_full));
+  last_full = PG_MAX(first_full, PG_MIN(s_chat_count - 1, last_full));
+  int row = menu_layer_get_selected_index(s_chat_menu).row;
+  if (row < first_full || row > last_full) {
+    row = row < first_full ? first_full : last_full;
+    touch_chat_list_select(row, false);
+    // Selecting must not move the list out from under the finger.
+    scroll_layer_set_content_offset(scroll, offset, false);
   }
-  touch_chat_list_select(menu_layer_get_selected_index(s_chat_menu).row, false);
 }
 
 // ---- Chat -----------------------------------------------------------------

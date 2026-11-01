@@ -8,21 +8,8 @@ var MAX_PERSISTENT_IMAGE_CACHE_ITEMS = 32;
 var PERSISTENT_IMAGE_CACHE_ORDER_KEY = 'pgjs.imageCacheOrder';
 var IMAGE_CACHE_VERSION = 'v28';
 var MEDIA_PIPELINE_TIMEOUT_MS = 22000;
-var TALL_IMAGE_ASPECT = 1.85;
-var TALL_IMAGE_WATCH_MAX_BYTES = 12000;
-var EMERY_TALL_IMAGE_WATCH_MAX_BYTES = 19000;
-var GABBRO_TALL_IMAGE_WATCH_MAX_BYTES = 16000;
 var DEBUG_LOGS = false;
 var foregroundImageGeneration = 0;
-var IMAGE_RETRY_PROFILES = [
-  {maxBytes: 34000, maxPixels: 52000},
-  {maxBytes: 26000, maxPixels: 42000},
-  {maxBytes: 18000, maxPixels: 32000}
-];
-var EMERY_TALL_PBI_MAX_BYTES = 24000;
-var EMERY_TALL_PBI_MAX_PIXELS = 48000;
-var GABBRO_TALL_PBI_MAX_BYTES = 17000;
-var GABBRO_TALL_PBI_MAX_PIXELS = 34000;
 
 function debugLog(message) {
   if (DEBUG_LOGS) {
@@ -319,173 +306,6 @@ function writeUint16LE(bytes, offset, value) {
   bytes[offset + 1] = (value >> 8) & 255;
 }
 
-function pebbleChannel(value) {
-  return Math.max(0, Math.min(3, Math.round(value / 85)));
-}
-
-function argb8FromRgba(r, g, b, a) {
-  if (a < 64) {
-    return 0;
-  }
-  return (3 << 6) | (pebbleChannel(r) << 4) | (pebbleChannel(g) << 2) | pebbleChannel(b);
-}
-
-function argb8Distance(a, b) {
-  var ar = ((a >> 4) & 3) * 85;
-  var ag = ((a >> 2) & 3) * 85;
-  var ab = (a & 3) * 85;
-  var br = ((b >> 4) & 3) * 85;
-  var bg = ((b >> 2) & 3) * 85;
-  var bb = (b & 3) * 85;
-  var dr = ar - br;
-  var dg = ag - bg;
-  var db = ab - bb;
-  return dr * dr + dg * dg + db * db;
-}
-
-function pbiPalette(colors) {
-  var forced = [0xff, 0xc0, 0xea, 0xd5];
-  var counts = {};
-  var ranked = [];
-  var palette = [];
-  var i;
-  for (i = 0; i < colors.length; i += 1) {
-    counts[colors[i]] = (counts[colors[i]] || 0) + 1;
-  }
-  for (i = 0; i < forced.length; i += 1) {
-    palette.push(forced[i]);
-  }
-  Object.keys(counts).forEach(function(key) {
-    ranked.push({color: parseInt(key, 10), count: counts[key]});
-  });
-  ranked.sort(function(a, b) {
-    return b.count - a.count;
-  });
-  for (i = 0; i < ranked.length && palette.length < 16; i += 1) {
-    if (palette.indexOf(ranked[i].color) < 0) {
-      palette.push(ranked[i].color);
-    }
-  }
-  while (palette.length < 16) {
-    palette.push(0);
-  }
-  return palette;
-}
-
-function nearestPaletteIndex(color, palette) {
-  var best = 0;
-  var bestDistance = 2147483647;
-  for (var i = 0; i < palette.length; i += 1) {
-    var distance = argb8Distance(color, palette[i]);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = i;
-      if (distance === 0) {
-        break;
-      }
-    }
-  }
-  return best;
-}
-
-function encodePbi4(resized) {
-  var width = resized.width;
-  var height = resized.height;
-  var rowSize = Math.ceil(width / 2);
-  var dataSize = rowSize * height;
-  var output = new Uint8Array(12 + dataSize + 16);
-  var colors = new Uint8Array(width * height);
-  var palette;
-  var x;
-  var y;
-  var srcIndex;
-  var color;
-  var high;
-  var low;
-
-  for (var i = 0; i < width * height; i += 1) {
-    srcIndex = i * 4;
-    colors[i] = argb8FromRgba(resized.data[srcIndex], resized.data[srcIndex + 1],
-                              resized.data[srcIndex + 2], resized.data[srcIndex + 3]);
-  }
-  palette = pbiPalette(colors);
-
-  writeUint16LE(output, 0, rowSize);
-  writeUint16LE(output, 2, (1 << 12) | (4 << 1));
-  writeUint16LE(output, 4, 0);
-  writeUint16LE(output, 6, 0);
-  writeUint16LE(output, 8, width);
-  writeUint16LE(output, 10, height);
-
-  for (y = 0; y < height; y += 1) {
-    for (x = 0; x < width; x += 2) {
-      color = colors[(y * width) + x];
-      high = nearestPaletteIndex(color, palette);
-      low = 0;
-      if (x + 1 < width) {
-        low = nearestPaletteIndex(colors[(y * width) + x + 1], palette);
-      }
-      output[12 + (y * rowSize) + Math.floor(x / 2)] = (high << 4) | low;
-    }
-  }
-  for (i = 0; i < 16; i += 1) {
-    output[12 + dataSize + i] = palette[i];
-  }
-  return output;
-}
-
-function compactPbi4(source, width, height, maxBytes, maxPixels, options) {
-  var encodeBox = fitEncodeBoxForPixelBudget(source, width, height, maxPixels);
-  var scaleSteps = [1, 0.94, 0.88, 0.8, 0.72, 0.64, 0.56, 0.48, 0.4];
-  var toneMode = messageImageToneMode(source);
-  var best = null;
-  for (var step = 0; step < scaleSteps.length; step += 1) {
-    throwIfCancelled(options);
-    var resized = resizeContain(source,
-                                Math.max(32, Math.floor(encodeBox.width * scaleSteps[step])),
-                                Math.max(32, Math.floor(encodeBox.height * scaleSteps[step])),
-                                toneMode);
-    var encoded = encodePbi4(resized);
-    if (!best || encoded.length < best.length) {
-      best = encoded;
-    }
-    if (!maxBytes || encoded.length <= maxBytes) {
-      return encoded;
-    }
-  }
-  if (best && (!maxBytes || best.length <= maxBytes)) {
-    return best;
-  }
-  throw new Error('phone pbi encode over budget: best ' + (best ? best.length : 0) + 'b > ' + maxBytes + 'b');
-}
-
-function tallPbiBudget(maxBytes, maxPixels, options) {
-  var platformMaxBytes = options && options.platformMaxBytes || maxBytes;
-  var platformMaxPixels = options && options.platformMaxPixels || maxPixels;
-  if (options && options.retryLevel > 0) {
-    return {
-      maxBytes: maxBytes,
-      maxPixels: maxPixels
-    };
-  }
-  if (platformMaxBytes >= 24000 || platformMaxPixels >= 40000) {
-    return {
-      maxBytes: Math.min(maxBytes, EMERY_TALL_PBI_MAX_BYTES),
-      maxPixels: maxPixels ? Math.min(maxPixels, EMERY_TALL_PBI_MAX_PIXELS) : EMERY_TALL_PBI_MAX_PIXELS
-    };
-  }
-  if (platformMaxBytes >= 14000 || platformMaxPixels >= 28000) {
-    return {
-      maxBytes: Math.min(maxBytes, GABBRO_TALL_PBI_MAX_BYTES),
-      maxPixels: maxPixels ? Math.min(maxPixels, GABBRO_TALL_PBI_MAX_PIXELS) : GABBRO_TALL_PBI_MAX_PIXELS
-    };
-  }
-  return {
-    maxBytes: Math.min(maxBytes, TALL_IMAGE_WATCH_MAX_BYTES),
-    maxPixels: maxPixels ? Math.min(maxPixels, 20000) : 20000
-  };
-}
-
 function imageStats(source) {
   var pixels = source.width * source.height;
   var step = Math.max(1, Math.floor(pixels / 1200));
@@ -517,62 +337,6 @@ function imageStats(source) {
     mostlyTransparent: count > 0 && transparent / count > 0.92,
     hasNonWhiteDetail: count > 0 && dark / count > 0.08
   };
-}
-
-function messageImageToneMode(source) {
-  var pixels = source.width * source.height;
-  var step = Math.max(1, Math.floor(pixels / 1600));
-  var count = 0;
-  var lumaTotal = 0;
-  var dark = 0;
-  var midDark = 0;
-  var light = 0;
-  var nearWhite = 0;
-  var saturated = 0;
-  for (var i = 0; i < pixels; i += step) {
-    var index = i * 4;
-    var r = source.data[index];
-    var g = source.data[index + 1];
-    var b = source.data[index + 2];
-    var max = Math.max(r, g, b);
-    var min = Math.min(r, g, b);
-    var luma = (r * 0.299) + (g * 0.587) + (b * 0.114);
-    lumaTotal += luma;
-    if (luma < 96) {
-      dark += 1;
-    }
-    if (luma >= 42 && luma < 140) {
-      midDark += 1;
-    }
-    if (luma > 178) {
-      light += 1;
-    }
-    if (luma > 222) {
-      nearWhite += 1;
-    }
-    if (max - min > 58) {
-      saturated += 1;
-    }
-    count += 1;
-  }
-  if (count <= 0) {
-    return false;
-  }
-  var average = lumaTotal / count;
-  var darkRatio = dark / count;
-  var midDarkRatio = midDark / count;
-  var lightRatio = light / count;
-  var nearWhiteRatio = nearWhite / count;
-  var saturatedRatio = saturated / count;
-  if (average < 112 && darkRatio > 0.42 && midDarkRatio > 0.18 &&
-      lightRatio < 0.45 && saturatedRatio < 0.48) {
-    return 'dark';
-  }
-  if (average > 174 && lightRatio > 0.58 && nearWhiteRatio > 0.22 &&
-      darkRatio < 0.28 && saturatedRatio < 0.38) {
-    return 'light';
-  }
-  return false;
 }
 
 function encodedLooksBlank(encoded, sourceStats) {
@@ -647,57 +411,6 @@ function compactPng(source, width, height, colors, maxBytes, maskCircle, liftCol
                   source.width + 'x' + source.height);
 }
 
-function compactPngAsync(source, width, height, colors, maxBytes, maskCircle, liftColors, scaleSteps, fitMode, options, maxCost) {
-  var colorSteps = [colors, 32, 16, 8, 4, 2];
-  var best = null;
-  var bestDetail = '';
-  scaleSteps = scaleSteps || [1, 0.9, 0.8, 0.7, 0.6];
-
-  function failOverBudget() {
-    throw new Error('phone png encode over budget: best ' + (best ? best.length : 0) +
-                    'b cost ' + (best ? encodedDecodeCost(best) : 0) + ' at ' + bestDetail +
-                    ' > ' + maxBytes + 'b/' + (maxCost || 0) + 'c from ' +
-                    source.width + 'x' + source.height);
-  }
-
-  function attempt(step, colorIndex) {
-    var nextWidth;
-    var nextHeight;
-    var nextColors;
-    if (step >= scaleSteps.length) {
-      if (best && encodedFits(best, maxBytes, maxCost)) {
-        return Promise.resolve(best);
-      }
-      return Promise.resolve().then(failOverBudget);
-    }
-    if (colorIndex >= colorSteps.length) {
-      return attempt(step + 1, 0);
-    }
-    nextColors = colorSteps[colorIndex];
-    if (nextColors > colors) {
-      return attempt(step, colorIndex + 1);
-    }
-    nextWidth = Math.max(32, Math.floor(width * scaleSteps[step]));
-    nextHeight = Math.max(32, Math.floor(height * scaleSteps[step]));
-    return nextTurn().then(function() {
-      var encoded;
-      throwIfCancelled(options);
-      encoded = encodePng(source, nextWidth, nextHeight, nextColors, maskCircle, liftColors, fitMode);
-      throwIfCancelled(options);
-      if (!best || encoded.length < best.length) {
-        best = encoded;
-        bestDetail = nextWidth + 'x' + nextHeight + '/' + nextColors + 'c';
-      }
-      if (encodedFits(encoded, maxBytes, maxCost)) {
-        return encoded;
-      }
-      return attempt(step, colorIndex + 1);
-    });
-  }
-
-  return attempt(0, 0);
-}
-
 function safeCompactPng(source, width, height, colors, maxBytes, maskCircle) {
   var sourceStats = imageStats(source);
   var encoded = compactPng(source, width, height, colors, maxBytes, maskCircle, false, [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.42]);
@@ -745,103 +458,6 @@ function removeArrayValue(items, value) {
   }
   items.length = write;
   return items;
-}
-
-function isTallSource(source) {
-  return source && source.width > 0 && source.height / source.width >= TALL_IMAGE_ASPECT;
-}
-
-function applyImageRetryProfile(maxBytes, maxPixels, retryLevel) {
-  retryLevel = Math.max(0, Math.min(IMAGE_RETRY_PROFILES.length, retryLevel || 0));
-  if (retryLevel <= 0) {
-    return {
-      maxBytes: maxBytes,
-      maxPixels: maxPixels
-    };
-  }
-  var profile = IMAGE_RETRY_PROFILES[retryLevel - 1];
-  return {
-    maxBytes: Math.min(maxBytes, profile.maxBytes),
-    maxPixels: maxPixels ? Math.min(maxPixels, profile.maxPixels) : profile.maxPixels
-  };
-}
-
-function containPixelCount(source, width, height) {
-  if (!source || source.width <= 0 || source.height <= 0 || width <= 0 || height <= 0) {
-    return width * height;
-  }
-  var scale = Math.min(width / source.width, height / source.height);
-  var outputWidth = Math.max(1, Math.floor(source.width * scale));
-  var outputHeight = Math.max(1, Math.floor(source.height * scale));
-  return outputWidth * outputHeight;
-}
-
-function fitEncodeBoxForPixelBudget(source, width, height, maxPixels) {
-  var pixels = containPixelCount(source, width, height);
-  var scale;
-  if (!maxPixels || pixels <= maxPixels) {
-    return {
-      width: width,
-      height: height
-    };
-  }
-  scale = Math.sqrt(maxPixels / pixels);
-  return {
-    width: Math.max(32, Math.floor(width * scale)),
-    height: Math.max(32, Math.floor(height * scale))
-  };
-}
-
-function tallWatchMaxBytes(maxBytes, maxPixels) {
-  if (maxBytes >= 24000 && maxPixels >= 40000) {
-    return EMERY_TALL_IMAGE_WATCH_MAX_BYTES;
-  }
-  if (maxBytes >= 14000 && maxPixels >= 28000) {
-    return GABBRO_TALL_IMAGE_WATCH_MAX_BYTES;
-  }
-  return TALL_IMAGE_WATCH_MAX_BYTES;
-}
-
-function compactMessagePngAsync(source, width, height, colors, maxBytes, options, maxPixels, maxCost) {
-  var encodeBox = fitEncodeBoxForPixelBudget(source, width, height, maxPixels);
-  var tall = isTallSource(source);
-  var costLimit = tall || (options && options.retryLevel > 0) ? maxCost : 0;
-  var watchSafeMaxBytes = tall ? Math.min(maxBytes, tallWatchMaxBytes(maxBytes, maxPixels || 0)) : maxBytes;
-  var toneMode = messageImageToneMode(source);
-  var normalScaleSteps = maxBytes >= 38000 ?
-                         [1, 0.98, 0.95, 0.92, 0.86, 0.78, 0.68, 0.58, 0.5, 0.42] :
-                         (maxBytes >= 22000 ?
-                          [1, 0.96, 0.92, 0.86, 0.78, 0.68, 0.58, 0.5, 0.42] :
-                          [1, 0.93, 0.86, 0.76, 0.66, 0.56, 0.46, 0.38]);
-  width = encodeBox.width;
-  height = encodeBox.height;
-  if (tall && watchSafeMaxBytes < maxBytes) {
-    if (DEBUG_LOGS) {
-      debugLog('tall image watch-safe budget ' + watchSafeMaxBytes + 'b/' + (costLimit || 0) + 'c at ' + width + 'x' + height);
-    }
-    return compactPngAsync(source, width, height, Math.min(colors, 32), watchSafeMaxBytes, false, toneMode,
-                           [1, 0.85, 0.7, 0.56, 0.45, 0.36, 0.32], 'contain', options, costLimit).catch(function(tallErr) {
-      if (DEBUG_LOGS) {
-        debugLog('tall image compact path: ' + (tallErr && tallErr.message ? tallErr.message : tallErr));
-      }
-      throwIfCancelled(options);
-      return compactPngAsync(source, width, height, 16, watchSafeMaxBytes, false, toneMode,
-                             [0.5, 0.42, 0.35, 0.3, 0.26], 'contain', options, costLimit);
-    });
-  }
-  return compactPngAsync(source, width, height, colors, watchSafeMaxBytes, false, toneMode,
-                         normalScaleSteps, 'contain', options, costLimit).catch(function(err) {
-    if (!tall) {
-      throw err;
-    }
-    if (DEBUG_LOGS) {
-      debugLog('tall image encode fallback: ' + (err && err.message ? err.message : err));
-    }
-    throwIfCancelled(options);
-    return compactPngAsync(source, width, height, Math.min(colors, 32), watchSafeMaxBytes, false, toneMode,
-                           [0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.4, 0.35, 0.32],
-                           'contain', options, costLimit);
-  });
 }
 
 function noteImageCacheUse(key) {
@@ -978,42 +594,12 @@ function cachedBytes(key, label, downloader, width, height, colors, maxBytes, ma
     imageStatus(options, 'Decoding');
     source = rgbaBuffer(bytes);
     throwIfCancelled(options);
-    var tall = options && options.forceTall || isTallSource(source);
-    imageStatus(options, tall && !maskCircle ? 'Packing' : 'Encoding');
-    if (maskCircle) {
-      return Promise.resolve(safeCompactPng(source, width, height, colors, maxBytes, true)).then(function(encoded) {
-        throwIfCancelled(options);
-        if (DEBUG_LOGS) {
-          logDuration('image encode ' + label, encodeStartedAt);
-        }
-        imageStatus(options, 'Caching');
-        cacheSet(key, encoded);
-        return encoded;
-      });
-    }
-    if (tall) {
-      var pbiBudget = tallPbiBudget(maxBytes, maxPixels, options);
-      maxBytes = pbiBudget.maxBytes;
-      maxPixels = pbiBudget.maxPixels;
-      if (DEBUG_LOGS) {
-        debugLog('tall pbi budget ' + maxBytes + 'b/' + (maxPixels || 0) + 'px');
-      }
-      return Promise.resolve(compactPbi4(source, width, height, maxBytes, maxPixels, options)).then(function(encoded) {
-        throwIfCancelled(options);
-        if (DEBUG_LOGS) {
-          logDuration('image encode ' + label, encodeStartedAt);
-        }
-        imageStatus(options, 'Caching');
-        cacheSet(key, encoded);
-        return encoded;
-      });
-    }
-    return compactMessagePngAsync(source, width, height, colors, maxBytes, options, maxPixels, maxCost).then(function(encoded) {
+    imageStatus(options, 'Encoding');
+    return Promise.resolve(safeCompactPng(source, width, height, colors, maxBytes, true)).then(function(encoded) {
       throwIfCancelled(options);
       if (DEBUG_LOGS) {
         logDuration('image encode ' + label, encodeStartedAt);
       }
-      imageStatus(options, 'Caching');
       cacheSet(key, encoded);
       return encoded;
     });
@@ -1033,64 +619,674 @@ function cachedBytes(key, label, downloader, width, height, colors, maxBytes, ma
   return wrapped;
 }
 
-function imageBytes(chatId, messageId, width, height, colors, maxBytes, maxPixels, retryLevel, maxCost, forceTall, status) {
-  var key;
+// ---------------------------------------------------------------------------
+// Chat photos
+//
+// The watch asks for a photo at an exact size with a byte budget (its free
+// heap). Photos are sent as ready-to-draw Pebble bitmaps, so the watch never
+// decodes anything: the bytes it receives are the bytes it keeps. The best
+// colour depth that fits the budget is chosen per photo:
+//   8-bit (all 64 Pebble colours, dithered)   photos
+//   4-bit (16 chosen colours)                  graphics, colourful screenshots
+//   2-bit (4 chosen colours)                   text screenshots
+//   1-bit (dithered black and white)           Pebble 2 / black-and-white
+// Only if even the smallest depth does not fit is the photo shrunk.
+
+var PHOTO_CACHE_VERSION = 'p1';
+var PHOTO_DEBUG = false;
+var PHOTO_SCALES = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.42, 0.35, 0.28];
+var photoKinds = null;
+var PHOTO_KIND_KEY = 'pgjs.photoKinds';
+var MAX_PHOTO_KINDS = 160;
+var workCache = [];
+var MAX_WORK_CACHE = 3;
+
+function pbiRowBytes(width, bpp) {
+  return bpp === 1 ? Math.ceil(width / 32) * 4 : Math.ceil(width * bpp / 8);
+}
+
+function pbiSize(width, height, bpp) {
+  return 12 + pbiRowBytes(width, bpp) * height + (bpp === 2 ? 4 : (bpp === 4 ? 16 : 0));
+}
+
+function depthsFor(kind, blackAndWhite) {
+  if (blackAndWhite) {
+    return [1];
+  }
+  if (kind === 'flat') {
+    return [2];
+  }
+  if (kind === 'graphic') {
+    return [4, 2];
+  }
+  return [8, 4, 2];
+}
+
+// Picks the output size and depth: full resolution first, colour second.
+function choosePhotoPlan(width, height, budget, kind, blackAndWhite) {
+  var depths = depthsFor(kind, blackAndWhite);
+  for (var s = 0; s < PHOTO_SCALES.length; s += 1) {
+    var w = Math.max(16, Math.round(width * PHOTO_SCALES[s]));
+    var h = Math.max(16, Math.round(height * PHOTO_SCALES[s]));
+    for (var d = 0; d < depths.length; d += 1) {
+      if (pbiSize(w, h, depths[d]) <= budget) {
+        return {width: w, height: h, bpp: depths[d]};
+      }
+    }
+  }
+  return null;
+}
+
+function loadPhotoKinds() {
+  if (!photoKinds) {
+    try {
+      photoKinds = JSON.parse(localStorage.getItem(PHOTO_KIND_KEY) || '{}') || {};
+    } catch (e) {
+      photoKinds = {};
+    }
+  }
+  return photoKinds;
+}
+
+function rememberPhotoKind(key, kind) {
+  var kinds = loadPhotoKinds();
+  if (kinds[key] === kind) {
+    return;
+  }
+  kinds[key] = kind;
+  var keys = Object.keys(kinds);
+  while (keys.length > MAX_PHOTO_KINDS) {
+    delete kinds[keys.shift()];
+  }
+  try {
+    localStorage.setItem(PHOTO_KIND_KEY, JSON.stringify(kinds));
+  } catch (e) {}
+}
+
+// Area-average downscale (every source pixel counts, so thin text strokes
+// survive), or bilinear when the source is smaller than the target.
+// Transparent pixels are composited onto white. Returns 8-bit RGB.
+function resizeForWatch(source, width, height) {
+  var out = new Float32Array(width * height * 3);
+  var sw = source.width;
+  var sh = source.height;
+  var data = source.data;
+  var x;
+  var y;
+  var i;
+  if (sw >= width && sh >= height) {
+    var counts = new Uint32Array(width * height);
+    var xMap = new Uint16Array(sw);
+    for (x = 0; x < sw; x += 1) {
+      xMap[x] = Math.min(width - 1, Math.floor(x * width / sw));
+    }
+    for (y = 0; y < sh; y += 1) {
+      var rowOut = Math.min(height - 1, Math.floor(y * height / sh)) * width;
+      var src = y * sw * 4;
+      for (x = 0; x < sw; x += 1) {
+        var a = data[src + 3] / 255;
+        var o = rowOut + xMap[x];
+        var o3 = o * 3;
+        out[o3] += data[src] * a + 255 * (1 - a);
+        out[o3 + 1] += data[src + 1] * a + 255 * (1 - a);
+        out[o3 + 2] += data[src + 2] * a + 255 * (1 - a);
+        counts[o] += 1;
+        src += 4;
+      }
+    }
+    for (i = 0; i < width * height; i += 1) {
+      var c = counts[i] || 1;
+      out[i * 3] /= c;
+      out[i * 3 + 1] /= c;
+      out[i * 3 + 2] /= c;
+    }
+    return new Uint8ClampedArray(out);
+  }
+  for (y = 0; y < height; y += 1) {
+    var fy = Math.max(0, Math.min(sh - 1, (y + 0.5) * sh / height - 0.5));
+    var y0 = Math.floor(fy);
+    var y1 = Math.min(sh - 1, y0 + 1);
+    var ty = fy - y0;
+    for (x = 0; x < width; x += 1) {
+      var fx = Math.max(0, Math.min(sw - 1, (x + 0.5) * sw / width - 0.5));
+      var x0 = Math.floor(fx);
+      var x1 = Math.min(sw - 1, x0 + 1);
+      var tx = fx - x0;
+      for (var ch = 0; ch < 3; ch += 1) {
+        var p00 = sampleOnWhite(data, (y0 * sw + x0) * 4, ch);
+        var p10 = sampleOnWhite(data, (y0 * sw + x1) * 4, ch);
+        var p01 = sampleOnWhite(data, (y1 * sw + x0) * 4, ch);
+        var p11 = sampleOnWhite(data, (y1 * sw + x1) * 4, ch);
+        out[(y * width + x) * 3 + ch] = (p00 * (1 - tx) + p10 * tx) * (1 - ty) + (p01 * (1 - tx) + p11 * tx) * ty;
+      }
+    }
+  }
+  return new Uint8ClampedArray(out);
+}
+
+function sampleOnWhite(data, index, channel) {
+  var a = data[index + 3] / 255;
+  return data[index + channel] * a + 255 * (1 - a);
+}
+
+function level4(value) {
+  return Math.max(0, Math.min(3, Math.round(value / 85)));
+}
+
+// Histogram over the 64 Pebble colours (index = r*16 + g*4 + b, 0..3 each).
+function pebbleHistogram(rgb, pixels) {
+  var hist = new Uint32Array(64);
+  for (var i = 0; i < pixels; i += 1) {
+    hist[level4(rgb[i * 3]) * 16 + level4(rgb[i * 3 + 1]) * 4 + level4(rgb[i * 3 + 2])] += 1;
+  }
+  return hist;
+}
+
+function topShare(hist, count, pixels) {
+  var sorted = Array.prototype.slice.call(hist).sort(function(a, b) { return b - a; });
+  var total = 0;
+  for (var i = 0; i < count; i += 1) {
+    total += sorted[i];
+  }
+  return total / Math.max(1, pixels);
+}
+
+// 'flat': a few flat colours, e.g. a chat or text screenshot.
+// 'graphic': limited palette, e.g. a colourful app screenshot.
+// 'photo': everything else.
+function photoKind(rgb, pixels) {
+  // Measured on a fine (4096-colour) histogram: screenshots are mostly a few
+  // exact colours, photos spread over many.
+  var hist = new Uint32Array(4096);
+  for (var i = 0; i < pixels; i += 1) {
+    hist[((rgb[i * 3] >> 4) << 8) | ((rgb[i * 3 + 1] >> 4) << 4) | (rgb[i * 3 + 2] >> 4)] += 1;
+  }
+  var top4 = topShare(hist, 4, pixels);
+  var top16 = topShare(hist, 16, pixels);
+  if (PHOTO_DEBUG) {
+    console.log('photo kind top4=' + top4.toFixed(3) + ' top16=' + top16.toFixed(3));
+  }
+  if (top4 >= 0.72) {
+    return 'flat';
+  }
+  if (top16 >= 0.72) {
+    return 'graphic';
+  }
+  return 'photo';
+}
+
+function paletteRgb(index) {
+  return [((index >> 4) & 3) * 85, ((index >> 2) & 3) * 85, (index & 3) * 85];
+}
+
+function colorDistance(a, b) {
+  var dr = a[0] - b[0];
+  var dg = a[1] - b[1];
+  var db = a[2] - b[2];
+  return dr * dr * 3 + dg * dg * 4 + db * db * 2;
+}
+
+// Chooses `count` Pebble colours for a palettized bitmap: the most common
+// colour first, then colours that are both common and unlike those chosen,
+// refined with a few k-means passes.
+function choosePalette(hist, count) {
+  var colors = [];
+  var weights = [];
+  var i;
+  for (i = 0; i < 64; i += 1) {
+    if (hist[i]) {
+      colors.push(paletteRgb(i));
+      weights.push(hist[i]);
+    }
+  }
+  var chosen = [];
+  if (!colors.length) {
+    return [[255, 255, 255]];
+  }
+  var first = 0;
+  for (i = 1; i < colors.length; i += 1) {
+    if (weights[i] > weights[first]) {
+      first = i;
+    }
+  }
+  chosen.push(colors[first]);
+  while (chosen.length < count && chosen.length < colors.length) {
+    var best = -1;
+    var bestScore = -1;
+    for (i = 0; i < colors.length; i += 1) {
+      var nearest = Infinity;
+      for (var j = 0; j < chosen.length; j += 1) {
+        nearest = Math.min(nearest, colorDistance(colors[i], chosen[j]));
+      }
+      var score = weights[i] * nearest;
+      if (score > bestScore) {
+        bestScore = score;
+        best = i;
+      }
+    }
+    if (best < 0 || bestScore <= 0) {
+      break;
+    }
+    chosen.push(colors[best]);
+  }
+  for (var pass = 0; pass < 4; pass += 1) {
+    var sums = chosen.map(function() { return [0, 0, 0, 0]; });
+    for (i = 0; i < colors.length; i += 1) {
+      var k = nearestIndex(colors[i], chosen);
+      sums[k][0] += colors[i][0] * weights[i];
+      sums[k][1] += colors[i][1] * weights[i];
+      sums[k][2] += colors[i][2] * weights[i];
+      sums[k][3] += weights[i];
+    }
+    for (k = 0; k < chosen.length; k += 1) {
+      if (sums[k][3]) {
+        chosen[k] = [level4(sums[k][0] / sums[k][3]) * 85,
+                     level4(sums[k][1] / sums[k][3]) * 85,
+                     level4(sums[k][2] / sums[k][3]) * 85];
+      }
+    }
+  }
+  var unique = [];
+  var seen = {};
+  chosen.forEach(function(color) {
+    var key = color.join(',');
+    if (!seen[key]) {
+      seen[key] = true;
+      unique.push(color);
+    }
+  });
+  return unique;
+}
+
+function nearestIndex(color, palette) {
+  var best = 0;
+  var bestDistance = Infinity;
+  for (var i = 0; i < palette.length; i += 1) {
+    var d = colorDistance(color, palette[i]);
+    if (d < bestDistance) {
+      bestDistance = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+// Maps every pixel to an index in `palette`, optionally with Floyd-Steinberg
+// error diffusion (serpentine) so photos keep their gradients.
+function mapToPalette(rgb, width, height, palette, dither) {
+  var work = dither ? Float32Array.from(rgb) : rgb;
+  var out = new Uint8Array(width * height);
+  var cache = new Int8Array(32768).fill(-1);
+  var direct = palette.length === 64;
+  var pixel = [0, 0, 0];
+  for (var y = 0; y < height; y += 1) {
+    var reverse = dither && (y & 1);
+    for (var step = 0; step < width; step += 1) {
+      var x = reverse ? width - 1 - step : step;
+      var i = y * width + x;
+      pixel[0] = Math.max(0, Math.min(255, work[i * 3]));
+      pixel[1] = Math.max(0, Math.min(255, work[i * 3 + 1]));
+      pixel[2] = Math.max(0, Math.min(255, work[i * 3 + 2]));
+      var index;
+      if (direct) {
+        index = level4(pixel[0]) * 16 + level4(pixel[1]) * 4 + level4(pixel[2]);
+      } else {
+        var key = ((pixel[0] >> 3) << 10) | ((pixel[1] >> 3) << 5) | (pixel[2] >> 3);
+        index = cache[key];
+        if (index < 0) {
+          index = nearestIndex(pixel, palette);
+          cache[key] = index;
+        }
+      }
+      out[i] = index;
+      if (!dither) {
+        continue;
+      }
+      var chosen = palette[index];
+      var dir = reverse ? -1 : 1;
+      for (var ch = 0; ch < 3; ch += 1) {
+        var err = pixel[ch] - chosen[ch];
+        if (!err) {
+          continue;
+        }
+        if (x + dir >= 0 && x + dir < width) {
+          work[(i + dir) * 3 + ch] += err * 7 / 16;
+        }
+        if (y + 1 < height) {
+          if (x - dir >= 0 && x - dir < width) {
+            work[(i + width - dir) * 3 + ch] += err * 3 / 16;
+          }
+          work[(i + width) * 3 + ch] += err * 5 / 16;
+          if (x + dir >= 0 && x + dir < width) {
+            work[(i + width + dir) * 3 + ch] += err / 16;
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function argb8(color) {
+  return 0xc0 | (level4(color[0]) << 4) | (level4(color[1]) << 2) | level4(color[2]);
+}
+
+function writePbiHeader(output, rowBytes, format, width, height) {
+  writeUint16LE(output, 0, rowBytes);
+  writeUint16LE(output, 2, (1 << 12) | (format << 1));
+  writeUint16LE(output, 4, 0);
+  writeUint16LE(output, 6, 0);
+  writeUint16LE(output, 8, width);
+  writeUint16LE(output, 10, height);
+}
+
+// Black-and-white: luminance with Atkinson dithering for photos (keeps
+// contrast on the small screen) or a clean threshold for flat screenshots.
+function encodePbi1(rgb, width, height, kind) {
+  var rowBytes = pbiRowBytes(width, 1);
+  var output = new Uint8Array(pbiSize(width, height, 1));
+  var luma = new Float32Array(width * height);
+  var i;
+  for (i = 0; i < width * height; i += 1) {
+    luma[i] = rgb[i * 3] * 0.299 + rgb[i * 3 + 1] * 0.587 + rgb[i * 3 + 2] * 0.114;
+  }
+  if (kind !== 'flat') {
+    stretchLevels(luma);
+  }
+  // Flat screenshots: compare each pixel with its neighbourhood so both dark
+  // text on light and light text on dark (or coloured) bubbles stay legible.
+  var localMean = null;
+  if (kind === 'flat') {
+    localMean = boxMean(luma, width, height, 3);
+  }
+  writePbiHeader(output, rowBytes, 0, width, height);
+  for (var y = 0; y < height; y += 1) {
+    for (var x = 0; x < width; x += 1) {
+      i = y * width + x;
+      var white;
+      if (localMean && Math.abs(luma[i] - localMean[i]) >= 16) {
+        white = luma[i] > localMean[i];
+      } else {
+        white = luma[i] >= 128;
+      }
+      if (white) {
+        output[12 + y * rowBytes + (x >> 3)] |= 1 << (x & 7);
+      }
+      if (kind !== 'flat') {
+        var err = (luma[i] - (white ? 255 : 0)) / 8;
+        if (x + 1 < width) luma[i + 1] += err;
+        if (x + 2 < width) luma[i + 2] += err;
+        if (y + 1 < height) {
+          if (x > 0) luma[i + width - 1] += err;
+          luma[i + width] += err;
+          if (x + 1 < width) luma[i + width + 1] += err;
+        }
+        if (y + 2 < height) luma[i + width * 2] += err;
+      }
+    }
+  }
+  return output;
+}
+
+// Spreads a photo's brightness over the full range (ignoring the darkest and
+// brightest 2%), so dim photos do not dither into black on a 1-bit screen.
+function stretchLevels(luma) {
+  var hist = new Uint32Array(256);
+  var i;
+  for (i = 0; i < luma.length; i += 1) {
+    hist[Math.max(0, Math.min(255, luma[i] | 0))] += 1;
+  }
+  var cut = luma.length * 0.02;
+  var low = 0;
+  var high = 255;
+  var seen = 0;
+  while (low < 255 && seen + hist[low] <= cut) {
+    seen += hist[low];
+    low += 1;
+  }
+  seen = 0;
+  while (high > 0 && seen + hist[high] <= cut) {
+    seen += hist[high];
+    high -= 1;
+  }
+  if (high - low < 32) {
+    return;
+  }
+  var scale = 255 / (high - low);
+  for (i = 0; i < luma.length; i += 1) {
+    luma[i] = Math.max(0, Math.min(255, (luma[i] - low) * scale));
+  }
+}
+
+// Mean of each pixel's (2r+1)^2 neighbourhood, via a summed-area table.
+function boxMean(values, width, height, radius) {
+  var sums = new Float64Array((width + 1) * (height + 1));
+  var x;
+  var y;
+  for (y = 0; y < height; y += 1) {
+    var rowSum = 0;
+    for (x = 0; x < width; x += 1) {
+      rowSum += values[y * width + x];
+      sums[(y + 1) * (width + 1) + x + 1] = sums[y * (width + 1) + x + 1] + rowSum;
+    }
+  }
+  var out = new Float32Array(width * height);
+  for (y = 0; y < height; y += 1) {
+    var y0 = Math.max(0, y - radius);
+    var y1 = Math.min(height, y + radius + 1);
+    for (x = 0; x < width; x += 1) {
+      var x0 = Math.max(0, x - radius);
+      var x1 = Math.min(width, x + radius + 1);
+      var total = sums[y1 * (width + 1) + x1] - sums[y0 * (width + 1) + x1] -
+                  sums[y1 * (width + 1) + x0] + sums[y0 * (width + 1) + x0];
+      out[y * width + x] = total / ((x1 - x0) * (y1 - y0));
+    }
+  }
+  return out;
+}
+
+function encodePbiIndexed(rgb, width, height, bpp, kind) {
+  var pixels = width * height;
+  var dither = kind === 'photo';
+  var palette;
+  if (bpp === 8) {
+    palette = [];
+    for (var c = 0; c < 64; c += 1) {
+      palette.push(paletteRgb(c));
+    }
+  } else {
+    palette = choosePalette(pebbleHistogram(rgb, pixels), 1 << bpp);
+  }
+  var indexes = mapToPalette(rgb, width, height, palette, dither);
+  var rowBytes = pbiRowBytes(width, bpp);
+  var output = new Uint8Array(pbiSize(width, height, bpp));
+  var format = bpp === 8 ? 1 : (bpp === 4 ? 4 : 3);
+  writePbiHeader(output, rowBytes, format, width, height);
+  var perByte = 8 / bpp;
+  for (var y = 0; y < height; y += 1) {
+    var row = 12 + y * rowBytes;
+    for (var x = 0; x < width; x += 1) {
+      var index = indexes[y * width + x];
+      if (bpp === 8) {
+        output[row + x] = argb8(palette[index]);
+      } else {
+        var shift = 8 - bpp * ((x % perByte) + 1);
+        output[row + Math.floor(x / perByte)] |= index << shift;
+      }
+    }
+  }
+  if (bpp !== 8) {
+    var paletteStart = 12 + rowBytes * height;
+    for (var p = 0; p < (1 << bpp); p += 1) {
+      output[paletteStart + p] = argb8(palette[p] || palette[0]);
+    }
+  }
+  return output;
+}
+
+function encodeWatchPhoto(work, plan) {
+  var rgb = work.rgb;
+  var width = work.width;
+  var height = work.height;
+  if (plan.width !== width || plan.height !== height) {
+    rgb = resizeForWatch(rgbToRgba(rgb, width, height), plan.width, plan.height);
+  }
+  if (plan.bpp === 1) {
+    return encodePbi1(rgb, plan.width, plan.height, work.kind);
+  }
+  return encodePbiIndexed(rgb, plan.width, plan.height, plan.bpp, work.kind);
+}
+
+function rgbToRgba(rgb, width, height) {
+  var data = new Uint8Array(width * height * 4);
+  for (var i = 0; i < width * height; i += 1) {
+    data[i * 4] = rgb[i * 3];
+    data[i * 4 + 1] = rgb[i * 3 + 1];
+    data[i * 4 + 2] = rgb[i * 3 + 2];
+    data[i * 4 + 3] = 255;
+  }
+  return {width: width, height: height, data: data};
+}
+
+function findWork(key) {
+  for (var i = 0; i < workCache.length; i += 1) {
+    if (workCache[i].key === key) {
+      return workCache[i];
+    }
+  }
+  return null;
+}
+
+function keepWork(work) {
+  workCache = workCache.filter(function(item) { return item.key !== work.key; });
+  workCache.push(work);
+  while (workCache.length > MAX_WORK_CACHE) {
+    workCache.shift();
+  }
+}
+
+function photoCacheKey(chatId, messageId, plan) {
+  return [PHOTO_CACHE_VERSION, chatId, messageId, plan.width, plan.height, plan.bpp].join(':');
+}
+
+// request: {width, height, budget, blackAndWhite}
+function imageBytes(chatId, messageId, request, status) {
   var generation = ++foregroundImageGeneration;
   function isCancelled() {
     return generation !== foregroundImageGeneration;
   }
-  if (typeof maxPixels === 'function') {
-    status = maxPixels;
-    maxPixels = 0;
-    retryLevel = 0;
-    maxCost = 0;
-  } else if (typeof retryLevel === 'function') {
-    status = retryLevel;
-    retryLevel = 0;
-    maxCost = 0;
-  } else if (typeof maxCost === 'function') {
-    status = maxCost;
-    maxCost = 0;
-    forceTall = false;
-  } else if (typeof forceTall === 'function') {
-    status = forceTall;
-    forceTall = false;
-  }
-  width = width || 120;
-  height = height || 120;
-  colors = colors || 64;
-  maxBytes = maxBytes || 10000;
-  var platformMaxBytes = maxBytes;
-  var platformMaxPixels = maxPixels;
-  maxCost = maxCost || 0;
-  if (maxCost > 0) {
-    maxCost = Math.max(12000, Math.floor(maxCost / 2048) * 2048);
-  }
-  var retryProfile = applyImageRetryProfile(maxBytes, maxPixels, retryLevel);
-  maxBytes = retryProfile.maxBytes;
-  maxPixels = retryProfile.maxPixels;
-  height = height * 2;
-  key = cacheKey(chatId, messageId, width, height, colors, maxBytes, maxPixels, maxCost, forceTall);
-  return cachedBytes(key, messageId, function() {
-    if (status) {
-      status('Downloading');
+  var options = {isCancelled: isCancelled, status: status};
+  var width = Math.max(16, request.width || 120);
+  var height = Math.max(16, request.height || 120);
+  var budget = request.budget || 8000;
+  var bw = !!request.blackAndWhite;
+  var workKey = [chatId, messageId, width, height].join(':');
+  var kinds = loadPhotoKinds();
+
+  function fromWork(work) {
+    var plan = choosePhotoPlan(width, height, budget, work.kind, bw);
+    if (!plan) {
+      throw new Error('Not enough memory');
     }
+    var key = photoCacheKey(chatId, messageId, plan);
+    if (imageCache[key]) {
+      noteImageCacheUse(key);
+      return imageCache[key];
+    }
+    imageStatus(options, 'Encoding');
+    var encoded = encodeWatchPhoto(work, plan);
+    cacheSet(key, encoded);
+    return encoded;
+  }
+
+  // Fast path: the phone already made this photo at this size and depth.
+  var knownKind = kinds[workKey];
+  if (knownKind) {
+    var knownPlan = choosePhotoPlan(width, height, budget, knownKind, bw);
+    if (knownPlan) {
+      var knownKey = photoCacheKey(chatId, messageId, knownPlan);
+      if (imageCache[knownKey]) {
+        noteImageCacheUse(knownKey);
+        imageStatus(options, 'Cache hit');
+        return Promise.resolve(imageCache[knownKey]);
+      }
+      var stored = persistentCacheGet(knownKey);
+      if (stored) {
+        imageStatus(options, 'Cache hit');
+        return Promise.resolve(stored);
+      }
+    }
+  }
+  var cachedWork = findWork(workKey);
+  if (cachedWork) {
+    return Promise.resolve().then(function() {
+      return fromWork(cachedWork);
+    });
+  }
+  if (status) {
+    status('Downloading');
+  }
+  return withTimeout(Promise.resolve().then(function() {
     return telegram.downloadMedia(chatId, messageId, {
       targetWidth: width,
       targetHeight: height,
       cancelled: isCancelled
     });
-  }, width, height, colors, maxBytes, false,
-  {
-    noInflightReuse: true,
-    isCancelled: isCancelled,
-    status: status,
-    retryLevel: retryLevel,
-    forceTall: !!forceTall,
-    platformMaxBytes: platformMaxBytes,
-    platformMaxPixels: platformMaxPixels
-  },
-  maxPixels, maxCost);
+  }), 'image pipeline timed out', MEDIA_PIPELINE_TIMEOUT_MS).then(function(raw) {
+    var bytes = toUint8Array(raw);
+    if (!bytes || !bytes.length) {
+      throw new Error('empty image');
+    }
+    throwIfCancelled(options);
+    imageStatus(options, 'Decoding');
+    return nextTurn().then(function() {
+      var source = rgbaBuffer(bytes);
+      throwIfCancelled(options);
+      imageStatus(options, 'Resizing');
+      var rgb = resizeForWatch(source, width, height);
+      var work = {key: workKey, width: width, height: height, rgb: rgb,
+                  kind: photoKind(rgb, width * height)};
+      keepWork(work);
+      rememberPhotoKind(workKey, work.kind);
+      throwIfCancelled(options);
+      return fromWork(work);
+    });
+  });
+}
+
+// PackBits: compresses the flat areas of screenshots several times over; the
+// watch expands it straight into the bitmap.
+function packBits(data) {
+  var out = new Uint8Array(data.length + Math.ceil(data.length / 128) + 1);
+  var o = 0;
+  var i = 0;
+  var n = data.length;
+  while (i < n) {
+    var run = 1;
+    while (i + run < n && run < 128 && data[i + run] === data[i]) {
+      run += 1;
+    }
+    if (run >= 3) {
+      out[o++] = (257 - run) & 255;
+      out[o++] = data[i];
+      i += run;
+      continue;
+    }
+    var start = i;
+    var length = 0;
+    while (i < n && length < 128) {
+      if (i + 2 < n && data[i] === data[i + 1] && data[i] === data[i + 2]) {
+        break;
+      }
+      i += 1;
+      length += 1;
+    }
+    out[o++] = length - 1;
+    for (var k = 0; k < length; k += 1) {
+      out[o++] = data[start + k];
+    }
+  }
+  return out.subarray(0, o);
 }
 
 function avatarBytes(chatId, width, height, colors, maxBytes) {
@@ -1110,6 +1306,14 @@ function cancelImageRequests() {
 
 module.exports = {
   imageBytes: imageBytes,
+  packBits: packBits,
+  choosePhotoPlan: choosePhotoPlan,
+  encodeForTest: function(source, width, height, budget, blackAndWhite) {
+    var rgb = resizeForWatch(source, width, height);
+    var work = {width: width, height: height, rgb: rgb, kind: photoKind(rgb, width * height)};
+    var plan = choosePhotoPlan(width, height, budget, work.kind, blackAndWhite);
+    return {kind: work.kind, plan: plan, bytes: plan ? encodeWatchPhoto(work, plan) : null};
+  },
   avatarBytes: avatarBytes,
   cancelImageRequests: cancelImageRequests
 };

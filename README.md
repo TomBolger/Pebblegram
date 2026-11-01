@@ -32,7 +32,7 @@ Pebblegram brings Telegram to Pebble watches with a PebbleKit JS Telegram client
 
 ## Changes Since 3.5
 
-Pebblegram 3.6 fixes login and reply bugs, brings back the on-screen keyboard, and adds much wider emoji support.
+Pebblegram 3.6 fixes login and reply bugs, makes photos sharp and reliable, brings back the on-screen keyboard, and adds much wider emoji support.
 
 ### Fixes
 
@@ -57,6 +57,15 @@ Pebblegram 3.6 fixes login and reply bugs, brings back the on-screen keyboard, a
   - New splash screen, and a clean white full-message view.
 - Black-and-white watches get the same layout with outlines instead of colour.
 - Faster scrolling: message sizes are measured once and cached instead of on every frame, and the app binary is smaller (link-time optimisation).
+
+### Photos
+
+- Photos are sharp now. Each photo is drawn at the full width of its bubble, in the best colours your watch has memory for: full colour for photos, and crisp 4-colour or black-and-white for screenshots, so text in a screenshot is readable. Tall screenshots are no longer squashed; they keep full width and you scroll through them.
+- Photos that are on screen stay loaded. A photo is only unloaded to make room for one closer to where you are looking, so photos no longer flicker in and out or fight each other.
+- No more crashes or grey boxes from running out of memory: photos arrive as ready-to-show images (nothing is unpacked on the watch), each photo is sized to the memory that's actually free, and memory is always kept back for menus and new messages.
+- Faster loading: the phone downloads only the size of the photo the watch needs, sends it in bigger pieces, and packs screenshots down to a fraction of their size on the way.
+- Photo-only messages show their time on the photo, as in Telegram, and photo bubbles are a little wider.
+- Pebble 2 and Pebble 2 Duo get photos dithered for their black-and-white screen, with extra contrast for text.
 
 ### Emoji
 

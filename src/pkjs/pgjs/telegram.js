@@ -755,58 +755,52 @@ function photoSizeDimensions(size) {
   return {width: width, height: height};
 }
 
-function selectTallPhotoCandidate(photo, targetWidth, targetHeight) {
+// Telegram keeps each photo at several sizes. Download the smallest one that
+// is still a bit bigger than what the watch will draw: much faster than the
+// full photo, and downscaling from it keeps text sharp.
+function selectPhotoCandidate(photo, targetWidth, targetHeight) {
   var sizes = (photo && photo.sizes) || [];
-  var targetArea = Math.max(1, (targetWidth || 120) * (targetHeight || 240));
-  var minimumHeight = Math.max(96, targetHeight || 240);
+  var needWidth = Math.ceil((targetWidth || 120) * 1.25);
+  var needHeight = Math.ceil((targetHeight || 120) * 1.25);
   var best = null;
-  var bestScore = 0;
-  var fallback = null;
-  var fallbackArea = 0;
+  var bestArea = 0;
+  var largest = null;
+  var largestArea = 0;
   for (var i = 0; i < sizes.length; i += 1) {
     var size = sizes[i];
+    var name = objectName(size);
     var dimensions = photoSizeDimensions(size);
     var area;
-    var score;
-    if (!dimensions) {
+    if (!dimensions || name.indexOf('Stripped') !== -1 || name.indexOf('Path') !== -1) {
       continue;
     }
     area = dimensions.width * dimensions.height;
-    if (area > fallbackArea) {
-      fallback = size;
-      fallbackArea = area;
+    if (area > largestArea) {
+      largest = size;
+      largestArea = area;
     }
-    if (dimensions.height < minimumHeight) {
-      continue;
-    }
-    score = Math.abs(area - targetArea);
-    if (!best || score < bestScore) {
+    if (dimensions.width >= needWidth && dimensions.height >= needHeight && (!best || area < bestArea)) {
       best = size;
-      bestScore = score;
+      bestArea = area;
     }
   }
-  return best || fallback;
+  return best || largest;
 }
 
-function downloadTallPhotoBytes(client, message, photo, options) {
-  var dimensions = photoDimensions(message);
-  var candidate;
-  var option;
-  if (!isTallDimensions(dimensions)) {
-    return null;
-  }
-  candidate = selectTallPhotoCandidate(photo, options && options.targetWidth, options && options.targetHeight);
-  option = previewThumbOption(candidate);
+function downloadSizedPhotoBytes(client, message, photo, options) {
+  var candidate = selectPhotoCandidate(photo, options && options.targetWidth, options && options.targetHeight);
+  var option = previewThumbOption(candidate);
   if (!candidate || !option) {
     return null;
   }
   if (DEBUG_LOGS) {
-    debugLog('Tall photo using Telegram size ' + option + ' for ' + dimensions.width + 'x' + dimensions.height);
+    var dims = photoSizeDimensions(candidate);
+    debugLog('Photo using Telegram size ' + (dims ? dims.width + 'x' + dims.height : '?'));
   }
   return downloadImageBytes(client, message, {thumb: option, cancelled: options && options.cancelled}).catch(function(messageErr) {
     throwIfImageRequestCancelled(options);
     return downloadImageBytes(client, photo, {thumb: option, cancelled: options && options.cancelled}).catch(function(photoErr) {
-      throw new Error('tall photo size ' + option + ' failed: message=' + errorText(messageErr) +
+      throw new Error('photo size failed: message=' + errorText(messageErr) +
                       '; photo=' + errorText(photoErr));
     });
   });
@@ -1447,6 +1441,7 @@ function messages(chatId, limit, beforeId) {
       options.offsetId = parseInt(beforeId, 10) || 0;
     }
     return client.getMessages(chatId, options).then(function(rows) {
+      rememberMediaMessages(chatId, rows);
       return normalizeMessageRows(client, chatId, rows.slice().reverse(), readOutboxByChatId[chatId] || 0);
     });
   });
@@ -1459,6 +1454,7 @@ function newerMessages(chatId, limit, afterId) {
       options.minId = parseInt(afterId, 10) || 0;
     }
     return client.getMessages(chatId, options).then(function(rows) {
+      rememberMediaMessages(chatId, rows);
       return normalizeMessageRows(client, chatId, rows.slice().reverse(), readOutboxByChatId[chatId] || 0);
     });
   });
@@ -1613,10 +1609,55 @@ function downloadProfilePhoto(chatId) {
   });
 }
 
+// Raw Telegram messages that carry media, so loading a photo does not need
+// another round trip to fetch its message first.
+var mediaMessageCache = {};
+var mediaMessageOrder = [];
+var MAX_MEDIA_MESSAGES = 60;
+
+function rememberMediaMessages(chatId, rows) {
+  (rows || []).forEach(function(row) {
+    if (!row || row.id === undefined || !row.media) {
+      return;
+    }
+    var key = String(chatId) + ':' + String(row.id);
+    if (!mediaMessageCache[key]) {
+      mediaMessageOrder.push(key);
+    }
+    mediaMessageCache[key] = row;
+  });
+  while (mediaMessageOrder.length > MAX_MEDIA_MESSAGES) {
+    delete mediaMessageCache[mediaMessageOrder.shift()];
+  }
+}
+
+function mediaMessage(client, chatId, messageId, fresh) {
+  var cached = !fresh && mediaMessageCache[String(chatId) + ':' + String(messageId)];
+  if (cached) {
+    return Promise.resolve(cached);
+  }
+  return client.getMessages(chatId, {ids: [parseInt(messageId, 10) || messageId]}).then(function(rows) {
+    rememberMediaMessages(chatId, rows);
+    return rows && rows[0];
+  });
+}
+
 function downloadMedia(chatId, messageId, options) {
   return auth.getClient().then(function(client) {
-    return client.getMessages(chatId, {ids: [parseInt(messageId, 10) || messageId]}).then(function(rows) {
-      var message = rows && rows[0];
+    return downloadMediaWith(client, chatId, messageId, options, false).catch(function(err) {
+      // A cached message's file reference can expire; refetch it once.
+      throwIfImageRequestCancelled(options);
+      if (!mediaMessageCache[String(chatId) + ':' + String(messageId)]) {
+        throw err;
+      }
+      delete mediaMessageCache[String(chatId) + ':' + String(messageId)];
+      return downloadMediaWith(client, chatId, messageId, options, true);
+    });
+  });
+}
+
+function downloadMediaWith(client, chatId, messageId, options, fresh) {
+    return mediaMessage(client, chatId, messageId, fresh).then(function(message) {
       var photo = hasDirectPhoto(message) ? messagePhoto(message) : null;
       var tallDownload;
       if (!message || (!photo && !hasPreviewableStill(message))) {
@@ -1625,7 +1666,7 @@ function downloadMedia(chatId, messageId, options) {
       if (hasPreviewableStill(message) && !photo) {
         return downloadStillPreview(client, message);
       }
-      tallDownload = downloadTallPhotoBytes(client, message, photo, options || {});
+      tallDownload = downloadSizedPhotoBytes(client, message, photo, options || {});
       if (tallDownload) {
         return tallDownload.catch(function(tallErr) {
           throwIfImageRequestCancelled(options);
@@ -1646,7 +1687,6 @@ function downloadMedia(chatId, messageId, options) {
         });
       });
     });
-  });
 }
 
 module.exports = {
