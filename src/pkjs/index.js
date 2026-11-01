@@ -20,9 +20,8 @@ var MESSAGE_WINDOW_BUDGET = 5400;
 var IMAGE_BLACK_AND_WHITE = false;
 // Photo chunks fill most of the watch's 2 KB inbox: fewer round trips.
 var IMAGE_CHUNK_SIZE = 1600;
-var AVATAR_SIZE = 28;
-var AVATAR_COLORS = 16;
-var AVATAR_MAX_BYTES = 3000;
+// Profile photos are sent at exactly the size the watch's chat list draws them.
+var AVATAR_SIZE = 30;
 var AVATAR_CHUNK_SIZE = 500;
 var AVATAR_ROWS = MAX_ROWS;
 var PREFETCH_CHAT_COUNT = 4;
@@ -107,6 +106,7 @@ function configureForPlatform() {
   }
   watchEmoji.setFirmware(info && info.firmware);
   if (info && info.platform === 'emery') {
+    AVATAR_SIZE = 38;
     INITIAL_MESSAGE_ROWS = 9;
     OLDER_MESSAGE_ROWS = 7;
     NEWER_MESSAGE_ROWS = 7;
@@ -115,6 +115,7 @@ function configureForPlatform() {
     MAX_CONTEXT_VIEW_TEXT = 1200;
     MESSAGE_WINDOW_BUDGET = 5400;
   } else if (info && info.platform === 'gabbro') {
+    AVATAR_SIZE = 32;
     INITIAL_MESSAGE_ROWS = 9;
     OLDER_MESSAGE_ROWS = 7;
     NEWER_MESSAGE_ROWS = 7;
@@ -125,9 +126,6 @@ function configureForPlatform() {
   } else if (info && (info.platform === 'diorite' || info.platform === 'flint')) {
     // Pebble 2 Duo (flint) shares Diorite's 144x168 black-and-white screen.
     IMAGE_BLACK_AND_WHITE = true;
-    AVATAR_SIZE = 24;
-    AVATAR_COLORS = 4;
-    AVATAR_MAX_BYTES = 2200;
   }
 }
 
@@ -1878,7 +1876,7 @@ function sendChatAvatars() {
   if (!chat) {
     return;
   }
-  activePgjs().avatarBytes(chat.id, AVATAR_SIZE, AVATAR_SIZE, AVATAR_COLORS, AVATAR_MAX_BYTES).then(function(bytes) {
+  activePgjs().avatarBytes(chat.id, AVATAR_SIZE, IMAGE_BLACK_AND_WHITE).then(function(bytes) {
     if (currentChatId) {
       return;
     }

@@ -6,7 +6,6 @@ var imageInflight = {};
 var MAX_IMAGE_CACHE_ITEMS = 64;
 var MAX_PERSISTENT_IMAGE_CACHE_ITEMS = 32;
 var PERSISTENT_IMAGE_CACHE_ORDER_KEY = 'pgjs.imageCacheOrder';
-var IMAGE_CACHE_VERSION = 'v28';
 var MEDIA_PIPELINE_TIMEOUT_MS = 22000;
 var DEBUG_LOGS = false;
 var foregroundImageGeneration = 0;
@@ -81,45 +80,6 @@ function byteSummary(bytes) {
   return sig.length ? summary + ' sig ' + sig.join('') : summary;
 }
 
-function readUint32BE(bytes, offset) {
-  return ((bytes[offset] << 24) >>> 0) +
-         (bytes[offset + 1] << 16) +
-         (bytes[offset + 2] << 8) +
-         bytes[offset + 3];
-}
-
-function pngDimensions(bytes) {
-  if (!bytes || bytes.length < 24 || !isPng(bytes)) {
-    return null;
-  }
-  return {
-    width: readUint32BE(bytes, 16),
-    height: readUint32BE(bytes, 20)
-  };
-}
-
-function bitmapHeapEstimate(width, height) {
-  return (((width + 3) & ~3) * height);
-}
-
-function encodedDecodeCost(encoded) {
-  var dimensions = pngDimensions(encoded);
-  if (!dimensions) {
-    return encoded ? encoded.length : 0;
-  }
-  return encoded.length + bitmapHeapEstimate(dimensions.width, dimensions.height);
-}
-
-function encodedFits(encoded, maxBytes, maxCost) {
-  if (maxBytes && encoded.length > maxBytes) {
-    return false;
-  }
-  if (maxCost && encodedDecodeCost(encoded) > maxCost) {
-    return false;
-  }
-  return true;
-}
-
 function rgbaBuffer(bytes) {
   var decoded;
   if (isJpeg(bytes)) {
@@ -149,209 +109,9 @@ function rgbaBuffer(bytes) {
   throw new Error('phone image format unsupported: ' + byteSummary(bytes));
 }
 
-function liftChannel(value) {
-  if (value <= 0) {
-    return 4;
-  }
-  return Math.min(255, Math.round((Math.pow(value / 255, 0.82) * 255) + 4));
-}
-
-function darkScreenshotChannel(value) {
-  if (value < 96) {
-    return Math.max(0, Math.round(value * 0.55));
-  }
-  if (value < 160) {
-    return Math.max(0, Math.round(96 + ((value - 96) * 0.86)));
-  }
-  return value;
-}
-
-function lightScreenshotChannel(value) {
-  if (value >= 248) {
-    return 255;
-  }
-  if (value >= 210) {
-    return Math.max(0, Math.round(186 + ((value - 210) * 0.74)));
-  }
-  if (value >= 128) {
-    return Math.max(0, Math.round(value * 0.9));
-  }
-  return Math.max(0, Math.round(value * 0.82));
-}
-
-function ditherOffset(x, y) {
-  var matrix = [
-    0, 8, 2, 10,
-    12, 4, 14, 6,
-    3, 11, 1, 9,
-    15, 7, 13, 5
-  ];
-  return matrix[((y & 3) * 4) + (x & 3)] - 7.5;
-}
-
-function toneChannel(value, x, y, mode) {
-  if (mode === 'dark') {
-    return darkScreenshotChannel(value);
-  }
-  if (mode === 'light') {
-    return lightScreenshotChannel(value);
-  }
-  var lifted = liftChannel(value);
-  return Math.max(0, Math.min(255, Math.round(lifted + ditherOffset(x, y) * 1.4)));
-}
-
-function channelToneMode(value) {
-  if (value === 'dark' || value === 'light') {
-    return value;
-  }
-  return value ? 'lift' : '';
-}
-
-function resizeCover(source, width, height, maskCircle, liftColors) {
-  var output = new Uint8Array(width * height * 4);
-  var scale = Math.max(width / source.width, height / source.height);
-  var cropW = width / scale;
-  var cropH = height / scale;
-  var startX = (source.width - cropW) / 2;
-  var startY = (source.height - cropH) / 2;
-  var cx = (width - 1) / 2;
-  var cy = (height - 1) / 2;
-  var radius = Math.min(width, height) / 2;
-  var x;
-  var y;
-  var srcX;
-  var srcY;
-  var srcIndex;
-  var dstIndex;
-  var dx;
-  var dy;
-  var toneMode = channelToneMode(liftColors);
-
-  for (y = 0; y < height; y += 1) {
-    srcY = Math.min(source.height - 1, Math.max(0, Math.floor(startY + y / scale)));
-    for (x = 0; x < width; x += 1) {
-      srcX = Math.min(source.width - 1, Math.max(0, Math.floor(startX + x / scale)));
-      srcIndex = (srcY * source.width + srcX) * 4;
-      dstIndex = (y * width + x) * 4;
-      output[dstIndex] = toneMode ? toneChannel(source.data[srcIndex], x, y, toneMode) : source.data[srcIndex];
-      output[dstIndex + 1] = toneMode ? toneChannel(source.data[srcIndex + 1], x, y, toneMode) : source.data[srcIndex + 1];
-      output[dstIndex + 2] = toneMode ? toneChannel(source.data[srcIndex + 2], x, y, toneMode) : source.data[srcIndex + 2];
-      if (maskCircle) {
-        dx = x - cx;
-        dy = y - cy;
-        if (dx * dx + dy * dy <= radius * radius) {
-          output[dstIndex + 3] = 255;
-        } else {
-          output[dstIndex] = 170;
-          output[dstIndex + 1] = 170;
-          output[dstIndex + 2] = 170;
-          output[dstIndex + 3] = 255;
-        }
-      } else {
-        output[dstIndex + 3] = 255;
-      }
-    }
-  }
-  return output;
-}
-
-function resizeContain(source, width, height, liftColors) {
-  var scale = Math.min(width / source.width, height / source.height);
-  var outputWidth = Math.max(1, Math.floor(source.width * scale));
-  var outputHeight = Math.max(1, Math.floor(source.height * scale));
-  var output = new Uint8Array(outputWidth * outputHeight * 4);
-  var x;
-  var y;
-  var srcX;
-  var srcY;
-  var srcIndex;
-  var dstIndex;
-  var toneMode = channelToneMode(liftColors);
-
-  for (y = 0; y < outputHeight; y += 1) {
-    srcY = Math.min(source.height - 1, Math.max(0, Math.floor(y / scale)));
-    for (x = 0; x < outputWidth; x += 1) {
-      srcX = Math.min(source.width - 1, Math.max(0, Math.floor(x / scale)));
-      srcIndex = (srcY * source.width + srcX) * 4;
-      dstIndex = (y * outputWidth + x) * 4;
-      output[dstIndex] = toneMode ? toneChannel(source.data[srcIndex], x, y, toneMode) : source.data[srcIndex];
-      output[dstIndex + 1] = toneMode ? toneChannel(source.data[srcIndex + 1], x, y, toneMode) : source.data[srcIndex + 1];
-      output[dstIndex + 2] = toneMode ? toneChannel(source.data[srcIndex + 2], x, y, toneMode) : source.data[srcIndex + 2];
-      output[dstIndex + 3] = 255;
-    }
-  }
-  return {
-    width: outputWidth,
-    height: outputHeight,
-    data: output
-  };
-}
-
-function arrayBufferFromBytes(bytes) {
-  return bytes.buffer.slice(bytes.byteOffset || 0, (bytes.byteOffset || 0) + bytes.byteLength);
-}
-
-function encodePng(source, width, height, colors, maskCircle, liftColors, fitMode) {
-  var resized;
-  if (fitMode === 'contain') {
-    resized = resizeContain(source, width, height, liftColors);
-    return new Uint8Array(codecs.UPNG.encode([arrayBufferFromBytes(resized.data)], resized.width, resized.height, colors));
-  }
-  resized = resizeCover(source, width, height, maskCircle, liftColors);
-  return new Uint8Array(codecs.UPNG.encode([arrayBufferFromBytes(resized)], width, height, colors));
-}
-
 function writeUint16LE(bytes, offset, value) {
   bytes[offset] = value & 255;
   bytes[offset + 1] = (value >> 8) & 255;
-}
-
-function imageStats(source) {
-  var pixels = source.width * source.height;
-  var step = Math.max(1, Math.floor(pixels / 1200));
-  var count = 0;
-  var white = 0;
-  var transparent = 0;
-  var dark = 0;
-  var i;
-  var r;
-  var g;
-  var b;
-  for (i = 0; i < pixels; i += step) {
-    r = source.data[i * 4];
-    g = source.data[(i * 4) + 1];
-    b = source.data[(i * 4) + 2];
-    if (source.data[(i * 4) + 3] < 24) {
-      transparent += 1;
-    }
-    if (r > 238 && g > 238 && b > 238) {
-      white += 1;
-    }
-    if (r < 210 || g < 210 || b < 210) {
-      dark += 1;
-    }
-    count += 1;
-  }
-  return {
-    mostlyWhite: count > 0 && white / count > 0.92,
-    mostlyTransparent: count > 0 && transparent / count > 0.92,
-    hasNonWhiteDetail: count > 0 && dark / count > 0.08
-  };
-}
-
-function encodedLooksBlank(encoded, sourceStats) {
-  try {
-    var stats = imageStats(rgbaBuffer(encoded));
-    return stats.mostlyTransparent || (!sourceStats.mostlyWhite && stats.mostlyWhite);
-  } catch (e) {
-    return true;
-  }
-}
-
-function logDuration(label, startedAt) {
-  if (DEBUG_LOGS) {
-    console.log(label + ' took ' + (Date.now() - startedAt) + 'ms');
-  }
 }
 
 function nextTurn() {
@@ -370,82 +130,6 @@ function imageStatus(options, text) {
   if (options && typeof options.status === 'function') {
     options.status(text);
   }
-}
-
-function compactPng(source, width, height, colors, maxBytes, maskCircle, liftColors, scaleSteps, fitMode, maxCost) {
-  var colorSteps = [colors, 32, 16, 8, 4, 2];
-  scaleSteps = scaleSteps || [1, 0.9, 0.8, 0.7, 0.6];
-  var best = null;
-  var bestDetail = '';
-  var step;
-  var colorIndex;
-  var nextWidth;
-  var nextHeight;
-  var nextColors;
-  var encoded;
-
-  for (step = 0; step < scaleSteps.length; step += 1) {
-    nextWidth = Math.max(32, Math.floor(width * scaleSteps[step]));
-    nextHeight = Math.max(32, Math.floor(height * scaleSteps[step]));
-    for (colorIndex = 0; colorIndex < colorSteps.length; colorIndex += 1) {
-      nextColors = colorSteps[colorIndex];
-      if (nextColors > colors) {
-        continue;
-      }
-      encoded = encodePng(source, nextWidth, nextHeight, nextColors, maskCircle, liftColors, fitMode);
-      if (!best || encoded.length < best.length) {
-        best = encoded;
-        bestDetail = nextWidth + 'x' + nextHeight + '/' + nextColors + 'c';
-      }
-      if (encodedFits(encoded, maxBytes, maxCost)) {
-        return encoded;
-      }
-    }
-  }
-  if (best && encodedFits(best, maxBytes, maxCost)) {
-    return best;
-  }
-  throw new Error('phone png encode over budget: best ' + (best ? best.length : 0) +
-                  'b cost ' + (best ? encodedDecodeCost(best) : 0) + ' at ' + bestDetail +
-                  ' > ' + maxBytes + 'b/' + (maxCost || 0) + 'c from ' +
-                  source.width + 'x' + source.height);
-}
-
-function safeCompactPng(source, width, height, colors, maxBytes, maskCircle) {
-  var sourceStats = imageStats(source);
-  var encoded = compactPng(source, width, height, colors, maxBytes, maskCircle, false, [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.42]);
-  var scaleSteps = [0.85, 0.75, 0.65, 0.55];
-  var colorSteps = [Math.max(colors, 128), 128, 64, 32, 16];
-  var step;
-  var colorIndex;
-  var fallback;
-  var nextWidth;
-  var nextHeight;
-
-  if (!sourceStats.hasNonWhiteDetail || !encodedLooksBlank(encoded, sourceStats)) {
-    return encoded;
-  }
-
-  for (step = 0; step < scaleSteps.length; step += 1) {
-    nextWidth = Math.max(32, Math.floor(width * scaleSteps[step]));
-    nextHeight = Math.max(32, Math.floor(height * scaleSteps[step]));
-    for (colorIndex = 0; colorIndex < colorSteps.length; colorIndex += 1) {
-      fallback = encodePng(source, nextWidth, nextHeight, colorSteps[colorIndex], maskCircle, false);
-      if ((!maxBytes || fallback.length <= maxBytes) && !encodedLooksBlank(fallback, sourceStats)) {
-        if (DEBUG_LOGS) {
-          debugLog('image blank fallback used at ' + nextWidth + 'x' + nextHeight);
-        }
-        return fallback;
-      }
-    }
-  }
-
-  throw new Error('Photo encoded as blank.');
-}
-
-function cacheKey(chatId, messageId, width, height, colors, maxBytes, maxPixels, maxCost, forceTall) {
-  return [IMAGE_CACHE_VERSION, chatId, messageId, width, height, colors, maxBytes, maxPixels || 0,
-          maxCost || 0, forceTall ? 1 : 0].join(':');
 }
 
 function removeArrayValue(items, value) {
@@ -546,77 +230,6 @@ function persistentCacheSet(key, bytes) {
   } catch (e) {
     debugLog('Persistent image cache skipped: ' + (e && e.message ? e.message : e));
   }
-}
-
-function cachedBytes(key, label, downloader, width, height, colors, maxBytes, maskCircle, options, maxPixels, maxCost) {
-  var pipeline;
-  var wrapped;
-  options = options || {};
-  if (imageCache[key]) {
-    noteImageCacheUse(key);
-    if (DEBUG_LOGS) {
-      debugLog('image cache hit ' + label);
-    }
-    imageStatus(options, 'Cache hit');
-    return Promise.resolve(imageCache[key]);
-  }
-  var cached = persistentCacheGet(key);
-  if (cached) {
-    if (DEBUG_LOGS) {
-      debugLog('persistent image cache hit ' + label);
-    }
-    imageStatus(options, 'Storage cache hit');
-    return Promise.resolve(cached);
-  }
-  if (imageInflight[key] && !options.noInflightReuse) {
-    if (DEBUG_LOGS) {
-      debugLog('image inflight hit ' + label);
-    }
-    return imageInflight[key];
-  }
-  if (imageInflight[key]) {
-    if (DEBUG_LOGS) {
-      debugLog('image inflight bypass ' + label);
-    }
-  }
-  var downloadStartedAt = DEBUG_LOGS ? Date.now() : 0;
-  pipeline = withTimeout(Promise.resolve().then(downloader), 'image pipeline timed out', MEDIA_PIPELINE_TIMEOUT_MS).then(function(raw) {
-    if (DEBUG_LOGS) {
-      logDuration('image download ' + label, downloadStartedAt);
-    }
-    var encodeStartedAt = DEBUG_LOGS ? Date.now() : 0;
-    var bytes = toUint8Array(raw);
-    var source;
-    if (!bytes || !bytes.length) {
-      throw new Error('empty image');
-    }
-    throwIfCancelled(options);
-    imageStatus(options, 'Decoding');
-    source = rgbaBuffer(bytes);
-    throwIfCancelled(options);
-    imageStatus(options, 'Encoding');
-    return Promise.resolve(safeCompactPng(source, width, height, colors, maxBytes, true)).then(function(encoded) {
-      throwIfCancelled(options);
-      if (DEBUG_LOGS) {
-        logDuration('image encode ' + label, encodeStartedAt);
-      }
-      cacheSet(key, encoded);
-      return encoded;
-    });
-  });
-  wrapped = pipeline.then(function(bytes) {
-    if (imageInflight[key] === wrapped) {
-      delete imageInflight[key];
-    }
-    return bytes;
-  }, function(err) {
-    if (imageInflight[key] === wrapped) {
-      delete imageInflight[key];
-    }
-    throw err;
-  });
-  imageInflight[key] = wrapped;
-  return wrapped;
 }
 
 // ---------------------------------------------------------------------------
@@ -1289,15 +902,60 @@ function packBits(data) {
   return out.subarray(0, o);
 }
 
-function avatarBytes(chatId, width, height, colors, maxBytes) {
-  width = width || 28;
-  height = height || 28;
-  colors = colors || 16;
-  maxBytes = maxBytes || 3000;
-  var key = cacheKey(chatId, 'avatar', width, height, colors, maxBytes);
-  return cachedBytes(key, 'avatar ' + chatId, function() {
+// Profile photos: centre square, area-averaged down to exactly the size the
+// watch draws them, then a 16-colour palette picked for this photo (not
+// dithered, which keeps small faces crisp), or dithered black and white. Sent as a ready-to-draw bitmap.
+function squareCrop(source) {
+  var side = Math.min(source.width, source.height);
+  var x0 = Math.floor((source.width - side) / 2);
+  var y0 = Math.floor((source.height - side) / 2);
+  var data = new Uint8Array(side * side * 4);
+  for (var y = 0; y < side; y += 1) {
+    var from = ((y0 + y) * source.width + x0) * 4;
+    data.set(source.data.subarray(from, from + side * 4), y * side * 4);
+  }
+  return {width: side, height: side, data: data};
+}
+
+function encodeAvatar(source, size, blackAndWhite) {
+  var rgb = resizeForWatch(squareCrop(source), size, size);
+  return blackAndWhite ? encodePbi1(rgb, size, size, 'photo') :
+                         encodePbiIndexed(rgb, size, size, 4, 'graphic');
+}
+
+function avatarBytes(chatId, size, blackAndWhite) {
+  size = size || 30;
+  var key = ['avatar-pbi1', chatId, size, blackAndWhite ? 'bw' : 'c16'].join(':');
+  if (imageCache[key]) {
+    noteImageCacheUse(key);
+    return Promise.resolve(imageCache[key]);
+  }
+  var stored = persistentCacheGet(key);
+  if (stored) {
+    return Promise.resolve(stored);
+  }
+  if (imageInflight[key]) {
+    return imageInflight[key];
+  }
+  var job = withTimeout(Promise.resolve().then(function() {
     return telegram.downloadProfilePhoto(chatId);
-  }, width, height, colors, maxBytes, true);
+  }), 'avatar timed out', MEDIA_PIPELINE_TIMEOUT_MS).then(function(raw) {
+    var bytes = toUint8Array(raw);
+    if (!bytes || !bytes.length) {
+      throw new Error('no profile photo');
+    }
+    var encoded = encodeAvatar(rgbaBuffer(bytes), size, blackAndWhite);
+    cacheSet(key, encoded);
+    return encoded;
+  });
+  imageInflight[key] = job.then(function(result) {
+    delete imageInflight[key];
+    return result;
+  }, function(err) {
+    delete imageInflight[key];
+    throw err;
+  });
+  return imageInflight[key];
 }
 
 function cancelImageRequests() {
@@ -1308,6 +966,7 @@ module.exports = {
   imageBytes: imageBytes,
   packBits: packBits,
   choosePhotoPlan: choosePhotoPlan,
+  avatarForTest: encodeAvatar,
   encodeForTest: function(source, width, height, budget, blackAndWhite) {
     var rgb = resizeForWatch(source, width, height);
     var work = {width: width, height: height, rgb: rgb, kind: photoKind(rgb, width * height)};

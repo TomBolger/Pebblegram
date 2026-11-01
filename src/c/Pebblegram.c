@@ -26,6 +26,9 @@
 #define MAX_IMAGE_BYTES PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 14000, 16000, 16000, 7000, 48000, 7000, 48000)
 #define IMAGE_HEAP_RESERVE PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 5000, 5000, 5000, 4500, 12000, 4500, 12000)
 #define IMAGE_MIN_BUDGET 1500
+// Extra heap freed (from off-screen photos only) before a page of older or
+// newer messages is loaded, so the new messages always have room.
+#define PAGE_LOAD_HEADROOM PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 2500, 2500, 2500, 2500, 6000, 2500, 6000)
 #define IMAGE_TALL_MAX_H PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 420, 460, 460, 420, 640, 420, 600)
 #define IMAGE_BITS_PER_PIXEL PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 8, 8, 8, 1, 8, 1, 8)
 #define MAX_AVATAR_BYTES PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 3000, 3000, 3000, 2200, 3000, 2200, 3000)
@@ -67,6 +70,9 @@
 #define TG_PILL_OUT PBL_IF_COLOR_ELSE(GColorWhite, GColorWhite)
 #define TG_SERVICE_PILL PBL_IF_COLOR_ELSE(GColorDarkGreen, GColorBlack)
 #define HEADER_H PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 26, 26, 26, 26, 32, 26, 46)
+// Chat list avatar radius. The phone sends profile photos at exactly this
+// diameter (see AVATAR_SIZE in index.js), so they are drawn pixel for pixel.
+#define CHAT_AVATAR_R PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 15, 15, 15, 15, 19, 15, 16)
 
 // Telegram's seven avatar and name colours, mapped to the Pebble palette.
 #ifdef PBL_COLOR
@@ -191,6 +197,7 @@ typedef struct {
   bool unread;
   int unread_count;
   GBitmap *avatar_bitmap;
+  uint8_t *avatar_data;  // pixels behind avatar_bitmap when it came as a ready bitmap
   char time[8];
   uint8_t flags;
   uint8_t receipt;
@@ -338,6 +345,7 @@ static int s_image_written;       // bitmap bytes filled so far
 static int16_t s_pack_literal;    // PackBits: literal bytes still to copy
 static int16_t s_pack_repeat;     // PackBits: run waiting for its byte
 static uint16_t s_image_budget_cap;  // lowered after an out-of-memory retry
+static bool s_page_load_waiting;     // user asked for older/newer messages; photos wait
 static int s_avatar_size;
 static int s_avatar_received;
 static int s_avatar_expected_offset;
@@ -482,7 +490,6 @@ static void scroll_to_bottom(bool animated);
 static void go_to_bottom(void);
 static void set_chat_scroll_offset(int target, bool animated);
 static void set_chat_scroll_offset_quiet(int target);
-static void select_message_with_alignment(int index, bool align_top, bool animated);
 static void chat_scroll_timer_callback(void *data);
 static void messages_root_update_proc(Layer *layer, GContext *ctx);
 
@@ -1024,10 +1031,17 @@ static void parse_chat_meta(Chat *chat, const char *meta) {
   }
 }
 
+static void destroy_header_avatar(void);
+
 static void destroy_chat_avatar(Chat *chat) {
   if (chat && chat->avatar_bitmap) {
+    destroy_header_avatar();
     gbitmap_destroy(chat->avatar_bitmap);
     chat->avatar_bitmap = NULL;
+  }
+  if (chat && chat->avatar_data) {
+    free(chat->avatar_data);
+    chat->avatar_data = NULL;
   }
 }
 
@@ -1282,6 +1296,13 @@ static bool evict_farthest_image(int min_distance) {
 // heap, drop off-screen photos until the reserve is back.
 static void release_images_for_heap(void) {
   while (image_heap_free() < IMAGE_HEAP_RESERVE && evict_farthest_image(0)) {
+  }
+}
+
+// Before asking for a page of messages: free off-screen photos (never the ones
+// on screen) until the page is sure to fit.
+static void make_room_for_message_page(void) {
+  while (image_heap_free() < IMAGE_HEAP_RESERVE + PAGE_LOAD_HEADROOM && evict_farthest_image(0)) {
   }
 }
 
@@ -1614,11 +1635,105 @@ static int ticks_width(int count) {
 }
 
 // Coloured circle with initials, or the chat photo when one has loaded.
+// The chat header shows the avatar smaller than the chat list does (Pebble Time
+// 2). Keep one scaled-down copy of the open chat's avatar for it.
+static GBitmap *s_header_avatar;
+static GBitmap *s_header_avatar_source;
+
+static void destroy_header_avatar(void) {
+  if (s_header_avatar) {
+    gbitmap_destroy(s_header_avatar);
+    s_header_avatar = NULL;
+  }
+  s_header_avatar_source = NULL;
+}
+
+// Area-averaged downscale of a 4-bit palettized avatar: each output pixel takes
+// the palette colour closest to the average of the source pixels it covers.
+static GBitmap *scale_avatar(GBitmap *source, int size) {
+  if (!source || gbitmap_get_format(source) != GBitmapFormat4BitPalette) {
+    return NULL;
+  }
+  GSize src = gbitmap_get_bounds(source).size;
+  GColor *palette = gbitmap_get_palette(source);
+  GBitmap *out = gbitmap_create_blank_with_palette(GSize(size, size), GBitmapFormat4BitPalette, palette, false);
+  if (!out) {
+    return NULL;
+  }
+  uint8_t *src_data = gbitmap_get_data(source);
+  uint8_t *dst_data = gbitmap_get_data(out);
+  int src_row = gbitmap_get_bytes_per_row(source);
+  int dst_row = gbitmap_get_bytes_per_row(out);
+  for (int y = 0; y < size; y++) {
+    int y0 = (y * src.h) / size;
+    int y1 = PG_MAX(y0 + 1, ((y + 1) * src.h) / size);
+    for (int x = 0; x < size; x++) {
+      int x0 = (x * src.w) / size;
+      int x1 = PG_MAX(x0 + 1, ((x + 1) * src.w) / size);
+      int r = 0, g = 0, b = 0, n = 0;
+      for (int sy = y0; sy < y1; sy++) {
+        for (int sx = x0; sx < x1; sx++) {
+          uint8_t byte = src_data[sy * src_row + sx / 2];
+          GColor c = palette[(sx & 1) ? (byte & 0x0f) : (byte >> 4)];
+          r += c.r;
+          g += c.g;
+          b += c.b;
+          n++;
+        }
+      }
+      int best = 0;
+      int best_d = 0x7fff;
+      for (int i = 0; i < 16; i++) {
+        int dr = palette[i].r * n - r;
+        int dg = palette[i].g * n - g;
+        int db = palette[i].b * n - b;
+        int d = dr * dr + dg * dg + db * db;
+        if (d < best_d) {
+          best_d = d;
+          best = i;
+        }
+      }
+      uint8_t *cell = &dst_data[y * dst_row + x / 2];
+      *cell = (x & 1) ? ((*cell & 0xf0) | best) : ((*cell & 0x0f) | (best << 4));
+    }
+  }
+  return out;
+}
+
+static GBitmap *header_avatar_for(GBitmap *source, int radius) {
+  if (!source) {
+    return NULL;
+  }
+  if (gbitmap_get_bounds(source).size.w == radius * 2) {
+    return source;
+  }
+  if (s_header_avatar_source != source) {
+    destroy_header_avatar();
+    s_header_avatar = scale_avatar(source, radius * 2);
+    s_header_avatar_source = source;
+  }
+  return s_header_avatar ? s_header_avatar : source;
+}
+
 static void draw_avatar(GContext *ctx, GPoint center, int radius, const char *key,
                         const char *title, GBitmap *photo, GColor bg) {
   if (photo) {
-    graphics_draw_bitmap_in_rect(ctx, photo, GRect(center.x - radius, center.y - radius,
-                                                   radius * 2, radius * 2));
+    GSize size = gbitmap_get_bounds(photo).size;
+    GRect rect = GRect(center.x - radius, center.y - radius, radius * 2, radius * 2);
+    if (size.w == rect.size.w && size.h == rect.size.h) {
+      graphics_draw_bitmap_in_rect(ctx, photo, rect);
+    } else {
+      // Other sizes are drawn centred (cropped if bigger), never tiled.
+      int sw = PG_MIN(size.w, rect.size.w);
+      int sh = PG_MIN(size.h, rect.size.h);
+      GBitmap *view = gbitmap_create_as_sub_bitmap(photo, GRect((size.w - sw) / 2, (size.h - sh) / 2, sw, sh));
+      if (view) {
+        graphics_context_set_fill_color(ctx, GColorLightGray);
+        graphics_fill_circle(ctx, center, radius);
+        graphics_draw_bitmap_in_rect(ctx, view, GRect(center.x - sw / 2, center.y - sh / 2, sw, sh));
+        gbitmap_destroy(view);
+      }
+    }
     mask_avatar_corners(ctx, center, radius, bg);
     return;
   }
@@ -1702,12 +1817,12 @@ static void header_update_proc(Layer *layer, GContext *ctx) {
     draw_back_chevron(ctx, GPoint(x + 2, mid), GColorWhite);
     x += 12;
     if (b.size.h >= 30) {
-      int r = (b.size.h / 2) - 4;
+      int r = PG_MIN((b.size.h / 2) - 4, CHAT_AVATAR_R);
       Chat *current = (s_selected_chat >= 0 && s_selected_chat < s_chat_count &&
                        strcmp(s_chats[s_selected_chat].id, s_current_chat_id) == 0) ?
                       &s_chats[s_selected_chat] : NULL;
       draw_avatar(ctx, GPoint(x + r, mid), r, s_current_chat_id, s_current_chat_title,
-                  current ? current->avatar_bitmap : NULL, TG_HEADER);
+                  current ? header_avatar_for(current->avatar_bitmap, r) : NULL, TG_HEADER);
       x += (r * 2) + 7;
     }
   } else {
@@ -1806,11 +1921,12 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
       graphics_fill_rect(ctx, GRect(safe.origin.x - 8, 1, safe.size.w + 16, bounds.size.h - 2),
                          (bounds.size.h - 2) / 2, GCornersAll);
     } else {
-      graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+      // Leave a 1px gap above the highlight and above the separator line.
+      graphics_fill_rect(ctx, GRect(0, 1, bounds.size.w, bounds.size.h - 3), 0, GCornerNone);
     }
   }
 
-  int avatar_r = PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 15, 15, 15, 15, 19, 15, 16);
+  int avatar_r = CHAT_AVATAR_R;
   GPoint avatar_c = GPoint(safe.origin.x + avatar_r + (ROUND_UI ? 0 : 4), bounds.size.h / 2);
   draw_avatar(ctx, avatar_c, avatar_r, chat->id, chat->title, chat->avatar_bitmap, row_bg);
   if (selected && BW_UI) {
@@ -1869,7 +1985,7 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
   graphics_draw_text(ctx, preview, font_18(), GRect(preview_x, line2_y - 2, preview_w, 22),
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 
-  if (!selected && !ROUND_UI) {
+  if (!ROUND_UI) {
     graphics_context_set_stroke_color(ctx, TG_SEPARATOR);
     graphics_draw_line(ctx, GPoint(text_x, bounds.size.h - 1), GPoint(bounds.size.w, bounds.size.h - 1));
   }
@@ -2772,47 +2888,6 @@ static void set_chat_scroll_offset(int target, bool animated) {
   }
   s_chat_scroll_step = 0;
   s_chat_scroll_timer = app_timer_register(CHAT_SCROLL_FRAME_MS, chat_scroll_timer_callback, NULL);
-}
-
-static void select_message_with_alignment(int index, bool align_top, bool animated) {
-  if (!s_messages_root || index < 0 || index >= s_message_count) {
-    return;
-  }
-
-  s_selected_message = index;
-  recalc_message_layout();
-  prepare_selected_image_request();
-  GRect bounds = layer_get_bounds(s_messages_root);
-  int margin = 6;
-  int top = s_message_y[s_selected_message] - margin;
-  int bottom = s_message_y[s_selected_message] + s_message_h[s_selected_message] + margin;
-  int target = s_chat_scroll_offset;
-
-  if (s_message_h[s_selected_message] > visible_message_height(bounds) - (margin * 2)) {
-    target = align_top ? top : bottom - visible_message_height(bounds);
-    set_chat_scroll_offset(target, animated);
-    request_next_image();
-    return;
-  }
-
-  if (align_top && top < s_chat_scroll_offset) {
-    target = top;
-    set_chat_scroll_offset(target, animated);
-    request_next_image();
-    return;
-  }
-
-  if (!align_top && bottom > s_chat_scroll_offset + visible_message_height(bounds)) {
-    target = bottom - visible_message_height(bounds);
-    set_chat_scroll_offset(target, animated);
-    request_next_image();
-    return;
-  }
-
-  if (s_messages_root) {
-    layer_mark_dirty(s_messages_root);
-  }
-  request_next_image();
 }
 
 static void render_messages(void) {
@@ -4588,6 +4663,13 @@ static void request_next_image(void) {
     }
   }
 
+  if (s_page_load_waiting) {
+    if (s_loading_older_messages || s_loading_newer_messages) {
+      return;  // photos resume once the requested messages are in
+    }
+    s_page_load_waiting = false;
+  }
+
   if (s_image_message_id[0]) {
     Message *active_message = find_message_by_image_token(s_image_message_id);
     int active_index = message_index_from_ptr(active_message);
@@ -4648,7 +4730,13 @@ static void request_older_messages(bool silent) {
   }
   // Photos on screen stay put while the next page loads; the page's messages
   // are staged and matched back to their loaded photos.
-  release_images_for_heap();
+  make_room_for_message_page();
+  if (!silent) {
+    // The phone drops photo transfers when asked for a page; pause photos
+    // until the page has arrived so it isn't stuck behind them.
+    s_page_load_waiting = true;
+    clear_active_image_request();
+  }
   if (s_loading_older_messages) {
     if (silent) {
       return;
@@ -4706,7 +4794,11 @@ static void request_newer_messages(bool silent) {
   if (s_loading_newer_messages) {
     return;
   }
-  release_images_for_heap();
+  make_room_for_message_page();
+  if (!silent) {
+    s_page_load_waiting = true;
+    clear_active_image_request();
+  }
   recalc_message_layout();
   if (s_selected_message >= 0 && s_selected_message < s_message_count) {
     copy_cstr(s_newer_anchor_id, sizeof(s_newer_anchor_id), s_messages[s_selected_message].id);
@@ -5517,7 +5609,18 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
         s_avatar_buffer) {
       Chat *chat = &s_chats[chat_index];
       destroy_chat_avatar(chat);
-      chat->avatar_bitmap = gbitmap_create_from_png_data(s_avatar_buffer, s_avatar_size);
+      bool png = s_avatar_size > 8 && s_avatar_buffer[0] == 0x89 && s_avatar_buffer[1] == 'P';
+      if (png) {
+        chat->avatar_bitmap = gbitmap_create_from_png_data(s_avatar_buffer, s_avatar_size);
+      } else if (s_avatar_size > 12) {
+        // A ready-to-draw bitmap: keep the received bytes as its pixels.
+        chat->avatar_bitmap = gbitmap_create_with_data(s_avatar_buffer);
+        if (chat->avatar_bitmap) {
+          chat->avatar_data = s_avatar_buffer;
+          s_avatar_buffer = NULL;
+          s_avatar_buffer_capacity = 0;
+        }
+      }
       if (s_chat_menu) {
         layer_mark_dirty(menu_layer_get_layer(s_chat_menu));
       }

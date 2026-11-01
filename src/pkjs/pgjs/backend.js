@@ -93,8 +93,8 @@ function create(options) {
     packBits: function(bytes) {
       return imageApi().packBits(bytes);
     },
-    avatarBytes: function(chatId, width, height, colors, maxBytes) {
-      return imageApi().avatarBytes(chatId, width, height, colors, maxBytes);
+    avatarBytes: function(chatId, size, blackAndWhite) {
+      return imageApi().avatarBytes(chatId, size, blackAndWhite);
     },
     cancelImageRequests: function() {
       if (image) {
