@@ -63,6 +63,12 @@ function create(options) {
     sendMessage: function(chatId, text, replyTo) {
       return telegramApi().sendMessage(chatId, text, replyTo);
     },
+    getDraft: function(chatId) {
+      return telegramApi().getDraft(chatId);
+    },
+    saveDraft: function(chatId, text, replyTo) {
+      return telegramApi().saveDraft(chatId, text, replyTo);
+    },
     editMessage: function(chatId, messageId, text) {
       return telegramApi().editMessage(chatId, messageId, text);
     },

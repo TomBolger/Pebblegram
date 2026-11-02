@@ -1,6 +1,7 @@
 var MessageKeys = require('message_keys');
 var pgjsBackend = require('./pgjs/backend');
 var watchEmoji = require('./pgjs/emoji');
+var draftSync = require('./pgjs/drafts');
 var Clay = require('@rebble/clay');
 var appearance = require('./config');
 
@@ -1238,8 +1239,29 @@ function updateChatId(update) {
     idPart(update && (update.userId || update.chatId || update.channelId));
 }
 
+var drafts = draftSync.create({
+  backend: activePgjs,
+  send: sendToWatch,
+  keys: MessageKeys,
+  isOpen: function(chatId) {
+    return currentChatId === chatId;
+  },
+  clamp: clampUtf8Bytes,
+  log: debugLog,
+  now: Date.now
+});
+
 function handleTelegramUpdate(update) {
   var chatId = updateChatId(update);
+  if (drafts.onUpdate(update, chatId)) {
+    // The chat list preview shows drafts, so it needs a refresh too.
+    if (currentChatId) {
+      chatListStale = true;
+    } else {
+      scheduleUpdateRefresh(900);
+    }
+    return;
+  }
   if (currentChatId) {
     if (chatId && chatId === currentChatId) {
       scheduleUpdateRefresh(900);
@@ -1365,6 +1387,7 @@ function getMessages(chatId) {
   cancelQueuedAvatarTransfers();
   cancelQueuedImageTransfers();
   if (sendStoredMessages(chatId)) {
+    drafts.sendOpenChatDraft(chatId);
     return;
   }
   if (messageLoadPromises[key]) {
@@ -1379,6 +1402,7 @@ function getMessages(chatId) {
     currentChatSignature = messageSignature(messages || []);
     markRead(chatId);
     sendMessageRows(messages || [], chatId, 'initial');
+    drafts.sendOpenChatDraft(chatId);
     warmChatHistory(chatId);
   }).catch(function(err) {
     delete messageLoadPromises[key];
@@ -1682,6 +1706,7 @@ function sendMessage(chatId, text, replyTo) {
     error('Send failed: the watch sent an empty message.');
     return;
   }
+  drafts.sent(chatId);
   timed('send message ' + chatId, activePgjs().sendMessage(chatId, text, replyTo)).then(function() {
     var payload = {};
     payload[MessageKeys.Type] = 'sent';
@@ -1983,6 +2008,8 @@ Pebble.addEventListener('appmessage', function(event) {
     leaveChat(chatId);
   } else if (command === 'send_message') {
     sendMessage(chatId, text, replyTo);
+  } else if (command === 'save_draft') {
+    drafts.save(chatId, text, replyTo);
   } else if (command === 'delete_message') {
     deleteMessage(chatId, messageId);
   } else if (command === 'edit_message') {

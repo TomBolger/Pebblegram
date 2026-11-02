@@ -1,5 +1,6 @@
 var auth = require('./auth');
 var gram = require('./gramjs.bundle');
+var drafts = require('./drafts');
 var codecs = null;
 var readOutboxByChatId = {};
 var MEDIA_DOWNLOAD_TIMEOUT_MS = 3000;
@@ -1344,6 +1345,10 @@ function dialogRows(dialogs, folderName, folderOrder) {
       }
       return null;
     }
+    var draft = drafts.parseDraft(dialog.dialog && dialog.dialog.draft);
+    if (draft.text) {
+      preview = 'Draft: ' + draft.text;
+    }
     if (folderName) {
       preview = '[' + folderName + '] ' + preview;
     }
@@ -1466,7 +1471,34 @@ function sendMessage(chatId, text, replyTo) {
     if (replyTo) {
       options.replyTo = parseInt(replyTo, 10) || replyTo;
     }
+    options.clearDraft = true;
     return client.sendMessage(chatId, options);
+  });
+}
+
+function getDraft(chatId) {
+  return auth.getClient().then(function(client) {
+    return inputPeer(client, chatId).then(function(peer) {
+      return client.invoke(new gram.Api.messages.GetPeerDialogs({
+        peers: [new gram.Api.InputDialogPeer({peer: peer})]
+      }));
+    });
+  }).then(function(result) {
+    var dialog = result && result.dialogs && result.dialogs[0];
+    return drafts.parseDraft(dialog && dialog.draft);
+  });
+}
+
+// An empty text clears the draft.
+function saveDraft(chatId, text, replyTo) {
+  return auth.getClient().then(function(client) {
+    return inputPeer(client, chatId).then(function(peer) {
+      var request = {peer: peer, message: text};
+      if (text && replyTo) {
+        request.replyTo = new gram.Api.InputReplyToMessage({replyToMsgId: parseInt(replyTo, 10)});
+      }
+      return client.invoke(new gram.Api.messages.SaveDraft(request));
+    });
   });
 }
 
@@ -1695,6 +1727,8 @@ module.exports = {
   newerMessages: newerMessages,
   keepalive: keepalive,
   sendMessage: sendMessage,
+  getDraft: getDraft,
+  saveDraft: saveDraft,
   editMessage: editMessage,
   sendReaction: sendReaction,
   message: message,
