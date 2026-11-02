@@ -5831,6 +5831,11 @@ static void request_messages(const char *chat_id) {
   s_leave_pending = false;
   cancel_message_timeout();
   cancel_message_retry();
+  // Any draft still here belongs to the previous chat (leaving it already saved it):
+  // mark it synced so it is never saved into this one.
+#if TOUCH_KEYBOARD_AVAILABLE
+  s_kb_synced = kb_draft_hash(s_kb_draft, kb_reply_target());
+#endif
   reset_touch_keyboard();
   destroy_message_images();
   clear_message_stage();
