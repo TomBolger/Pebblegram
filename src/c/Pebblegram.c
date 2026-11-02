@@ -403,56 +403,59 @@ typedef struct {
   uint8_t font_size;  // text size this message is drawn at (see message_font_size)
 } Message;
 
-// Telegram standard reactions the watch can draw, most popular first.
-// PebbleOS 4.29+ has a much larger emoji font than older firmware.
-static const char *const REACTION_CHOICES_EXPANDED[] = {
-  "👍", "❤", "🔥", "🥰", "👏", "😁", "🤔", "🤯",
-  "😱", "🤬", "😢", "🎉", "🤩", "🤮", "💩", "🙏",
-  "👌", "🕊", "🤡", "🥱", "🥴", "😍", "🐳", "🌚",
-  "🌭", "💯", "🤣", "⚡", "🍌", "🏆", "💔", "🤨",
-  "😐", "🍓", "🍾", "💋", "🖕", "😈", "😴", "😭",
-  "🤓", "👻", "👀", "🎃", "🙈", "😇", "😨", "🤝",
-  "✍", "🤗", "🫡", "🎅", "🎄", "☃", "💅", "🤪",
-  "🗿", "🆒", "💘", "🙉", "🦄", "😘", "💊", "🙊",
-  "😎", "👾", "🤷", "😡", "👎"
-};
-static const char *const REACTION_CHOICES_CLASSIC[] = {
-  "👍", "❤", "🥰", "👏", "😁", "😱", "🤬", "😢",
-  "🎉", "🤩", "🤮", "💩", "🙏", "👌", "😍", "💯",
-  "🤣", "💔", "😐", "💋", "😈", "😴", "😭", "👀",
-  "😇", "😨", "🤝", "🤗", "🤪", "💘", "😘", "😎",
-  "😡", "👎"
-};
+// Telegram standard reactions the watch can draw, most popular first, as NUL-separated items.
+// PebbleOS 4.29+ has a much larger emoji font than older firmware; the older one draws only
+// the items flagged in *_CLASSIC.
+static const char REACTION_CHOICES[] =
+  "👍\0" "❤\0" "🔥\0" "🥰\0" "👏\0" "😁\0" "🤔\0" "🤯\0"
+  "😱\0" "🤬\0" "😢\0" "🎉\0" "🤩\0" "🤮\0" "💩\0" "🙏\0"
+  "👌\0" "🕊\0" "🤡\0" "🥱\0" "🥴\0" "😍\0" "🐳\0" "🌚\0"
+  "🌭\0" "💯\0" "🤣\0" "⚡\0" "🍌\0" "🏆\0" "💔\0" "🤨\0"
+  "😐\0" "🍓\0" "🍾\0" "💋\0" "🖕\0" "😈\0" "😴\0" "😭\0"
+  "🤓\0" "👻\0" "👀\0" "🎃\0" "🙈\0" "😇\0" "😨\0" "🤝\0"
+  "✍\0" "🤗\0" "🫡\0" "🎅\0" "🎄\0" "☃\0" "💅\0" "🤪\0"
+  "🗿\0" "🆒\0" "💘\0" "🙉\0" "🦄\0" "😘\0" "💊\0" "🙊\0"
+  "😎\0" "👾\0" "🤷\0" "😡\0" "👎\0";
+static const uint32_t REACTION_CHOICES_CLASSIC[3] = {0x4621ff3bu, 0x2482e4e9u, 0x00000019u};  // bit n: item n is in the classic font
+#define REACTION_CHOICES_COUNT 69
+#define REACTION_CHOICES_CLASSIC_COUNT 34
 
 // Emoji offered as quick replies.
-static const char *const EMOJI_REPLY_CHOICES_EXPANDED[] = {
-  "👍", "👎", "❤", "😂", "🤣", "😊", "🙂", "😉",
-  "😍", "🥰", "😘", "😎", "🤔", "🙄", "😅", "😬",
-  "😐", "😴", "😢", "😭", "😱", "😡", "🤯", "🥺",
-  "🥹", "🫠", "🤗", "🫡", "🤷", "🙏", "👏", "🙌",
-  "👌", "✌", "🤞", "👋", "💪", "👀", "🔥", "✨",
-  "🎉", "🥳", "💯", "✅", "❌", "❓", "❗", "⭐",
-  "💔", "💕", "🤝", "🍻", "☕", "🍕", "🎂", "🎁",
-  "🚗", "🏠", "💤", "🕐", "🆗", "😀", "😃", "😄",
-  "😁", "😇", "😈", "🤪", "🤩", "🤓", "😷", "🤒",
-  "🤢", "🤮", "💩", "👻", "🙈", "😺", "🐶", "🌞",
-  "🌙", "⚡", "🌈", "☔"
-};
-static const char *const EMOJI_REPLY_CHOICES_CLASSIC[] = {
-  "👍", "👎", "❤", "😂", "🤣", "😊", "😉", "😍",
-  "🥰", "😘", "😎", "🙄", "😅", "😬", "😐", "😴",
-  "😢", "😭", "😱", "😡", "🥺", "🤗", "🙏", "👏",
-  "🙌", "👌", "✌", "👋", "👀", "✨", "🎉", "💯",
-  "✅", "❗", "⭐", "💔", "💕", "🤝", "🍻", "😀",
-  "😃", "😄", "😁", "😇", "😈", "🤪", "🤩", "😷",
-  "🤮", "💩", "🌙"
-};
+static const char EMOJI_REPLY_CHOICES[] =
+  "👍\0" "👎\0" "❤\0" "😂\0" "🤣\0" "😊\0" "🙂\0" "😉\0"
+  "😍\0" "🥰\0" "😘\0" "😎\0" "🤔\0" "🙄\0" "😅\0" "😬\0"
+  "😐\0" "😴\0" "😢\0" "😭\0" "😱\0" "😡\0" "🤯\0" "🥺\0"
+  "🥹\0" "🫠\0" "🤗\0" "🫡\0" "🤷\0" "🙏\0" "👏\0" "🙌\0"
+  "👌\0" "✌\0" "🤞\0" "👋\0" "💪\0" "👀\0" "🔥\0" "✨\0"
+  "🎉\0" "🥳\0" "💯\0" "✅\0" "❌\0" "❓\0" "❗\0" "⭐\0"
+  "💔\0" "💕\0" "🤝\0" "🍻\0" "☕\0" "🍕\0" "🎂\0" "🎁\0"
+  "🚗\0" "🏠\0" "💤\0" "🕐\0" "🆗\0" "😀\0" "😃\0" "😄\0"
+  "😁\0" "😇\0" "😈\0" "🤪\0" "🤩\0" "🤓\0" "😷\0" "🤒\0"
+  "🤢\0" "🤮\0" "💩\0" "👻\0" "🙈\0" "😺\0" "🐶\0" "🌞\0"
+  "🌙\0" "⚡\0" "🌈\0" "☔\0";
+static const uint32_t EMOJI_REPLY_CHOICES_CLASSIC[3] = {0xe4bfefbfu, 0xe00fcdabu, 0x0001065fu};  // bit n: item n is in the classic font
+#define EMOJI_REPLY_CHOICES_COUNT 84
+#define EMOJI_REPLY_CHOICES_CLASSIC_COUNT 51
 
 static Window *s_main_window;
 static MenuLayer *s_chat_menu;
 static Layer *s_header_layer;
 static uint8_t s_current_chat_flags;
 static Layer *s_messages_root;
+
+static __attribute__((noinline)) void mark_messages_dirty(void) {
+  if (s_messages_root) {
+    layer_mark_dirty(s_messages_root);
+  }
+}
+
+static void cancel_timer(AppTimer **timer) {
+  if (*timer) {
+    app_timer_cancel(*timer);
+    *timer = NULL;
+  }
+}
+
 static PropertyAnimation *s_chat_menu_animation;
 static PropertyAnimation *s_messages_animation;
 
@@ -521,18 +524,7 @@ static int s_avatar_size;
 static int s_avatar_received;
 static int s_avatar_expected_offset;
 static int s_avatar_transfer_id;
-static char s_canned[MAX_CANNED][CANNED_TEXT_LEN] = {
-  "Yes",
-  "No",
-  "On my way",
-  "Call you later",
-  "Thanks",
-  "",
-  "",
-  "",
-  "",
-  ""
-};
+static char (*s_canned)[CANNED_TEXT_LEN];
 static char *s_pending_text;
 static char s_pending_edit_message_id[MAX_ID];
 static char s_pending_chat_command[24];
@@ -545,6 +537,7 @@ static bool s_touch_keyboard_shift;
 static bool s_kb_redraw_only;
 #endif
 static char s_current_chat_id[MAX_ID];
+static bool s_leave_pending;  // leave_chat waits for the outbox (a draft save is going out)
 static char s_current_chat_title[48];
 static char s_status_text[64];
 static char s_loading_text[96] = "Loading...";
@@ -646,6 +639,7 @@ static void reset_touch_keyboard(void);
 static void open_touch_keyboard(KeyboardMode mode, const char *target_id, const char *initial_text);
 static void touch_keyboard_send_result(bool ok);
 static bool touch_keyboard_has_draft(void);
+static void touch_keyboard_draft_received(DictionaryIterator *iter);
 #if TOUCH_KEYBOARD_AVAILABLE
 static void open_emoji_grid(EmojiGridMode mode, bool as_reply);
 #endif
@@ -1274,10 +1268,7 @@ static void destroy_message_bitmap(Message *message) {
 }
 
 static void destroy_message_images(void) {
-  if (s_image_retry_timer) {
-    app_timer_cancel(s_image_retry_timer);
-    s_image_retry_timer = NULL;
-  }
+  cancel_timer(&s_image_retry_timer);
   for (int i = 0; i < MAX_MESSAGES; i++) {
     destroy_message_bitmap(&s_messages[i]);
     s_messages[i].image_requested = false;
@@ -1520,10 +1511,7 @@ static void prepare_selected_image_request(void) {
 
 static void clear_active_image_request(void) {
   Message *message = find_message_by_image_token(s_image_message_id);
-  if (s_image_retry_timer) {
-    app_timer_cancel(s_image_retry_timer);
-    s_image_retry_timer = NULL;
-  }
+  cancel_timer(&s_image_retry_timer);
   if (message) {
     message->image_requested = false;
     if (!message->image_bitmap && !message->image_failed) {
@@ -1571,67 +1559,30 @@ static bool send_command_with_status(const char *command, const char *chat_id, c
     return false;
   }
 
-  DictionaryResult dict_result = dict_write_cstring(iter, MESSAGE_KEY_Command, command);
-  if (dict_result != DICT_OK) {
-    if (show_failures) {
-      show_status("Command write fail");
-    }
-    return false;
-  }
+  bool ok = dict_write_cstring(iter, MESSAGE_KEY_Command, command) == DICT_OK;
   if (chat_id) {
-    dict_result = dict_write_cstring(iter, MESSAGE_KEY_ChatId, chat_id);
-    if (dict_result != DICT_OK) {
-      if (show_failures) {
-        show_status("Chat ID write fail");
-      }
-      return false;
-    }
+    ok = ok && dict_write_cstring(iter, MESSAGE_KEY_ChatId, chat_id) == DICT_OK;
   }
   if (text) {
-    dict_result = dict_write_cstring(iter, MESSAGE_KEY_Text, text);
-    if (dict_result != DICT_OK) {
-      if (show_failures) {
-        show_status("Text write fail");
-      }
-      return false;
-    }
+    ok = ok && dict_write_cstring(iter, MESSAGE_KEY_Text, text) == DICT_OK;
   }
   if (reply_to) {
-    dict_result = dict_write_cstring(iter, MESSAGE_KEY_ReplyTo, reply_to);
-    if (dict_result != DICT_OK) {
-      if (show_failures) {
-        show_status("Reply write fail");
-      }
-      return false;
-    }
+    ok = ok && dict_write_cstring(iter, MESSAGE_KEY_ReplyTo, reply_to) == DICT_OK;
   }
   if (text && message_id && strcmp(command, "edit_message") == 0) {
-    dict_result = dict_write_cstring(iter, MESSAGE_KEY_EditMessageId, message_id);
-    if (dict_result != DICT_OK) {
-      if (show_failures) {
-        show_status("Edit ID write fail");
-      }
-      return false;
-    }
+    ok = ok && dict_write_cstring(iter, MESSAGE_KEY_EditMessageId, message_id) == DICT_OK;
   }
   if (message_id) {
-    dict_result = dict_write_cstring(iter, MESSAGE_KEY_MessageId, message_id);
-    if (dict_result != DICT_OK) {
-      if (show_failures) {
-        show_status("Msg ID write fail");
-      }
-      return false;
-    }
+    ok = ok && dict_write_cstring(iter, MESSAGE_KEY_MessageId, message_id) == DICT_OK;
   }
-  dict_write_end(iter);
-  result = app_message_outbox_send();
-  if (result != APP_MSG_OK) {
-    if (show_failures) {
-      show_status("Command send fail");
-    }
-    return false;
+  if (ok) {
+    dict_write_end(iter);
+    ok = app_message_outbox_send() == APP_MSG_OK;
   }
-  return true;
+  if (!ok && show_failures) {
+    show_status("Command send fail");
+  }
+  return ok;
 }
 
 static bool send_command(const char *command, const char *chat_id, const char *text,
@@ -1657,10 +1608,7 @@ static bool status_message_should_persist(const char *message) {
 }
 
 static void cancel_status_clear(void) {
-  if (s_status_clear_timer) {
-    app_timer_cancel(s_status_clear_timer);
-    s_status_clear_timer = NULL;
-  }
+  cancel_timer(&s_status_clear_timer);
 }
 
 static void schedule_status_clear(const char *message) {
@@ -2311,6 +2259,15 @@ static void clear_message_stage(void) {
   s_message_stage_count = 0;
 }
 
+static void end_page_load(void) {
+  s_loading_older_messages = false;
+  s_loading_newer_messages = false;
+  s_older_anchor_id[0] = '\0';
+  s_newer_anchor_id[0] = '\0';
+  clear_message_stage();
+  reset_message_stream_state();
+}
+
 static bool prepare_message_stage(void) {
   clear_message_stage();
   s_message_stage = malloc(sizeof(Message) * MAX_MESSAGES);
@@ -2493,7 +2450,7 @@ static void remove_message_at(int index) {
     } else {
       recalc_message_layout();
       set_chat_scroll_offset(s_chat_scroll_offset, false);
-      layer_mark_dirty(s_messages_root);
+      mark_messages_dirty();
       request_next_image();
     }
   }
@@ -2514,7 +2471,7 @@ static void preserve_stream_anchor(const char *anchor_id, int anchor_y, bool dir
     }
   }
   if (dirty && s_messages_root) {
-    layer_mark_dirty(s_messages_root);
+    mark_messages_dirty();
   }
   if (dirty) {
     request_next_image();
@@ -3105,17 +3062,12 @@ static void chat_scroll_timer_callback(void *data) {
     s_chat_scroll_timer = app_timer_register(CHAT_SCROLL_FRAME_MS, chat_scroll_timer_callback, NULL);
   }
 
-  if (s_messages_root) {
-    layer_mark_dirty(s_messages_root);
-  }
+  mark_messages_dirty();
   request_next_image();
 }
 
 static void set_chat_scroll_offset_quiet(int target) {
-  if (s_chat_scroll_timer) {
-    app_timer_cancel(s_chat_scroll_timer);
-    s_chat_scroll_timer = NULL;
-  }
+  cancel_timer(&s_chat_scroll_timer);
   s_chat_scroll_offset = clamp_scroll_offset(target);
 }
 
@@ -3130,16 +3082,11 @@ static void finish_pending_chat_scroll(void) {
 
 static void set_chat_scroll_offset(int target, bool animated) {
   target = clamp_scroll_offset(target);
-  if (s_chat_scroll_timer) {
-    app_timer_cancel(s_chat_scroll_timer);
-    s_chat_scroll_timer = NULL;
-  }
+  cancel_timer(&s_chat_scroll_timer);
 
   if (!animated) {
     s_chat_scroll_offset = target;
-    if (s_messages_root) {
-      layer_mark_dirty(s_messages_root);
-    }
+    mark_messages_dirty();
     request_next_image();
     return;
   }
@@ -3147,9 +3094,7 @@ static void set_chat_scroll_offset(int target, bool animated) {
   s_chat_scroll_start = s_chat_scroll_offset;
   s_chat_scroll_target = target;
   if (s_chat_scroll_start == s_chat_scroll_target) {
-    if (s_messages_root) {
-      layer_mark_dirty(s_messages_root);
-    }
+    mark_messages_dirty();
     request_next_image();
     return;
   }
@@ -3167,7 +3112,7 @@ static void render_messages(void) {
     set_chat_scroll_offset(s_chat_content_height, false);
     return;
   }
-  layer_mark_dirty(s_messages_root);
+  mark_messages_dirty();
   request_next_image();
 }
 
@@ -3203,9 +3148,12 @@ static void render_messages(void) {
 #define KB_ROUND_BOTTOM_GAP 12
 #define KB_REPEAT_DELAY_MS 450
 #define KB_REPEAT_MS 90
+#define KB_WORD_DELETE_AFTER 12  // repeats (about 1.5 s with the delay) before delete takes words
+#define KB_SAVE_RETRY_MS 600
 #define KB_DOUBLE_TAP_MS 400
 #define KB_SLIDE_HOLD 3
 #define KB_SPACE_DRAG_START 6
+#define KB_FIELD_DRAG_START 6
 #define KB_SPACE_DRAG_STEP 7
 #define KB_SWIPE_OTHER_KEYS 2
 #define KB_SWIPE_KEYS_MAX 41  // the word engine reads up to 40
@@ -3281,7 +3229,12 @@ static GPoint s_kb_last_point;
 static GPoint s_kb_trail[KB_TRAIL_POINTS];
 static uint8_t s_kb_trail_count;
 static bool s_kb_space_drag;
-static int s_kb_space_anchor_x;
+static int s_kb_drag_anchor;  // space bar: finger x; text field: finger y
+static uint8_t s_kb_repeats;  // delete repeats so far in this press
+static bool s_kb_field_scroll;  // the drag in the field scrolls it instead of moving the cursor
+static int s_kb_auto_sp = -1;  // cursor position right after an automatic space, if untouched since
+static uint32_t s_kb_synced;  // hash of the draft Telegram has (0: none)
+static AppTimer *s_kb_save_timer;
 
 static bool kb_hit_equal(KeyHit a, KeyHit b) {
   return a.kind == b.kind && a.row == b.row && a.index == b.index;
@@ -3555,7 +3508,7 @@ static void kb_update_auto_shift(void) {
 static void kb_dirty(void) {
   if (s_messages_root) {
     s_kb_redraw_only = true;
-    layer_mark_dirty(s_messages_root);
+    mark_messages_dirty();
   }
 }
 
@@ -3801,6 +3754,7 @@ static void kb_layout_changed(void) {
 }
 
 static void kb_edited(void) {
+  s_kb_auto_sp = -1;
   s_kb_strip_mode = KbStripWords;
   kb_layout_changed();
 }
@@ -3812,6 +3766,7 @@ static void kb_draft_changed(void) {
 
 // The cursor moved without an edit. The strip is refreshed once the finger lifts.
 static void kb_cursor_moved(void) {
+  s_kb_auto_sp = -1;
   s_kb_skip_ac_start = -1;
   s_kb_strip_mode = KbStripWords;
   kb_clear_strip();
@@ -3843,7 +3798,29 @@ static bool kb_insert(const char *text) {
   return true;
 }
 
+// Punctuation typed right after an automatic space takes the space back.
+static void kb_take_back_space(char ch) {
+  int pos = s_kb_cursor;
+  if (pos == s_kb_auto_sp && s_kb_draft[pos - 1] == ' ' && strchr(".,!?;:)'\"", ch) &&
+      kb_replace(pos - 1, 1, "")) {
+    s_kb_cursor = (uint16_t)(pos - 1);
+    s_kb_skip_ac_start = s_kb_rep_start;  // the word before it was entered on purpose
+  }
+}
+
+// A space after a space that followed a word becomes ". ".
+static bool kb_double_space(void) {
+  int pos = s_kb_cursor;
+  if (pos < 2 || s_kb_draft[pos - 1] != ' ') {
+    return false;
+  }
+  char before = s_kb_draft[pos - 2];
+  return (kb_is_letter(before) || (before >= '0' && before <= '9') || strchr("\"')]}", before)) &&
+         kb_replace(pos - 1, 1, ". ");
+}
+
 static void kb_type_char(char ch) {
+  kb_take_back_space(ch);
   if (!s_touch_keyboard_symbols && s_touch_keyboard_shift && ch >= 'a' && ch <= 'z') {
     ch = (char)(ch - 'a' + 'A');
   }
@@ -3859,6 +3836,13 @@ static bool kb_is_terminator(char ch) {
   return ch == ' ' || (ch && strchr(".,!?;:)", ch));
 }
 
+// A lone "i" (also i'm, i'll...) is always "I", with or without the word engine.
+static void kb_capitalise_i(char *word) {
+  if (word[0] == 'i' && (word[1] == '\0' || word[1] == '\'')) {
+    word[0] = 'I';
+  }
+}
+
 // Corrects the word before the cursor (case kept: Teh -> The, TEH -> THE,
 // i'm -> I'm). Returns true when the text changed; the original goes in the
 // first strip slot, where a tap undoes the correction.
@@ -3872,10 +3856,7 @@ static bool kb_autocorrect_word(int start) {
   } else {
     copy_cstr(fixed, sizeof(fixed), typed);
   }
-  // A lone "i" is always "I", with or without the word engine.
-  if (fixed[0] == 'i' && (fixed[1] == '\0' || fixed[1] == '\'')) {
-    fixed[0] = 'I';
-  }
+  kb_capitalise_i(fixed);
   int length = s_kb_cursor - start;
   if (strcmp(fixed, typed) == 0 || !kb_replace(start, length, fixed)) {
     return false;
@@ -3890,6 +3871,12 @@ static bool kb_autocorrect_word(int start) {
 
 // Types a character that ends a word, autocorrecting that word first.
 static void kb_type_terminator(char ch) {
+  if (ch == ' ' && kb_double_space()) {
+    s_kb_cursor++;
+    kb_draft_changed();
+    return;
+  }
+  kb_take_back_space(ch);
   int start;
   bool corrected = kb_word_before_cursor(&start) && start != s_kb_skip_ac_start &&
                    kb_autocorrect_word(start);
@@ -3901,6 +3888,16 @@ static void kb_type_terminator(char ch) {
     s_kb_strip_mode = KbStripUndo;  // backspace undoes it as well
   } else {
     kb_refresh_strip();
+  }
+}
+
+// Puts a space after the word just entered (or steps over the one already there).
+// The caller marks it with s_kb_auto_sp once the edit is done.
+static void kb_auto_space(void) {
+  if (s_kb_draft[s_kb_cursor] == ' ') {
+    s_kb_cursor++;
+  } else {
+    kb_insert(" ");
   }
 }
 
@@ -3924,15 +3921,19 @@ static void kb_apply_suggestion(int slot) {
     return;
   }
   int end = start + (int)strlen(s_kb_sugg[slot]);
-  if (s_kb_strip_mode == KbStripUndo) {
+  bool undo = s_kb_strip_mode == KbStripUndo;
+  if (undo) {
     s_kb_cursor = (uint16_t)(s_kb_cursor + end - (start + old_len));
     s_kb_skip_ac_start = start;  // do not correct this word again
-  } else if (s_kb_draft[end] == ' ' || kb_replace(end, 0, " ")) {
-    s_kb_cursor = (uint16_t)(end + 1);
   } else {
-    return;
+    s_kb_cursor = (uint16_t)end;
+    kb_auto_space();
+    s_kb_rep_start = (uint16_t)start;
   }
   kb_draft_changed();
+  if (!undo) {
+    s_kb_auto_sp = s_kb_cursor;
+  }
 }
 
 // Deletes one whole character, including multi-byte UTF-8 (emoji in an edit).
@@ -3944,14 +3945,15 @@ static void kb_delete(void) {
   if (s_kb_cursor == 0) {
     return;
   }
-  int start = kb_prev_char(s_kb_cursor);
+  // Right after a swipe: the whole word and its space.
+  int start = s_kb_strip_mode == KbStripSwipe ? s_kb_rep_start : kb_prev_char(s_kb_cursor);
   kb_replace(start, s_kb_cursor - start, "");
   s_kb_cursor = (uint16_t)start;
   kb_draft_changed();
 }
 
 // Inserts the best swiped word (a space first when the text before it needs
-// one) and offers the alternatives in the strip.
+// one, and one after it) and offers the alternatives in the strip.
 static void kb_commit_swipe(void) {
   char found[KB_SUGGESTIONS][KB_WORD_MAX];
   int count = s_kb_words_ready ? kb_words_swipe(s_kb_swipe_keys, s_kb_swipe_x, s_kb_swipe_y, s_kb_swipe_pts,
@@ -3963,6 +3965,7 @@ static void kb_commit_swipe(void) {
   const char *style = s_kb_caps_lock ? "AA" : (s_touch_keyboard_shift && !s_touch_keyboard_symbols) ? "A" : "a";
   for (int i = 0; i < count && i < KB_SUGGESTIONS; i++) {
     kb_match_case(style, found[i]);
+    kb_capitalise_i(found[i]);
   }
   char previous = s_kb_cursor > 0 ? s_kb_draft[s_kb_cursor - 1] : ' ';
   if (previous != ' ' && previous != '\n' && previous != '(' && !kb_insert(" ")) {
@@ -3973,10 +3976,12 @@ static void kb_commit_swipe(void) {
   if (!kb_insert(found[0])) {
     return;
   }
+  kb_auto_space();
   if (!s_kb_caps_lock) {
     s_touch_keyboard_shift = false;
   }
   kb_edited();
+  s_kb_auto_sp = s_kb_cursor;
   s_kb_strip_mode = KbStripSwipe;
   kb_clear_strip();
   for (int i = 0; i < count && i < KB_SUGGESTIONS; i++) {
@@ -4016,13 +4021,28 @@ static void kb_set_cursor_from_point(GRect bounds, GPoint point) {
   }
 }
 
+// Vertical drag in the field: one line per line height of finger travel.
+// The view stays where it is put until the cursor moves or the text changes.
+static void kb_scroll_field(int y) {
+  int lines = (y - s_kb_drag_anchor) / KB_LINE_H;
+  if (lines == 0) {
+    return;
+  }
+  s_kb_drag_anchor += lines * KB_LINE_H;
+  int first = PG_MAX(0, PG_MIN((int)s_kb_first_line - lines, s_kb_line_count - s_kb_visible_lines));
+  if (first != s_kb_first_line) {
+    s_kb_first_line = (uint8_t)first;
+    kb_dirty();
+  }
+}
+
 // Drag along the space bar: one character per KB_SPACE_DRAG_STEP pixels.
 static void kb_space_drag(int x) {
-  int steps = (x - s_kb_space_anchor_x) / KB_SPACE_DRAG_STEP;
+  int steps = (x - s_kb_drag_anchor) / KB_SPACE_DRAG_STEP;
   if (steps == 0) {
     return;
   }
-  s_kb_space_anchor_x += steps * KB_SPACE_DRAG_STEP;
+  s_kb_drag_anchor += steps * KB_SPACE_DRAG_STEP;
   for (; steps > 0 && s_kb_cursor < (int)strlen(s_kb_draft); steps--) {
     s_kb_cursor = (uint16_t)kb_next_char(s_kb_cursor);
   }
@@ -4032,11 +4052,22 @@ static void kb_space_drag(int x) {
   kb_cursor_moved();
 }
 
-static void kb_cancel_repeat(void) {
-  if (s_kb_repeat_timer) {
-    app_timer_cancel(s_kb_repeat_timer);
-    s_kb_repeat_timer = NULL;
+// Held long enough, delete takes whole words (back to the start of the previous one).
+static void kb_delete_word(void) {
+  int start = s_kb_cursor;
+  while (start > 0 && s_kb_draft[start - 1] == ' ') {
+    start--;
   }
+  while (start > 0 && s_kb_draft[start - 1] != ' ') {
+    start--;
+  }
+  kb_replace(start, s_kb_cursor - start, "");
+  s_kb_cursor = (uint16_t)start;
+  kb_draft_changed();
+}
+
+static void kb_cancel_repeat(void) {
+  cancel_timer(&s_kb_repeat_timer);
 }
 
 static void kb_repeat_callback(void *context) {
@@ -4045,12 +4076,17 @@ static void kb_repeat_callback(void *context) {
       s_kb_cursor == 0) {
     return;
   }
-  kb_delete();
+  if (++s_kb_repeats > KB_WORD_DELETE_AFTER) {
+    kb_delete_word();
+  } else {
+    kb_delete();
+  }
   s_kb_repeat_timer = app_timer_register(KB_REPEAT_MS, kb_repeat_callback, NULL);
 }
 
 static void kb_reset_press(void) {
   kb_cancel_repeat();
+  s_kb_repeats = 0;
   s_kb_press_active = false;
   s_kb_pressed.kind = KeyNone;
   s_kb_pressed.row = -1;
@@ -4061,6 +4097,7 @@ static void kb_reset_press(void) {
   s_kb_swipe_pts = 0;
   s_kb_trail_count = 0;
   s_kb_space_drag = false;
+  s_kb_field_scroll = false;
 }
 
 static const char *kb_placeholder(void) {
@@ -4079,6 +4116,68 @@ static const char *kb_send_label(void) {
   return s_kb_mode == KeyboardModeEdit ? "save" : "send";
 }
 
+static const char *kb_reply_target(void) {
+  return s_kb_mode == KeyboardModeReply ? s_kb_target_id : "";
+}
+
+// 0 for no draft; otherwise a hash of the text and its reply target.
+static uint32_t kb_draft_hash(const char *text, const char *reply_to) {
+  uint32_t hash = 0;
+  for (; *text; text++) {
+    hash = hash * 31 + (uint8_t)*text;
+  }
+  for (; hash && *reply_to; reply_to++) {
+    hash = hash * 31 + (uint8_t)*reply_to;
+  }
+  return hash;
+}
+
+static void kb_save_retry(void *context);
+
+// Hands the draft to Telegram, via the phone, unless it is what Telegram has.
+// When the outbox is busy it tries once more shortly. Edits are not drafts.
+static void kb_save_draft(bool retry_later) {
+  const char *reply_to = kb_reply_target();
+  uint32_t hash = kb_draft_hash(s_kb_draft, reply_to);
+  if (s_kb_mode == KeyboardModeEdit || hash == s_kb_synced) {
+    return;
+  }
+  if (send_command_with_status("save_draft", s_current_chat_id, s_kb_draft,
+                               reply_to[0] ? reply_to : NULL, NULL, false)) {
+    s_kb_synced = hash;
+  } else if (retry_later && !s_kb_save_timer) {
+    s_kb_save_timer = app_timer_register(KB_SAVE_RETRY_MS, kb_save_retry, NULL);
+  }
+}
+
+static void kb_save_retry(void *context) {
+  s_kb_save_timer = NULL;
+  kb_save_draft(false);
+}
+
+// The phone sends the Telegram draft of the open chat (also when it changes on another device).
+// A draft being typed here wins; otherwise the draft is loaded, but the keyboard stays shut.
+static void touch_keyboard_draft_received(DictionaryIterator *iter) {
+  const char *chat_id = tuple_cstring(iter, MESSAGE_KEY_ChatId);
+  const char *text = tuple_cstring(iter, MESSAGE_KEY_Text);
+  const char *reply_to = tuple_cstring(iter, MESSAGE_KEY_ReplyTo);
+  if (!chat_id || !text || strcmp(chat_id, s_current_chat_id) != 0 || s_kb_mode == KeyboardModeEdit ||
+      kb_draft_hash(s_kb_draft, kb_reply_target()) != s_kb_synced) {
+    return;
+  }
+  reply_to = text[0] && reply_to ? reply_to : "";
+  s_kb_mode = reply_to[0] ? KeyboardModeReply : KeyboardModeCompose;
+  copy_cstr(s_kb_target_id, sizeof(s_kb_target_id), reply_to);
+  copy_cstr(s_kb_draft, TOUCH_KEYBOARD_MAX_TEXT, text);
+  s_kb_cursor = (uint16_t)strlen(s_kb_draft);
+  s_kb_synced = kb_draft_hash(s_kb_draft, reply_to);
+  if (s_touch_keyboard_open) {
+    kb_draft_changed();
+  } else {
+    mark_messages_dirty();
+  }
+}
+
 static void close_touch_keyboard(void) {
   kb_reset_press();
   if (!s_touch_keyboard_open) {
@@ -4086,19 +4185,22 @@ static void close_touch_keyboard(void) {
   }
   // The draft is kept, so reopening the keyboard picks up where you left off.
   s_touch_keyboard_open = false;
+  kb_save_draft(true);
   if (s_kb_words_ready) {
     kb_words_deinit();  // the word lists are only held while typing
     s_kb_words_ready = false;
   }
   if (s_messages_root) {
     recalc_message_layout();
-    layer_mark_dirty(s_messages_root);
+    mark_messages_dirty();
   }
 }
 
-// Forget the draft entirely (after sending, or when switching chats).
+// Forget the draft entirely (after sending, or when leaving the chat, once Telegram has it).
 static void reset_touch_keyboard(void) {
+  kb_save_draft(true);
   close_touch_keyboard();
+  s_kb_synced = 0;
   s_kb_draft[0] = '\0';
   s_kb_target_id[0] = '\0';
   s_kb_mode = KeyboardModeCompose;
@@ -4156,7 +4258,7 @@ static void open_touch_keyboard(KeyboardMode mode, const char *target_id, const 
                                                                                        "Type message");
   recalc_message_layout();
   set_chat_scroll_offset(s_chat_content_height, true);
-  layer_mark_dirty(s_messages_root);
+  mark_messages_dirty();
 }
 
 static void kb_mark_pending_failed(void) {
@@ -4179,7 +4281,7 @@ static void kb_mark_pending_failed(void) {
   s_kb_awaiting_send = false;
   if (s_messages_root) {
     recalc_message_layout();
-    layer_mark_dirty(s_messages_root);
+    mark_messages_dirty();
   }
 }
 
@@ -4200,9 +4302,7 @@ static void touch_keyboard_send_result(bool ok) {
       char text[TOUCH_KEYBOARD_MAX_TEXT];
       copy_cstr(text, sizeof(text), message->text);
       set_message_strings(message, NULL, text, NULL, "sent", NULL);
-      if (s_messages_root) {
-        layer_mark_dirty(s_messages_root);
-      }
+      mark_messages_dirty();
     }
   } else {
     kb_mark_pending_failed();
@@ -4246,6 +4346,8 @@ static void kb_send(void) {
   }
 
   s_kb_awaiting_send = true;
+  s_kb_draft[0] = '\0';  // the phone clears the Telegram draft itself
+  s_kb_synced = 0;
   reset_touch_keyboard();
 
   // Show the message straight away; the real one replaces it when it arrives.
@@ -4263,7 +4365,7 @@ static void kb_send(void) {
   if (s_messages_root) {
     recalc_message_layout();
     set_chat_scroll_offset(s_chat_content_height, true);
-    layer_mark_dirty(s_messages_root);
+    mark_messages_dirty();
   }
 }
 
@@ -4692,9 +4794,9 @@ static bool kb_handle_touch(const TouchEvent *event, GRect bounds, GPoint point)
         kb_delete();
         s_kb_repeat_timer = app_timer_register(KB_REPEAT_DELAY_MS, kb_repeat_callback, NULL);
       } else if (hit.kind == KeyText) {
-        kb_set_cursor_from_point(bounds, point);
+        s_kb_drag_anchor = point.y;  // a tap places the cursor on lift, a drag moves or scrolls
       } else if (hit.kind == KeySpace) {
-        s_kb_space_anchor_x = point.x;
+        s_kb_drag_anchor = point.x;
       } else if (kb_is_swipe_letter(hit)) {
         s_kb_swipe_keys[0] = hit.ch;
         s_kb_swipe_keys[1] = '\0';
@@ -4710,9 +4812,22 @@ static bool kb_handle_touch(const TouchEvent *event, GRect bounds, GPoint point)
         break;
       }
       if (s_kb_pressed.kind == KeyText) {
-        kb_set_cursor_from_point(bounds, point);
+        if (!s_kb_space_drag) {
+          int dx = point.x - s_kb_last_point.x;
+          int dy = point.y - s_kb_last_point.y;
+          if (abs(dx) < KB_FIELD_DRAG_START && abs(dy) < KB_FIELD_DRAG_START) {
+            break;
+          }
+          s_kb_space_drag = true;
+          s_kb_field_scroll = abs(dy) > abs(dx);
+        }
+        if (s_kb_field_scroll) {
+          kb_scroll_field(point.y);
+        } else {
+          kb_set_cursor_from_point(bounds, point);
+        }
       } else if (s_kb_pressed.kind == KeySpace) {
-        if (!s_kb_space_drag && abs(point.x - s_kb_space_anchor_x) >= KB_SPACE_DRAG_START) {
+        if (!s_kb_space_drag && abs(point.x - s_kb_drag_anchor) >= KB_SPACE_DRAG_START) {
           s_kb_space_drag = true;
         }
         if (s_kb_space_drag) {
@@ -4735,6 +4850,9 @@ static bool kb_handle_touch(const TouchEvent *event, GRect bounds, GPoint point)
       }
       kb_reset_press();
       if (was_active && !swiped) {
+        if (pressed.kind == KeyText && !dragged) {
+          kb_set_cursor_from_point(bounds, point);
+        }
         if (pressed.kind == KeyText || (pressed.kind == KeySpace && dragged)) {
           kb_refresh_strip();
         } else if (pressed.kind == KeyChar ? hit.kind == KeyChar :
@@ -4767,6 +4885,9 @@ static void touch_keyboard_send_result(bool ok) {
 
 static bool touch_keyboard_has_draft(void) {
   return false;
+}
+
+static void touch_keyboard_draft_received(DictionaryIterator *iter) {
 }
 #endif
 
@@ -5124,10 +5245,7 @@ static void destroy_chat_view(void) {
     property_animation_destroy(s_messages_animation);
     s_messages_animation = NULL;
   }
-  if (s_chat_scroll_timer) {
-    app_timer_cancel(s_chat_scroll_timer);
-    s_chat_scroll_timer = NULL;
-  }
+  cancel_timer(&s_chat_scroll_timer);
   if (s_messages_root) {
     layer_destroy(s_messages_root);
     s_messages_root = NULL;
@@ -5231,10 +5349,7 @@ static void render_chat_list_with_transition(void) {
   s_chats_loading = false;
   s_loading_error = false;
   window_set_click_config_provider(s_main_window, click_config_provider);
-  if (s_chat_scroll_timer) {
-    app_timer_cancel(s_chat_scroll_timer);
-    s_chat_scroll_timer = NULL;
-  }
+  cancel_timer(&s_chat_scroll_timer);
   Layer *window_layer = window_get_root_layer(s_main_window);
   GRect bounds = layer_get_bounds(window_layer);
   if (s_chat_menu) {
@@ -5319,10 +5434,7 @@ static void remove_chat_at(int row) {
 static void request_chats(void) {
   s_view_state = ViewStateChatList;
   cancel_message_timeout();
-  if (s_chat_retry_timer) {
-    app_timer_cancel(s_chat_retry_timer);
-    s_chat_retry_timer = NULL;
-  }
+  cancel_timer(&s_chat_retry_timer);
   if (s_chat_count == 0) {
     destroy_message_images();
     destroy_chat_avatars();
@@ -5367,10 +5479,7 @@ static void startup_wake_timer_callback(void *data) {
 }
 
 static void cancel_message_timeout(void) {
-  if (s_message_timeout_timer) {
-    app_timer_cancel(s_message_timeout_timer);
-    s_message_timeout_timer = NULL;
-  }
+  cancel_timer(&s_message_timeout_timer);
 }
 
 static void schedule_message_timeout(void) {
@@ -5379,10 +5488,7 @@ static void schedule_message_timeout(void) {
 }
 
 static void cancel_message_retry(void) {
-  if (s_message_retry_timer) {
-    app_timer_cancel(s_message_retry_timer);
-    s_message_retry_timer = NULL;
-  }
+  cancel_timer(&s_message_retry_timer);
 }
 
 static bool send_pending_message_request(void) {
@@ -5422,9 +5528,7 @@ static void message_retry_timer_callback(void *data) {
     clear_message_stage();
     reset_message_stream_state();
     show_status(had_rows ? s_current_chat_title : "Messages failed");
-    if (s_messages_root) {
-      layer_mark_dirty(s_messages_root);
-    }
+    mark_messages_dirty();
     return;
   }
   s_message_request_attempts++;
@@ -5466,9 +5570,7 @@ static void message_timeout_timer_callback(void *data) {
   clear_message_stage();
   reset_message_stream_state();
   show_status(had_rows ? s_current_chat_title : "Messages failed");
-  if (s_messages_root) {
-    layer_mark_dirty(s_messages_root);
-  }
+  mark_messages_dirty();
 }
 
 // Asks the phone for the active photo. The request says exactly what size to
@@ -5523,10 +5625,7 @@ static bool retry_active_image_request(Message *message, const char *detail, uns
       message->image_retry_level >= IMAGE_RETRY_MAX_LEVEL) {
     return false;
   }
-  if (s_image_retry_timer) {
-    app_timer_cancel(s_image_retry_timer);
-    s_image_retry_timer = NULL;
-  }
+  cancel_timer(&s_image_retry_timer);
   reset_image_transfer_state();
   copy_cstr(s_image_message_id, sizeof(s_image_message_id), message->image_token);
   if (budget_cap) {
@@ -5542,9 +5641,7 @@ static bool retry_active_image_request(Message *message, const char *detail, uns
   if (!send_active_image_request()) {
     schedule_image_retry();
   }
-  if (s_messages_root) {
-    layer_mark_dirty(s_messages_root);
-  }
+  mark_messages_dirty();
   return true;
 }
 
@@ -5606,9 +5703,7 @@ static void request_next_image(void) {
   if (!send_active_image_request() && s_image_message_id[0]) {
     schedule_image_retry();
   }
-  if (s_messages_root) {
-    layer_mark_dirty(s_messages_root);
-  }
+  mark_messages_dirty();
 }
 
 static void image_retry_timer_callback(void *data) {
@@ -5733,6 +5828,7 @@ static void request_newer_messages(bool silent) {
 }
 
 static void request_messages(const char *chat_id) {
+  s_leave_pending = false;
   cancel_message_timeout();
   cancel_message_retry();
   reset_touch_keyboard();
@@ -5761,9 +5857,7 @@ static void request_messages(const char *chat_id) {
     s_chat_view_pending = false;
   } else {
     render_messages();
-    if (s_messages_root) {
-      layer_mark_dirty(s_messages_root);
-    }
+    mark_messages_dirty();
   }
   if (send_command_with_status("get_messages", chat_id, NULL, NULL, NULL, false)) {
     schedule_message_timeout();
@@ -5858,12 +5952,18 @@ static bool emoji_fonts_expanded(void) {
   return s_expanded == 1;
 }
 
-#define ARRAY_COUNT(array) ((int)(sizeof(array) / sizeof((array)[0])))
+// The index-th item of a NUL-separated list the current emoji font can draw (index in range).
+static const char *emoji_choice_at(const char *list, const uint32_t *classic, int index) {
+  for (int bit = 0;; bit++, list += strlen(list) + 1) {
+    if ((emoji_fonts_expanded() || ((classic[bit / 32] >> (bit % 32)) & 1)) && index-- == 0) {
+      return list;
+    }
+  }
+}
 
 // The last reaction slot is "Remove".
 static int reaction_grid_count(void) {
-  return (emoji_fonts_expanded() ? ARRAY_COUNT(REACTION_CHOICES_EXPANDED)
-                                 : ARRAY_COUNT(REACTION_CHOICES_CLASSIC)) + 1;
+  return (emoji_fonts_expanded() ? REACTION_CHOICES_COUNT : REACTION_CHOICES_CLASSIC_COUNT) + 1;
 }
 
 static bool reaction_grid_is_remove(int index) {
@@ -5877,7 +5977,7 @@ static const char *reaction_grid_glyph_at(int index) {
   if (reaction_grid_is_remove(index)) {
     return "Remove";
   }
-  return emoji_fonts_expanded() ? REACTION_CHOICES_EXPANDED[index] : REACTION_CHOICES_CLASSIC[index];
+  return emoji_choice_at(REACTION_CHOICES, REACTION_CHOICES_CLASSIC, index);
 }
 
 // The phone accepts the emoji itself as the reaction token.
@@ -5889,15 +5989,14 @@ static const char *reaction_grid_token_at(int index) {
 }
 
 static int emoji_reply_count(void) {
-  return emoji_fonts_expanded() ? ARRAY_COUNT(EMOJI_REPLY_CHOICES_EXPANDED)
-                                : ARRAY_COUNT(EMOJI_REPLY_CHOICES_CLASSIC);
+  return emoji_fonts_expanded() ? EMOJI_REPLY_CHOICES_COUNT : EMOJI_REPLY_CHOICES_CLASSIC_COUNT;
 }
 
 static const char *emoji_reply_glyph_at(int index) {
   if (index < 0 || index >= emoji_reply_count()) {
     return "";
   }
-  return emoji_fonts_expanded() ? EMOJI_REPLY_CHOICES_EXPANDED[index] : EMOJI_REPLY_CHOICES_CLASSIC[index];
+  return emoji_choice_at(EMOJI_REPLY_CHOICES, EMOJI_REPLY_CHOICES_CLASSIC, index);
 }
 
 static void send_selected_reaction(const char *token) {
@@ -5951,9 +6050,7 @@ static void appearance_refresh(void *data) {
   if (s_header_layer) {
     layer_mark_dirty(s_header_layer);
   }
-  if (s_messages_root) {
-    layer_mark_dirty(s_messages_root);
-  }
+  mark_messages_dirty();
   if (s_action_layer) {
     layer_mark_dirty(s_action_layer);
   }
@@ -6011,6 +6108,11 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     return;
   }
 
+  if (strcmp(type, "draft") == 0) {
+    touch_keyboard_draft_received(iter);
+    return;
+  }
+
   if (strcmp(type, "appearance") == 0) {
     appearance_receive(iter);
     return;
@@ -6023,10 +6125,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     }
     cancel_message_timeout();
     cancel_message_retry();
-    if (s_chat_retry_timer) {
-      app_timer_cancel(s_chat_retry_timer);
-      s_chat_retry_timer = NULL;
-    }
+    cancel_timer(&s_chat_retry_timer);
     if (s_view_state != ViewStateChat) {
       s_bridge_ready = false;
       s_chats_loading = true;
@@ -6038,9 +6137,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
       s_loading_newer_messages = false;
       s_message_transfer_id = 0;
       show_status(error ? error : "Error");
-      if (s_messages_root) {
-        layer_mark_dirty(s_messages_root);
-      }
+      mark_messages_dirty();
     }
     return;
   }
@@ -6051,10 +6148,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
 
   if (strcmp(type, "chats_done") == 0) {
     cancel_message_timeout();
-    if (s_chat_retry_timer) {
-      app_timer_cancel(s_chat_retry_timer);
-      s_chat_retry_timer = NULL;
-    }
+    cancel_timer(&s_chat_retry_timer);
     char selected_id[MAX_ID];
     copy_cstr(selected_id, sizeof(selected_id), s_chat_list_selected_id);
     if (!selected_id[0]) {
@@ -6121,7 +6215,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
       return;
     }
     if (initial && !s_message_stream_silent && s_messages_root) {
-      layer_mark_dirty(s_messages_root);
+      mark_messages_dirty();
     }
     return;
   }
@@ -6238,7 +6332,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     } else {
       recalc_message_layout();
     }
-    layer_mark_dirty(s_messages_root);
+    mark_messages_dirty();
     request_next_image();
     return;
   }
@@ -6270,9 +6364,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
       reset_message_stream_state();
       if (!loading_silent) {
         show_status("No older messages");
-        if (s_messages_root) {
-          layer_mark_dirty(s_messages_root);
-        }
+        mark_messages_dirty();
       }
       return;
     }
@@ -6286,9 +6378,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
       reset_message_stream_state();
       if (!loading_silent) {
         show_status(s_current_chat_title);
-        if (s_messages_root) {
-          layer_mark_dirty(s_messages_root);
-        }
+        mark_messages_dirty();
       }
       return;
     }
@@ -6324,15 +6414,10 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
                           (loading_newer && s_message_scroll_direction < 0));
     if (reversed_load) {
       int current_direction = s_message_scroll_direction;
-      s_loading_older_messages = false;
-      s_loading_newer_messages = false;
-      s_older_anchor_id[0] = '\0';
-      s_newer_anchor_id[0] = '\0';
-      clear_message_stage();
-      reset_message_stream_state();
+      end_page_load();
       if (chat_visible) {
         show_status(s_current_chat_title);
-        layer_mark_dirty(s_messages_root);
+        mark_messages_dirty();
       }
       if (current_direction > 0 && !s_at_newest) {
         request_newer_messages(true);
@@ -6343,15 +6428,10 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     }
 
     if (staged_load && live_anchor && !message_stage_contains_id(selected_id)) {
-      s_loading_older_messages = false;
-      s_loading_newer_messages = false;
-      s_older_anchor_id[0] = '\0';
-      s_newer_anchor_id[0] = '\0';
-      clear_message_stage();
-      reset_message_stream_state();
+      end_page_load();
       if (chat_visible) {
         show_status(s_current_chat_title);
-        layer_mark_dirty(s_messages_root);
+        mark_messages_dirty();
       }
       if (loading_older && !s_at_oldest) {
         request_older_messages(true);
@@ -6410,7 +6490,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
           s_selected_message = preserved_index - 1;
           set_chat_scroll_offset(s_message_y[s_selected_message] - margin, false);
           show_status(s_current_chat_title);
-          layer_mark_dirty(s_messages_root);
+          mark_messages_dirty();
           s_older_anchor_y = 0;
           s_newer_anchor_y = 0;
           request_next_image();
@@ -6430,7 +6510,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
         scroll_to_bottom(false);
       }
       show_status(s_current_chat_title);
-      layer_mark_dirty(s_messages_root);
+      mark_messages_dirty();
       s_older_anchor_y = 0;
       s_newer_anchor_y = 0;
       request_next_image();
@@ -6509,7 +6589,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     }
     if (stream_initial && !s_message_stream_silent && s_view_state == ViewStateChat && s_messages_root) {
       render_messages();
-      layer_mark_dirty(s_messages_root);
+      mark_messages_dirty();
     }
     int loaded_count = stream_initial ? s_message_count : s_message_stage_count;
     if (loaded_count < s_expected_rows &&
@@ -6629,9 +6709,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
       message->image_failed = true;
       set_message_image_error(message, "Photo failed");
       reset_image_transfer_state();
-      if (s_messages_root) {
-        layer_mark_dirty(s_messages_root);
-      }
+      mark_messages_dirty();
       request_next_image();
       return;
     }
@@ -6667,9 +6745,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
         reset_image_transfer_state();
         request_next_image();
       }
-      if (s_messages_root) {
-        layer_mark_dirty(s_messages_root);
-      }
+      mark_messages_dirty();
       return;
     }
     s_image_buffer_capacity = (uint16_t)image_size;
@@ -6684,9 +6760,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     copy_cstr(message->image_error, sizeof(message->image_error), "Receiving");
     set_message_image_progress(message, 25);
     schedule_image_transfer_timeout();
-    if (s_messages_root) {
-      layer_mark_dirty(s_messages_root);
-    }
+    mark_messages_dirty();
     return;
   }
 
@@ -6701,9 +6775,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
       if (!s_image_buffer) {
         schedule_image_prepare_timeout();
       }
-      if (s_messages_root) {
-        layer_mark_dirty(s_messages_root);
-      }
+      mark_messages_dirty();
     }
     return;
   }
@@ -6732,9 +6804,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
         clear_active_image_request();
         request_next_image();
       }
-      if (s_messages_root) {
-        layer_mark_dirty(s_messages_root);
-      }
+      mark_messages_dirty();
       return;
     }
     s_image_received = offset + data_len;
@@ -6743,9 +6813,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
       set_message_image_progress(message, 25 + ((progress_percent(s_image_written, s_image_size) * 75) / 100));
     }
     schedule_image_transfer_timeout();
-    if (s_messages_root) {
-      layer_mark_dirty(s_messages_root);
-    }
+    mark_messages_dirty();
     return;
   }
 
@@ -6790,15 +6858,10 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     }
     if (!retrying_image) {
       message->image_requested = false;
-      if (s_image_retry_timer) {
-        app_timer_cancel(s_image_retry_timer);
-        s_image_retry_timer = NULL;
-      }
+      cancel_timer(&s_image_retry_timer);
       reset_image_transfer_state();
     }
-    if (s_messages_root) {
-      layer_mark_dirty(s_messages_root);
-    }
+    mark_messages_dirty();
     if (!retrying_image) {
       request_next_image();
     }
@@ -6827,15 +6890,10 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
       }
     }
     if (is_active_image) {
-      if (s_image_retry_timer) {
-        app_timer_cancel(s_image_retry_timer);
-        s_image_retry_timer = NULL;
-      }
+      cancel_timer(&s_image_retry_timer);
       reset_image_transfer_state();
     }
-    if (s_messages_root) {
-      layer_mark_dirty(s_messages_root);
-    }
+    mark_messages_dirty();
     request_next_image();
     return;
   }
@@ -6911,6 +6969,12 @@ static void inbox_dropped_callback(AppMessageResult reason, void *context) {
   show_status("Message dropped");
 }
 
+static void outbox_sent_callback(DictionaryIterator *iter, void *context) {
+  if (s_leave_pending) {
+    s_leave_pending = !send_command_with_status("leave_chat", s_current_chat_id, NULL, NULL, NULL, false);
+  }
+}
+
 static void outbox_failed_callback(DictionaryIterator *iter, AppMessageResult reason, void *context) {
   char *command = tuple_cstring(iter, MESSAGE_KEY_Command);
   if (command && strcmp(command, "get_image") == 0) {
@@ -6927,9 +6991,7 @@ static void outbox_failed_callback(DictionaryIterator *iter, AppMessageResult re
       s_image_transfer_id = 0;
     }
     schedule_image_retry();
-    if (s_messages_root) {
-      layer_mark_dirty(s_messages_root);
-    }
+    mark_messages_dirty();
     return;
   }
   show_status("Send failed");
@@ -7803,8 +7865,8 @@ static void main_back_click_handler(ClickRecognizerRef recognizer, void *context
     s_message_transfer_id = 0;
     s_chat_view_pending = false;
     clear_message_stage();
-    reset_touch_keyboard();
-    send_command_with_status("leave_chat", s_current_chat_id, NULL, NULL, NULL, false);
+    reset_touch_keyboard();  // saves the draft first
+    s_leave_pending = !send_command_with_status("leave_chat", s_current_chat_id, NULL, NULL, NULL, false);
     render_chat_list_with_transition();
   } else {
     window_stack_pop(true);
@@ -8113,10 +8175,7 @@ static TouchGesture s_gesture;
 static AppTimer *s_long_press_timer;
 
 static void touch_cancel_long_press(void) {
-  if (s_long_press_timer) {
-    app_timer_cancel(s_long_press_timer);
-    s_long_press_timer = NULL;
-  }
+  cancel_timer(&s_long_press_timer);
 }
 
 static int touch_abs(int value) {
@@ -8254,7 +8313,7 @@ static void touch_chat_tap(GRect bounds, GPoint point) {
   s_user_scrolled_messages = true;
   s_selected_message = index;
   prepare_selected_image_request();
-  layer_mark_dirty(s_messages_root);
+  mark_messages_dirty();
   show_action_window(ActionMenuMain);
 }
 
@@ -8265,7 +8324,7 @@ static void touch_chat_hold(GRect bounds, GPoint point) {
   }
   s_user_scrolled_messages = true;
   s_selected_message = index;
-  layer_mark_dirty(s_messages_root);
+  mark_messages_dirty();
   vibes_short_pulse();
   open_emoji_grid(EmojiGridReact, false);  // Hold a message to react.
 }
@@ -8274,7 +8333,7 @@ static void touch_chat_drag(int dy) {
   finish_pending_chat_scroll();
   set_chat_scroll_offset_quiet(s_chat_scroll_offset - dy);
   s_user_scrolled_messages = true;
-  layer_mark_dirty(s_messages_root);
+  mark_messages_dirty();
 }
 
 // After a drag, point the buttons at what's on screen and load what's needed.
@@ -8304,7 +8363,7 @@ static void touch_chat_drag_end(GRect bounds) {
   } else if (!s_at_newest && s_chat_scroll_offset >= max_offset - 2 && !s_loading_newer_messages) {
     request_newer_messages(false);
   }
-  layer_mark_dirty(s_messages_root);
+  mark_messages_dirty();
 }
 
 // ---- Full text view -------------------------------------------------------
@@ -8585,6 +8644,8 @@ static void init(void) {
   s_chats = calloc(MAX_CHATS, sizeof(Chat));
   s_messages = calloc(MAX_MESSAGES, sizeof(Message));
   s_pending_text = calloc(1, MAX_TEXT);
+  s_canned = calloc(MAX_CANNED, CANNED_TEXT_LEN);
+  update_canned_replies("Yes|No|On my way|Call you later|Thanks");
 #if TOUCH_KEYBOARD_AVAILABLE
   s_kb_draft = calloc(1, TOUCH_KEYBOARD_MAX_TEXT);
 #endif
@@ -8597,6 +8658,7 @@ static void init(void) {
   app_message_register_inbox_received(inbox_received_callback);
   app_message_register_inbox_dropped(inbox_dropped_callback);
   app_message_register_outbox_failed(outbox_failed_callback);
+  app_message_register_outbox_sent(outbox_sent_callback);
   app_message_open(APP_INBOX_SIZE, APP_OUTBOX_SIZE);
   s_main_window = window_create();
   window_set_click_config_provider(s_main_window, click_config_provider);
@@ -8621,14 +8683,8 @@ static void init(void) {
 
 static void deinit(void) {
   light_enable(false);
-  if (s_startup_wake_timer) {
-    app_timer_cancel(s_startup_wake_timer);
-    s_startup_wake_timer = NULL;
-  }
-  if (s_chat_retry_timer) {
-    app_timer_cancel(s_chat_retry_timer);
-    s_chat_retry_timer = NULL;
-  }
+  cancel_timer(&s_startup_wake_timer);
+  cancel_timer(&s_chat_retry_timer);
   destroy_chat_avatars();
   destroy_message_images();
   if (s_dictation_session) {
