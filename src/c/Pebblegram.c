@@ -5040,7 +5040,8 @@ static int wrap_message(Message *m, char *text, GFont font, int width) {
                                                       GTextOverflowModeFill, GTextAlignmentLeft);
     m->wrap_lh = (uint8_t)one.h;
     m->wrap_w = (uint8_t)width;
-    m->wrap_n = (pos < len || n * one.h != m->text_h) ? 255 : n;
+    // wrap_end holds bytes, so longer texts keep the system layout.
+    m->wrap_n = (len > 255 || pos < len || n * one.h != m->text_h) ? 255 : n;
   }
   return m->wrap_n == 255 ? 0 : m->wrap_n;
 }
