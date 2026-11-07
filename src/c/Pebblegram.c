@@ -93,7 +93,7 @@ static Theme s_theme;
 #define TG_ON_OUT s_theme.on_out
 #define TG_ON_ACCENT s_theme.on_accent
 #define TG_ON_RING s_theme.on_ring
-#define HEADER_H PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 26, 26, 26, 26, 32, 26, 46)
+#define HEADER_H PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 26, 26, 26, 26, 32, 26, 34)
 // Chat list avatar radius. The phone sends profile photos at exactly this
 // diameter (see AVATAR_SIZE in index.js), so they are drawn pixel for pixel.
 #define CHAT_AVATAR_R PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 15, 15, 15, 15, 19, 15, 16)
@@ -372,6 +372,8 @@ typedef struct {
   uint8_t receipt;
 } Chat;
 
+#define WRAP_LINES 14
+
 typedef struct {
   char id[MAX_ID];
   char *string_storage;
@@ -401,6 +403,9 @@ typedef struct {
   int16_t pills_w, pills_h, pills_last_w;
   uint8_t emoji_only;
   uint8_t font_size;  // text size this message is drawn at (see message_font_size)
+  // Where the text wraps (see wrap_message); wrap_n 0 means not computed yet.
+  uint8_t wrap_n, wrap_w, wrap_lh;
+  uint8_t wrap_end[WRAP_LINES];
 } Message;
 
 // Telegram standard reactions the watch can draw, most popular first, as NUL-separated items.
@@ -895,6 +900,57 @@ static GRect round_safe_rect(GRect bounds) {
   return GRect(inset, bounds.origin.y, bounds.size.w - (inset * 2), bounds.size.h);
 }
 
+static int round_isqrt(int value) {
+  int root = value;
+  for (int next = (root + 1) / 2; value > 0 && next < root; next = (root + value / root) / 2) {
+    root = next;
+  }
+  return value > 0 ? root : 0;
+}
+
+// Round screens: the x range inside the circle, shrunk by `inset` px, for the
+// rows y0..y1 of the layer being drawn (the row nearest the bezel counts).
+// Callers set s_round_org to that layer's screen position first, so what is
+// drawn follows the curve as the layer scrolls or slides.
+static GPoint s_round_org;
+
+static void round_span(int y0, int y1, int inset, int *left, int *right) {
+  int r = PBL_DISPLAY_WIDTH / 2 - inset;
+  int mid = PBL_DISPLAY_HEIGHT / 2 - s_round_org.y;
+  int dy = PG_MAX(PG_MAX(y0, y1) - mid, mid - PG_MIN(y0, y1));
+  int half = dy < r ? round_isqrt(r * r - dy * dy) : 0;
+  *left = PBL_DISPLAY_WIDTH / 2 - s_round_org.x - half;
+  *right = *left + half * 2;
+}
+
+// r narrowed to the part inside the circle (shrunk by inset) over its rows.
+static GRect round_clamp(GRect r, int inset) {
+  int left;
+  int right;
+  round_span(r.origin.y, r.origin.y + r.size.h, inset, &left, &right);
+  int x = PG_MAX(r.origin.x, left);
+  return GRect(x, r.origin.y, PG_MAX(0, PG_MIN(r.origin.x + r.size.w, right) - x), r.size.h);
+}
+
+// graphics_fill_rect with rounded corners, kept inside the circle: drawn in 2px
+// bands that follow the bezel, so a bubble shortens smoothly as it scrolls past.
+static void round_fill(GContext *ctx, GRect r, int radius, int inset, GColor color) {
+  graphics_context_set_fill_color(ctx, color);
+  for (int y = 0; y < r.size.h; y += 2) {
+    int h = PG_MIN(2, r.size.h - y);
+    int left;
+    int right;
+    round_span(r.origin.y + y, r.origin.y + y + h, inset, &left, &right);
+    int edge = PG_MIN(y, r.size.h - y - h);
+    int cut = edge < radius ? radius - round_isqrt(radius * radius - (radius - edge - 1) * (radius - edge - 1)) : 0;
+    left = PG_MAX(left, r.origin.x + cut);
+    right = PG_MIN(right, r.origin.x + r.size.w - cut);
+    if (right > left) {
+      graphics_fill_rect(ctx, GRect(left, r.origin.y + y, right - left, h), 0, GCornerNone);
+    }
+  }
+}
+
 static int chat_content_y(void) {
   return HEADER_H;
 }
@@ -913,10 +969,6 @@ static GColor tg_avatar_color(const char *key) {
 
 static __attribute__((unused)) GColor tg_name_color(const char *name) {
   return PBL_IF_COLOR_ELSE((GColor){.argb = TG_NAME_COLORS[tg_hash(name) % 7]}, TG_TEXT);
-}
-
-static int chat_bottom_pad(void) {
-  return ROUND_UI ? 24 : 0;
 }
 
 static void chat_initials(const char *title, char *initials, size_t initials_size) {
@@ -1916,18 +1968,26 @@ static void header_update_proc(Layer *layer, GContext *ctx) {
   graphics_context_set_text_color(ctx, on_header);
 
   if (ROUND_UI) {
-    int title_y = subtitle ? 9 : 15;
-    int icon_w = chat ? 0 : 22;
-    int tw = PG_MIN(b.size.w - 90, text_width(title, font_bold18()));
+    // The cap of the circle is narrow: bold 18 if the title fits there, else 14, then an ellipsis.
+    s_round_org = GPointZero;
+    int icon_w = chat ? 0 : 20;
+    int left;
+    int right;
+    round_span(14, 14, 3, &left, &right);
+    int avail = right - left - icon_w;
+    bool big = !subtitle && text_width(title, font_bold18()) <= avail;
+    GFont font = big ? font_bold18() : font_bold14();
+    int title_y = big ? 10 : (subtitle ? 3 : 12);
+    int tw = PG_MIN(avail, text_width(title, font));
     int x = (b.size.w - (tw + icon_w)) / 2;
     if (!chat) {
-      draw_paper_plane(ctx, GPoint(x, title_y + 7), 4, on_header, TG_HEADER);
+      draw_paper_plane(ctx, GPoint(x, title_y + 6), 4, on_header, TG_HEADER);
     }
-    graphics_draw_text(ctx, title, font_bold18(), GRect(x + icon_w, title_y, b.size.w - 90, 22),
+    graphics_draw_text(ctx, title, font, GRect(x + icon_w, title_y, tw + 2, 22),
                        GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
     if (subtitle) {
       graphics_context_set_text_color(ctx, sub_color);
-      graphics_draw_text(ctx, subtitle, font_14(), GRect(40, title_y + 17, b.size.w - 80, 16),
+      graphics_draw_text(ctx, subtitle, font_14(), GRect(0, title_y + 13, b.size.w, 16),
                          GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
     }
     return;
@@ -1980,6 +2040,9 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
   GRect bounds = layer_get_bounds(cell_layer);
   GRect safe = round_safe_rect(bounds);
   bool selected = menu_layer_is_index_selected(s_chat_menu, cell_index);
+  if (ROUND_UI) {
+    s_round_org = layer_convert_point_to_screen(cell_layer, GPointZero);
+  }
 
   graphics_context_set_fill_color(ctx, TG_LIST_BG);
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
@@ -2041,8 +2104,7 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
   if (selected) {
     graphics_context_set_fill_color(ctx, row_bg);
     if (ROUND_UI) {
-      graphics_fill_rect(ctx, GRect(safe.origin.x - 8, 1, safe.size.w + 16, bounds.size.h - 2),
-                         (bounds.size.h - 2) / 2, GCornersAll);
+      round_fill(ctx, GRect(0, 1, bounds.size.w, bounds.size.h - 2), 6, 2, row_bg);
     } else {
       // Leave a 1px gap above the highlight and above the separator line.
       graphics_fill_rect(ctx, GRect(0, 1, bounds.size.w, bounds.size.h - 3), 0, GCornerNone);
@@ -2050,7 +2112,21 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
   }
 
   int avatar_r = CHAT_AVATAR_R;
-  GPoint avatar_c = GPoint(safe.origin.x + avatar_r + (ROUND_UI ? 0 : 4), bounds.size.h / 2);
+  GPoint avatar_c = GPoint(safe.origin.x + avatar_r + 4, bounds.size.h / 2);
+  int line1_y = PBL_IF_ROUND_ELSE(-1, 1);
+  int line2_y = line1_y + 21;
+  int right = safe.origin.x + safe.size.w - 5;
+  int right2 = right;
+  if (ROUND_UI) {
+    // The avatar hugs the left edge of the circle at its own height, and each
+    // line ends at the right edge at its own height, so rows slide along the curve as they scroll.
+    int left;
+    int avatar_x;
+    round_span(avatar_c.y, avatar_c.y, avatar_r + 5, &avatar_x, &left);
+    avatar_c.x = avatar_x;
+    round_span(line1_y + 2, line1_y + 18, 8, &left, &right);
+    round_span(line2_y + 2, line2_y + 18, 8, &left, &right2);
+  }
   draw_avatar(ctx, avatar_c, avatar_r, chat->id, chat->title, s_appearance.photos ? chat->avatar_bitmap : NULL, row_bg);
   if (selected && BW_UI) {
     graphics_context_set_stroke_color(ctx, on_selected);
@@ -2058,9 +2134,6 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
   }
 
   int text_x = avatar_c.x + avatar_r + 7;
-  int right = safe.origin.x + safe.size.w - (ROUND_UI ? 0 : 5);
-  int line1_y = PBL_IF_ROUND_ELSE(-1, 1);
-  int line2_y = line1_y + 21;
 
   // Line 1: title, then receipt ticks + time on the right.
   int time_w = chat->time[0] ? text_width(chat->time, font_14()) : 0;
@@ -2074,7 +2147,7 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
     draw_ticks(ctx, right - meta_w, line1_y + 8, chat->receipt,
                selected ? on_selected : TG_OUT_ACCENT);
   }
-  int title_w = right - text_x - (meta_w ? meta_w + 4 : 0);
+  int title_w = PG_MAX(0, right - text_x - (meta_w ? meta_w + 4 : 0));
   graphics_context_set_text_color(ctx, title_color);
   graphics_draw_text(ctx, chat->title, font_bold18(), GRect(text_x, line1_y - 2, title_w, 22),
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
@@ -2085,10 +2158,10 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
     bool muted = chat->flags & CHAT_FLAG_MUTED;
     GColor fill = selected ? on_selected : (muted ? TG_BADGE_MUTED : TG_BADGE);
     GColor text = selected ? TG_LIST_SELECTED : TG_ON_BADGE;
-    badge_w = draw_badge(ctx, right, line2_y + 11, chat->unread_count, fill, text) + 5;
+    badge_w = draw_badge(ctx, right2, line2_y + 11, chat->unread_count, fill, text) + 5;
   }
   int preview_x = text_x;
-  int preview_w = right - text_x - badge_w;
+  int preview_w = PG_MAX(0, right2 - text_x - badge_w);
   const char *preview = chat->preview;
   const char *colon = NULL;
   if (chat->flags & CHAT_FLAG_GROUP) {
@@ -2533,6 +2606,7 @@ static void message_meta_time(const char *meta, char *dest, size_t dest_size) {
 
 #define BUBBLE_R 8
 #define BUBBLE_PAD_X 7
+#define BUBBLE_INSET 4  // round: gap kept between a bubble and the bezel
 #define BUBBLE_PAD_TOP 3
 #define BUBBLE_PAD_BOTTOM 4
 #define BUBBLE_NAME_H 16
@@ -2725,6 +2799,66 @@ static uint8_t count_emoji_only(const char *text, uint8_t max) {
   return count;
 }
 
+// Byte offset of the UTF-8 character after the one at `pos`.
+static int text_next_char(const char *text, int pos) {
+  if (text[pos]) {
+    pos++;
+  }
+  while (text[pos] && ((unsigned char)text[pos] & 0xc0) == 0x80) {
+    pos++;
+  }
+  return pos;
+}
+
+// Width of text[from, to). The text is cut with a temporary NUL instead of
+// copied, to keep RAM and time down.
+static int text_span_width(char *text, GFont font, int from, int to) {
+  if (to <= from) {
+    return 0;
+  }
+  char saved = text[to];
+  text[to] = '\0';
+  GSize size = graphics_text_layout_get_content_size(text + from, font, GRect(0, 0, 2000, 24),
+                                                     GTextOverflowModeFill, GTextAlignmentLeft);
+  text[to] = saved;
+  return size.w;
+}
+
+// Start of the line after the one starting at `start`: breaks after the last
+// word that fits, at a newline, or inside a word that is wider than the line.
+static int line_next(char *text, GFont font, int start, int width, int len) {
+  int pos = start;
+  while (pos < len) {
+    while (pos < len && text[pos] == ' ') {
+      pos++;  // spaces may hang past the edge
+    }
+    if (pos >= len) {
+      return len;
+    }
+    if (text[pos] == '\n') {
+      return pos + 1;
+    }
+    int word_end = pos;
+    while (word_end < len && text[word_end] != ' ' && text[word_end] != '\n') {
+      word_end++;
+    }
+    if (text_span_width(text, font, start, word_end) > width) {
+      if (pos > start) {
+        return pos;
+      }
+      int end = start;
+      int next = text_next_char(text, end);
+      while (next <= word_end && text_span_width(text, font, start, next) <= width) {
+        end = next;
+        next = text_next_char(text, end);
+      }
+      return end > start ? end : text_next_char(text, start);
+    }
+    pos = word_end;
+  }
+  return len;
+}
+
 static void message_meta_time(const char *meta, char *dest, size_t dest_size);
 static uint8_t message_meta_receipts(const char *meta);
 
@@ -2772,15 +2906,21 @@ static void layout_pills(GContext *ctx, const char *reactions, int max_w, GPoint
     int px = any && x > 0 ? x + PILL_GAP : x;
     if (ctx) {
       GRect pill = GRect(origin.x + px, origin.y + y, w, PILL_H);
-      graphics_context_set_fill_color(ctx, outgoing ? TG_PILL_OUT : TG_PILL_IN);
-      graphics_fill_rect(ctx, pill, PILL_H / 2, GCornersAll);
-      if (BW_UI) {
-        graphics_context_set_stroke_color(ctx, TG_TEXT);
-        graphics_draw_round_rect(ctx, pill, PILL_H / 2);
+      if (ROUND_UI) {
+        pill = round_clamp(pill, BUBBLE_INSET + BUBBLE_PAD_X);
       }
-      graphics_context_set_text_color(ctx, outgoing ? TG_OUT_ACCENT : TG_LINK);
-      graphics_draw_text(ctx, token, pill_font(), GRect(pill.origin.x + 6, pill.origin.y - 1, w - 10, PILL_H),
-                         GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+      if (pill.size.w >= PG_MIN(w, 28)) {  // round: a pill squeezed by the bezel goes away
+        graphics_context_set_fill_color(ctx, outgoing ? TG_PILL_OUT : TG_PILL_IN);
+        graphics_fill_rect(ctx, pill, PILL_H / 2, GCornersAll);
+        if (BW_UI) {
+          graphics_context_set_stroke_color(ctx, TG_TEXT);
+          graphics_draw_round_rect(ctx, pill, PILL_H / 2);
+        }
+        graphics_context_set_text_color(ctx, outgoing ? TG_OUT_ACCENT : TG_LINK);
+        graphics_draw_text(ctx, token, pill_font(),
+                           GRect(pill.origin.x + 6, pill.origin.y - 1, pill.size.w - 10, PILL_H),
+                           GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+      }
     }
     x = px + w;
     widest = PG_MAX(widest, x);
@@ -2857,6 +2997,7 @@ static void measure_message(Message *m, int max_w) {
   }
   layout_pills(NULL, m->reactions, inner, GPointZero, m->outgoing, &m->pills_w, &m->pills_h,
                &m->pills_last_w);
+  m->wrap_n = 0;
   m->layout_key = m->string_storage;
   m->layout_maxw = max_w;
   m->layout_img = img_key;
@@ -2999,8 +3140,8 @@ static void recalc_message_layout(void) {
     s_message_h[i] = layout_message(i, bounds, max_w);
     y += s_message_h[i];
   }
-  int bottom_pad = ROUND_UI ? 14 : 5;
-  int compose_min_y = visible_h - COMPOSE_BAR_H - (ROUND_UI ? 10 : 5);
+  int bottom_pad = ROUND_UI ? 28 : 5;  // round: keeps the input bar inside the circle
+  int compose_min_y = visible_h - COMPOSE_BAR_H - (ROUND_UI ? 28 : 5);
   bool reserve_compose_bubble = s_at_newest && !s_touch_keyboard_open;
   // Short chats sit at the bottom, just above the input bar, like Telegram.
   if (reserve_compose_bubble && s_message_count > 0 && y + BUBBLE_GAP_OTHER < compose_min_y) {
@@ -3145,7 +3286,7 @@ static void render_messages(void) {
 #define KB_ROW_H PBL_IF_ROUND_ELSE(24, 22)
 #define KB_ROWS 4
 #define KB_PAD 3
-#define KB_ROUND_BOTTOM_GAP 12
+#define KB_ROUND_BOTTOM_GAP 22  // the keyboard colour continues below the keys, to the bezel
 #define KB_REPEAT_DELAY_MS 450
 #define KB_REPEAT_MS 90
 #define KB_WORD_DELETE_AFTER 12  // repeats (about 1.5 s with the delay) before delete takes words
@@ -3315,21 +3456,6 @@ static int touch_keyboard_viewport_height(GRect bounds) {
   return PG_MAX(1, touch_keyboard_rect_for_bounds(bounds).origin.y);
 }
 
-#if defined(PBL_ROUND)
-static int kb_isqrt(int value) {
-  if (value <= 0) {
-    return 0;
-  }
-  int root = value;
-  int next = (root + 1) / 2;
-  while (next < root) {
-    root = next;
-    next = (root + value / root) / 2;
-  }
-  return root;
-}
-#endif
-
 // Horizontal span usable between y_top and y_bottom. On round screens this is
 // the circle's chord, so keys never fall off the curved edge.
 static void kb_span(GRect bounds, int y_top, int y_bottom, int *x, int *w) {
@@ -3337,16 +3463,10 @@ static void kb_span(GRect bounds, int y_top, int y_bottom, int *x, int *w) {
   *w = bounds.size.w - 4;
 #if defined(PBL_ROUND)
   if (s_messages_root) {
-    GRect frame = layer_get_frame(s_messages_root);
-    int radius = PBL_DISPLAY_WIDTH / 2;
-    int cy = PBL_DISPLAY_HEIGHT / 2;
-    int top = y_top + frame.origin.y - cy;
-    int bottom = y_bottom + frame.origin.y - cy;
-    int dy = PG_MAX(top < 0 ? -top : top, bottom < 0 ? -bottom : bottom);
-    int half = kb_isqrt((radius * radius) - (dy * dy)) - 4;
-    half = PG_MAX(24, PG_MIN(half, bounds.size.w / 2 - 2));
-    *x = (PBL_DISPLAY_WIDTH / 2) - frame.origin.x - half;
-    *w = half * 2;
+    int right;
+    s_round_org = layer_get_frame(s_messages_root).origin;
+    round_span(y_top, y_bottom, 2, x, &right);
+    *w = PG_MAX(48, right - *x);
   }
 #endif
 }
@@ -3528,28 +3648,11 @@ static int kb_prev_char(int pos) {
 }
 
 static int kb_next_char(int pos) {
-  if (s_kb_draft[pos]) {
-    pos++;
-  }
-  while (s_kb_draft[pos] && kb_is_continuation(s_kb_draft[pos])) {
-    pos++;
-  }
-  return pos;
+  return text_next_char(s_kb_draft, pos);
 }
 
-// Width of draft[from, to) in the field font. The draft is cut with a
-// temporary NUL instead of copied, to keep RAM and time down.
 static int kb_measure(int from, int to) {
-  if (to <= from) {
-    return 0;
-  }
-  char saved = s_kb_draft[to];
-  s_kb_draft[to] = '\0';
-  GSize size = graphics_text_layout_get_content_size(
-    s_kb_draft + from, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(0, 0, 2000, 24),
-    GTextOverflowModeFill, GTextAlignmentLeft);
-  s_kb_draft[to] = saved;
-  return size.w;
+  return text_span_width(s_kb_draft, font_18(), from, to);
 }
 
 // Field rect span. Taken from the lowest line, the narrowest on a round
@@ -3569,41 +3672,6 @@ static int kb_input_text_width(void) {
   return PG_MAX(20, w - 16);
 }
 
-// Start of the line after the one starting at `start`: breaks after the last
-// word that fits, at a newline, or inside a word that is wider than the field.
-static int kb_line_next(int start, int width, int len) {
-  int pos = start;
-  while (pos < len) {
-    while (pos < len && s_kb_draft[pos] == ' ') {
-      pos++;  // spaces may hang past the edge
-    }
-    if (pos >= len) {
-      return len;
-    }
-    if (s_kb_draft[pos] == '\n') {
-      return pos + 1;
-    }
-    int word_end = pos;
-    while (word_end < len && s_kb_draft[word_end] != ' ' && s_kb_draft[word_end] != '\n') {
-      word_end++;
-    }
-    if (kb_measure(start, word_end) > width) {
-      if (pos > start) {
-        return pos;
-      }
-      int end = start;
-      int next = kb_next_char(end);
-      while (next <= word_end && kb_measure(start, next) <= width) {
-        end = next;
-        next = kb_next_char(end);
-      }
-      return end > start ? end : kb_next_char(start);
-    }
-    pos = word_end;
-  }
-  return len;
-}
-
 static void kb_wrap(void) {
   int len = (int)strlen(s_kb_draft);
   int width = kb_input_text_width();
@@ -3611,7 +3679,7 @@ static void kb_wrap(void) {
   int start = 0;
   s_kb_line_start[0] = 0;
   while (count < KB_WRAP_CAP) {
-    int next = kb_line_next(start, width, len);
+    int next = line_next(s_kb_draft, font_18(), start, width, len);
     // A trailing newline leaves one more (empty) line to type on.
     if (next <= start || (next >= len && s_kb_draft[next - 1] != '\n')) {
       break;
@@ -4911,6 +4979,10 @@ static void draw_bubble_shape(GContext *ctx, GRect r, bool outgoing, bool tail, 
   if (tail) {
     corners &= outgoing ? ~GCornerBottomRight : ~GCornerBottomLeft;
   }
+  if (ROUND_UI && round_clamp(r, BUBBLE_INSET).size.w < r.size.w) {
+    round_fill(ctx, r, BUBBLE_R, BUBBLE_INSET, fill);  // at the bezel: follows the curve, no tail
+    return;
+  }
   graphics_context_set_fill_color(ctx, fill);
   graphics_fill_rect(ctx, r, BUBBLE_R, corners);
   if (tail) {
@@ -4952,11 +5024,66 @@ static void draw_bubble(GContext *ctx, GRect r, bool outgoing, bool tail, bool s
 #endif
 }
 
+// The lines of `text` as the system wraps it at `width`, so near the bezel each
+// can be drawn on its own. Returns 0 when ours would not match the system's
+// layout of the same text (text_h), which then draws it.
+static int wrap_message(Message *m, char *text, GFont font, int width) {
+  if (!m->wrap_n || m->wrap_w != width) {
+    int len = (int)strlen(text);
+    int pos = 0;
+    int n = 0;
+    while (pos < len && n < WRAP_LINES) {
+      pos = line_next(text, font, pos, width, len);
+      m->wrap_end[n++] = (uint8_t)pos;
+    }
+    GSize one = graphics_text_layout_get_content_size("Ag", font, GRect(0, 0, 100, 100),
+                                                      GTextOverflowModeFill, GTextAlignmentLeft);
+    m->wrap_lh = (uint8_t)one.h;
+    m->wrap_w = (uint8_t)width;
+    m->wrap_n = (pos < len || n * one.h != m->text_h) ? 255 : n;
+  }
+  return m->wrap_n == 255 ? 0 : m->wrap_n;
+}
+
+// Message text in `box`. Lines that reach the bezel are drawn one at a time, in
+// the circle's width at their own height with an ellipsis, so they shorten
+// smoothly as the chat scrolls. `meta_x` is where the time starts on the last line.
+static void draw_message_text(GContext *ctx, Message *m, char *text, GRect box, int meta_x) {
+  GFont font = bubble_text_font(m->font_size);
+  int trim = bubble_text_trim(m->font_size);
+  int inset = BUBBLE_INSET + BUBBLE_PAD_X;
+  int n = ROUND_UI && round_clamp(box, inset).size.w < box.size.w ? wrap_message(m, text, font, box.size.w) : 0;
+  if (!n) {
+    graphics_draw_text(ctx, text, font, GRect(box.origin.x, box.origin.y - trim, box.size.w, box.size.h + trim + 1),
+                       GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+    return;
+  }
+  for (int i = 0; i < n; i++) {
+    int start = i ? m->wrap_end[i - 1] : 0;
+    int end = m->wrap_end[i];
+    while (end > start && (text[end - 1] == ' ' || text[end - 1] == '\n')) {
+      end--;
+    }
+    GRect line = round_clamp(GRect(box.origin.x, box.origin.y + i * m->wrap_lh, box.size.w, m->wrap_lh), inset);
+    if (i == n - 1) {
+      line.size.w = PG_MIN(line.size.w, meta_x - line.origin.x);
+    }
+    char saved = text[end];
+    text[end] = '\0';
+    graphics_draw_text(ctx, text + start, font, GRect(line.origin.x, line.origin.y - trim, line.size.w, line.size.h + trim + 1),
+                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    text[end] = saved;
+  }
+}
+
 // Reply / forward quote: coloured bar, coloured name, one line of text.
 static void draw_message_context(GContext *ctx, Message *m, GRect rect) {
   char title[MAX_SENDER + 10];
   char body[MAX_CONTEXT_TEXT];
-  if (!message_has_context(m) || rect.size.h <= 0) {
+  if (ROUND_UI) {
+    rect = round_clamp(rect, BUBBLE_INSET + BUBBLE_PAD_X);
+  }
+  if (!message_has_context(m) || rect.size.h <= 0 || rect.size.w < 20) {
     return;
   }
   message_context_strings(m, title, sizeof(title), body, sizeof(body));
@@ -5094,8 +5221,8 @@ static void draw_compose_bar(GContext *ctx, GRect compose, bool selected) {
 static GRect compose_rect_for_bounds(GRect bounds) {
   int compose_y = s_compose_bubble_y - s_chat_scroll_offset;
   if (ROUND_UI) {
-    int w = PG_MIN(bounds.size.w - 70, 170);
-    return GRect((bounds.size.w - w) / 2, compose_y, w, COMPOSE_BAR_H);
+    s_round_org = layer_get_frame(s_messages_root).origin;
+    return round_clamp(GRect((bounds.size.w - 170) / 2, compose_y, 170, COMPOSE_BAR_H), 6);
   }
   return GRect(6, compose_y, bounds.size.w - 12, COMPOSE_BAR_H);
 }
@@ -5113,6 +5240,9 @@ static void draw_chat_background(GContext *ctx, GRect bounds) {
 
 static void messages_root_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
+  if (ROUND_UI) {
+    s_round_org = layer_get_frame(layer).origin;
+  }
   int visible_h = visible_message_height(bounds);
 #if TOUCH_KEYBOARD_AVAILABLE
   // Typing only redraws the keyboard, so skip re-measuring every message.
@@ -5185,9 +5315,16 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
     int left = box->x + BUBBLE_PAD_X;
     int inner_w = box->w - (BUBBLE_PAD_X * 2);
 
+    int meta_right = box->x + box->w - BUBBLE_PAD_X + 1;
+    if (ROUND_UI) {
+      GRect meta = round_clamp(GRect(0, y + box->meta_y, meta_right, BUBBLE_META_H), BUBBLE_INSET + 3);
+      meta_right = meta.origin.x + meta.size.w;
+    }
+
     if (box->flags & BOX_NAME) {
+      GRect name = GRect(left, y + BUBBLE_PAD_TOP - 2, inner_w, 16);
       graphics_context_set_text_color(ctx, tg_name_color(m->sender));
-      graphics_draw_text(ctx, m->sender, font_bold14(), GRect(left, y + BUBBLE_PAD_TOP - 2, inner_w, 16),
+      graphics_draw_text(ctx, m->sender, font_bold14(), ROUND_UI ? round_clamp(name, BUBBLE_INSET + BUBBLE_PAD_X) : name,
                          GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
     }
     if (message_has_context(m)) {
@@ -5199,10 +5336,8 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
     }
     if (display_text[0] && m->text_h) {
       graphics_context_set_text_color(ctx, m->outgoing ? TG_ON_OUT : TG_TEXT);
-      int trim = bubble_text_trim(m->font_size);
-      graphics_draw_text(ctx, display_text, bubble_text_font(m->font_size),
-                         GRect(left, y + box->text_y - trim, box->text_box_w, m->text_h + trim + 1),
-                         GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+      draw_message_text(ctx, m, display_text, GRect(left, y + box->text_y, box->text_box_w, m->text_h),
+                        (box->flags & BOX_META_INLINE) ? meta_right - m->meta_w - 6 : PBL_DISPLAY_WIDTH);
     }
     if (m->pills_h) {
       layout_pills(ctx, m->reactions, box->w - (BUBBLE_PAD_X * 2), GPoint(left, y + box->pills_y),
@@ -5216,14 +5351,14 @@ static void messages_root_update_proc(Layer *layer, GContext *ctx) {
       graphics_fill_rect(ctx, pill, 8, GCornersAll);
       draw_message_meta_at(ctx, m, right - 5, pill.origin.y, GColorWhite);
     } else if (m->meta_w) {
-      draw_message_meta_at(ctx, m, box->x + box->w - BUBBLE_PAD_X + 1, y + box->meta_y,
-                           m->outgoing ? TG_OUT_META : TG_IN_META);
+      draw_message_meta_at(ctx, m, meta_right, y + box->meta_y, m->outgoing ? TG_OUT_META : TG_IN_META);
     }
   }
 
   GRect compose_rect = compose_rect_for_bounds(bounds);
   if (s_at_newest && !s_touch_keyboard_open &&
-      compose_rect.origin.y < bounds.size.h && compose_rect.origin.y + COMPOSE_BAR_H > 0) {
+      compose_rect.origin.y < bounds.size.h && compose_rect.origin.y + COMPOSE_BAR_H > 0 &&
+      compose_rect.size.w >= COMPOSE_BAR_H * 2) {
     draw_compose_bar(ctx, compose_rect, compose_target_is_selected());
   }
 
@@ -5312,8 +5447,7 @@ static void show_chat_view(void) {
   Layer *window_layer = window_get_root_layer(s_main_window);
   GRect bounds = layer_get_bounds(window_layer);
   int content_y = chat_content_y();
-  int bottom_pad = chat_bottom_pad();
-  GRect messages_to = GRect(0, content_y, bounds.size.w, bounds.size.h - content_y - bottom_pad);
+  GRect messages_to = GRect(0, content_y, bounds.size.w, bounds.size.h - content_y);
   GRect messages_from = messages_to;
   messages_from.origin.x = bounds.size.w;
   s_messages_root = layer_create(messages_from);
@@ -8602,8 +8736,7 @@ static void main_window_load(Window *window) {
   copy_cstr(s_status_text, sizeof(s_status_text), "Pebblegram");
 
   int content_y = chat_content_y();
-  int bottom_pad = chat_bottom_pad();
-  s_chat_menu = menu_layer_create(GRect(0, content_y, bounds.size.w, bounds.size.h - content_y - bottom_pad));
+  s_chat_menu = menu_layer_create(GRect(0, content_y, bounds.size.w, bounds.size.h - content_y));
   if (ROUND_UI) {
     menu_layer_set_center_focused(s_chat_menu, false);
   }
