@@ -38,6 +38,7 @@
 #define APP_OUTBOX_SIZE PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 512, 512, 512, 512, 1024, 512, 1024)
 #define BW_UI PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 0, 0, 0, 1, 0, 1, 0)
 #define ROUND_UI PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 0, 0, 0, 0, 0, 0, 1)
+#define CHAT_AVATAR_ARC 170
 #define MAX_CANNED 10
 #define CANNED_TEXT_LEN 40
 #define PG_MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -2117,15 +2118,21 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
   int line2_y = line1_y + 21;
   int right = safe.origin.x + safe.size.w - 5;
   int right2 = right;
+  int text_left = 0;
   if (ROUND_UI) {
-    // The avatar hugs the left edge of the circle at its own height, and each
-    // line ends at the right edge at its own height, so rows slide along the curve as they scroll.
+    // Avatars ride a wide arc (radius CHAT_AVATAR_ARC) that touches the screen's
+    // left edge at mid-height: a gentle circular sweep that lets them slide off
+    // the bezel near the top and bottom instead of swinging into the middle.
+    // Each line ends at the circle's right edge at its own height.
     int left;
-    int avatar_x;
-    round_span(avatar_c.y, avatar_c.y, avatar_r + 5, &avatar_x, &left);
-    avatar_c.x = avatar_x;
+    int left2;
+    int dy = avatar_c.y + s_round_org.y - PBL_DISPLAY_HEIGHT / 2;
+    dy = PG_MIN(dy < 0 ? -dy : dy, CHAT_AVATAR_ARC);
+    avatar_c.x = avatar_r + 5 - s_round_org.x + CHAT_AVATAR_ARC -
+                 round_isqrt(CHAT_AVATAR_ARC * CHAT_AVATAR_ARC - dy * dy);
     round_span(line1_y + 2, line1_y + 18, 8, &left, &right);
-    round_span(line2_y + 2, line2_y + 18, 8, &left, &right2);
+    round_span(line2_y + 2, line2_y + 18, 8, &left2, &right2);
+    text_left = PG_MAX(left, left2);
   }
   draw_avatar(ctx, avatar_c, avatar_r, chat->id, chat->title, s_appearance.photos ? chat->avatar_bitmap : NULL, row_bg);
   if (selected && BW_UI) {
@@ -2133,7 +2140,7 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
     graphics_draw_circle(ctx, avatar_c, avatar_r);
   }
 
-  int text_x = avatar_c.x + avatar_r + 7;
+  int text_x = PG_MAX(avatar_c.x + avatar_r + 7, text_left);
 
   // Line 1: title, then receipt ticks + time on the right.
   int time_w = chat->time[0] ? text_width(chat->time, font_14()) : 0;
