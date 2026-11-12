@@ -9,7 +9,7 @@ Pebblegram brings Telegram to Pebble watches with a PebbleKit JS Telegram client
 
 ## Download
 
-- [Download Pebblegram 3.7 PBW](https://github.com/TomBolger/Pebblegram/releases/download/v3.7.0/Pebblegram.pbw)
+- [Download Pebblegram 3.8 PBW](https://github.com/TomBolger/Pebblegram/releases/download/v3.8.0/Pebblegram.pbw)
 
 ## What It Does
 
@@ -28,11 +28,11 @@ Pebblegram brings Telegram to Pebble watches with a PebbleKit JS Telegram client
 - Keeps open chats and the chat list refreshed while the app is running
 - Supports Basalt, Diorite, Flint (Pebble 2 Duo), Emery, and Gabbro builds
 - Includes a black-and-white optimized Diorite image path
-- Includes round-screen layout handling for Gabbro
+- Includes a circular layout for Gabbro: avatars and text follow the curve of the screen
 
 ## Changes Since 3.5
 
-Pebblegram 3.7 fixes login and reply bugs, makes photos sharp and reliable, adds an Appearance settings page with themes, colours and text sizes, brings back the on-screen keyboard, and adds much wider emoji support.
+Pebblegram 3.8 fixes login and reply bugs, makes photos sharp and reliable, adds an Appearance settings page with themes, colours and text sizes, and adds much wider emoji support. The on-screen keyboard is back with word suggestions, autocorrect and swipe typing, drafts sync with Telegram, and the Pebble Round 2 layout now follows its circular screen.
 
 ### Fixes
 
@@ -114,7 +114,7 @@ Thanks to @SimonIlic (#8) and @twodotwill (#9) for tracking down the login bugs.
 
 ## Quick Start
 
-1. Install [Pebblegram 3.7 PBW](https://github.com/TomBolger/Pebblegram/releases/download/v3.7.0/Pebblegram.pbw) with the Pebble/Rebble mobile app.
+1. Install [Pebblegram 3.8 PBW](https://github.com/TomBolger/Pebblegram/releases/download/v3.8.0/Pebblegram.pbw) with the Pebble/Rebble mobile app.
 2. Open Pebblegram settings in the Pebble mobile app.
 3. Enter your Telegram API ID, API hash, and phone number.
 4. Save once to request a Telegram login code.
@@ -162,4 +162,4 @@ Keyboard word list derived from [wordfreq](https://github.com/rspeer/wordfreq) (
 
 ## Status
 
-Pebblegram 3.7 is the current direct Telegram build. The core flows work, but this is still community software for an unsupported watch platform.
+Pebblegram 3.8 is the current direct Telegram build. The core flows work, but this is still community software for an unsupported watch platform.
