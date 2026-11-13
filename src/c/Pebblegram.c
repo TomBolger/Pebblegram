@@ -569,6 +569,10 @@ static bool s_bridge_ready;
 static bool s_chats_loading;
 static bool s_chat_first_paint_reported;
 static bool s_loading_error;
+static bool s_offer_qr;
+#define QR_MAX_MODULES 73
+static uint8_t s_qr_bits[(QR_MAX_MODULES * QR_MAX_MODULES + 7) / 8];
+static int s_qr_modules;
 static bool s_chat_view_pending;
 static bool s_loading_messages;
 static bool s_loading_older_messages;
@@ -2037,6 +2041,71 @@ static int16_t chat_menu_get_header_height_callback(MenuLayer *menu_layer, uint1
   return 0;
 }
 
+static void clear_qr(void) {
+  s_qr_modules = 0;
+}
+
+static bool qr_module_dark(int row, int col) {
+  int index = (row * s_qr_modules) + col;
+  return (s_qr_bits[index / 8] & (1 << (index % 8))) != 0;
+}
+
+static void mark_chat_menu_dirty(void) {
+  if (s_chat_menu) {
+    layer_mark_dirty(menu_layer_get_layer(s_chat_menu));
+  }
+}
+
+// Login QR on a white plate. Four modules of white is the quiet zone QR
+// scanners require; the plate is that margin, so a dark theme behind it
+// does not eat the zone. The reserves below keep a 3px module on 144px watches.
+static void draw_login_qr(GContext *ctx, GRect bounds) {
+  int quiet = 4;
+  int caption_h = 16;
+  int span = s_qr_modules + (quiet * 2);
+  int avail_w = bounds.size.w - (ROUND_UI ? 36 : 8);
+  int avail_h = bounds.size.h - (ROUND_UI ? 28 : caption_h);
+  int scale = PG_MIN(avail_w, avail_h) / span;
+  int plate;
+  int x0;
+  int y0;
+  int row;
+  if (scale < 1) {
+    scale = 1;
+  }
+  plate = span * scale;
+  x0 = bounds.origin.x + (bounds.size.w - plate) / 2;
+  y0 = bounds.origin.y + PG_MAX(0, (bounds.size.h - plate - caption_h) / 2);
+  graphics_context_set_fill_color(ctx, GColorWhite);
+  graphics_fill_rect(ctx, GRect(x0, y0, plate, plate), 0, GCornerNone);
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  for (row = 0; row < s_qr_modules; row++) {
+    int col = 0;
+    while (col < s_qr_modules) {
+      int start;
+      while (col < s_qr_modules && !qr_module_dark(row, col)) {
+        col++;
+      }
+      start = col;
+      while (col < s_qr_modules && qr_module_dark(row, col)) {
+        col++;
+      }
+      if (col > start) {
+        graphics_fill_rect(ctx,
+                           GRect(x0 + ((quiet + start) * scale),
+                                 y0 + ((quiet + row) * scale),
+                                 (col - start) * scale,
+                                 scale),
+                           0, GCornerNone);
+      }
+    }
+  }
+  graphics_context_set_text_color(ctx, TG_TEXT);
+  graphics_draw_text(ctx, "Scan in Telegram", font_14(),
+                     GRect(bounds.origin.x, y0 + plate + 1, bounds.size.w, 16),
+                     GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+}
+
 static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, MenuIndex *cell_index, void *data) {
   GRect bounds = layer_get_bounds(cell_layer);
   GRect safe = round_safe_rect(bounds);
@@ -2049,6 +2118,10 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
 
   if (s_chat_count == 0) {
+    if (s_qr_modules > 0) {
+      draw_login_qr(ctx, bounds);
+      return;
+    }
     // Splash / login screen: Telegram-style logo, progress and status.
     int logo_r = PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 24, 24, 24, 24, 30, 24, 30);
     int block_h = logo_r * 2 + 64;
@@ -2076,8 +2149,13 @@ static void chat_menu_draw_row_callback(GContext *ctx, const Layer *cell_layer, 
     if (s_loading_error) {
       graphics_context_set_text_color(ctx, TG_SUBTEXT);
       graphics_draw_text(ctx, s_loading_text, font_14(),
-                         GRect(safe.origin.x + 6, text_y + 22, safe.size.w - 12, bounds.size.h - text_y - 24),
+                         GRect(safe.origin.x + 6, text_y + 22, safe.size.w - 12, bounds.size.h - text_y - 40),
                          GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+      if (s_offer_qr) {
+        graphics_draw_text(ctx, "Select: QR login", font_bold14(),
+                           GRect(safe.origin.x, bounds.size.h - 22, safe.size.w, 18),
+                           GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+      }
     } else if (s_chats_loading) {
       int bar_w = PG_MIN(safe.size.w - 40, 110);
       GRect track = GRect((bounds.size.w - bar_w) / 2, text_y + 28, bar_w, 4);
@@ -2214,7 +2292,15 @@ static void chat_menu_select_callback(struct MenuLayer *menu_layer, MenuIndex *c
     return;
   }
   if (s_chat_count == 0) {
-    request_chats();
+    if (s_offer_qr) {
+      if (send_command("start_qr", NULL, NULL, NULL, NULL)) {
+        s_offer_qr = false;
+        s_loading_error = false;
+        show_loading_text("Starting QR login...", false);
+      }
+    } else {
+      request_chats();
+    }
     return;
   }
   s_selected_chat = cell_index->row;
@@ -6233,6 +6319,22 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   // Incoming messages need heap; make sure photos have left the reserve free.
   release_images_for_heap();
 
+  if (strcmp(type, "qr") == 0) {
+    int modules = tuple_int(iter, MESSAGE_KEY_ImageWidth, 0);
+    Tuple *qr_data = dict_find(iter, MESSAGE_KEY_ImageData);
+    int qr_bytes = modules > 0 ? (modules * modules + 7) / 8 : 0;
+    if (modules <= 0 || modules > QR_MAX_MODULES || !qr_data || qr_data->length < qr_bytes) {
+      clear_qr();
+    } else {
+      memcpy(s_qr_bits, qr_data->value->data, qr_bytes);
+      s_qr_modules = modules;
+      s_loading_error = false;
+      s_offer_qr = false;
+    }
+    mark_chat_menu_dirty();
+    return;
+  }
+
   if (strcmp(type, "status") == 0) {
     char *status = tuple_cstring(iter, MESSAGE_KEY_Status);
     if (status) {
@@ -6265,6 +6367,9 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
 
   if (strcmp(type, "error") == 0) {
     char *error = tuple_cstring(iter, MESSAGE_KEY_Error);
+    char *offer = tuple_cstring(iter, MESSAGE_KEY_Text);
+    clear_qr();
+    s_offer_qr = offer && strcmp(offer, "qr") == 0;
     if (error && strncmp(error, "Send failed", 11) == 0) {
       touch_keyboard_send_result(false);
     }
@@ -6306,6 +6411,8 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     s_bridge_ready = true;
     s_chats_loading = false;
     s_loading_error = false;
+    s_offer_qr = false;
+    clear_qr();
     int visible_count = PG_MAX(0, PG_MIN(count, MAX_CHATS));
     for (int i = visible_count; i < s_chat_count; i++) {
       clear_chat_slot(&s_chats[i]);
