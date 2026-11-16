@@ -13,6 +13,7 @@
     "displayName": "Pebblegram",
     "uuid": "2430a9d0-5be9-4850-b259-821030705e46",
     "sdkVersion": "3",
+    "manifestVersion": 1,
     "enableMultiJS": true,
     "targetPlatforms": [
       "basalt",

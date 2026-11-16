@@ -38,7 +38,8 @@ function credentials() {
     phoneCodeHash: get('phoneCodeHash', ''),
     pendingSession: get('pendingSession', ''),
     session: get('session', '') || get('sessionBackup', ''),
-    authStage: get('authStage', '')
+    authStage: get('authStage', ''),
+    loginMethod: get('loginMethod', '')
   };
 }
 
@@ -73,6 +74,12 @@ function saveSettings(data) {
   }
   if (data.resetSession) {
     clearSession();
+  }
+  if (data.loginMethod === 'qr') {
+    set('loginMethod', 'qr');
+    clearCodeRequest();
+  } else if (data.phone !== undefined && String(data.phone).trim()) {
+    set('loginMethod', '');
   }
 }
 
@@ -111,6 +118,7 @@ function setSession(session) {
   set('session', session);
   set('sessionBackup', session);
   set('authStage', 'complete');
+  localStorage.removeItem(PREFIX + 'loginMethod');
   localStorage.removeItem(PREFIX + 'code');
   localStorage.removeItem(PREFIX + 'password');
   localStorage.removeItem(PREFIX + 'phoneCodeHash');

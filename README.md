@@ -121,6 +121,10 @@ Thanks to @SimonIlic (#8) and @twodotwill (#9) for tracking down the login bugs.
 5. Reopen settings, enter the login code, and save again.
 6. If Telegram asks for two-step verification, reopen settings, enter your Telegram cloud password, and save again.
 
+If Telegram says the login code was sent to another app, it never arrives in the official Telegram client. Use QR login instead: in settings tap **Log in with QR code**, including on the code screen, or press Select on the watch when it says **Select: QR login**. The watch shows a QR code. On your phone open Telegram, then Settings → Devices → Link Desktop Device, and scan the watch. The code refreshes about every 30 seconds. Two-step verification still uses the password field in settings.
+
+The phone opens the published settings page at `https://tombolger.github.io/Pebblegram/pgjs/config.html`. The QR button is in `src/pkjs/config.html` and shows up there after that page is republished. Select on the watch starts QR login with the page that is already published.
+
 Create Telegram API credentials at [my.telegram.org/apps](https://my.telegram.org/apps).
 
 ## Development

@@ -2,6 +2,7 @@ var cache = require('./cache');
 
 var clientPromise = null;
 var currentClient = null;
+var qrGeneration = 0;
 var AUTH_TIMEOUT_MS = 30000;
 var CODE_TIMEOUT_MS = 90000;
 var CODE_REQUEST_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -10,13 +11,22 @@ var AUTH_DC = {
   host: 'pluto.web.telegram.org'
 };
 var statusHandler = function() {};
+var qrHandler = function() {};
 
 function setStatusHandler(handler) {
   statusHandler = typeof handler === 'function' ? handler : function() {};
 }
 
+function setQrHandler(handler) {
+  qrHandler = typeof handler === 'function' ? handler : function() {};
+}
+
 function reportStatus(message) {
   statusHandler(message);
+}
+
+function reportQr(url) {
+  qrHandler(url || null);
 }
 
 function loadGramJs() {
@@ -45,7 +55,7 @@ function missingCredentials(config, creds) {
   if (!config.apiId || !config.apiHash) {
     return 'Build missing Telegram API credentials.';
   }
-  if (!creds.phone) {
+  if (creds.loginMethod !== 'qr' && !creds.phone) {
     return 'Enter phone in settings.';
   }
   return '';
@@ -154,7 +164,6 @@ function closeClient(client) {
 }
 
 function discardClient(client, clearSession) {
-  clientPromise = null;
   if (clearSession) {
     cache.clearSession();
   }
@@ -221,7 +230,16 @@ function codeDestination(result) {
   return 'to your Telegram account';
 }
 
+function supersededLogin() {
+  return new Error('Login superseded.');
+}
+
+function loginStillCurrent(generation) {
+  return generation === qrGeneration;
+}
+
 function requestCode(gram, config, creds) {
+  var generation = qrGeneration;
   var client = createClient(gram, config, '');
   var codeRequestAge = cache.codeRequestAgeMs(creds.phone);
   pinAuthDc(client, config);
@@ -245,6 +263,11 @@ function requestCode(gram, config, creds) {
         settings: new gram.Api.CodeSettings({})
       }));
     }).then(function(result) {
+      if (!loginStillCurrent(generation)) {
+        return closeClient(client).then(function() {
+          throw supersededLogin();
+        });
+      }
       if (!result || typeof result.phoneCodeHash !== 'string') {
         if (result && result.className === 'auth.SentCodeSuccess') {
           throw new Error('Telegram reports this session is already authorized.');
@@ -257,10 +280,19 @@ function requestCode(gram, config, creds) {
       reportStatus('Code requested.');
       cache.setPhoneCodeRequest(result.phoneCodeHash, client.session.save());
       cache.clearCode();
+      if (!loginStillCurrent(generation)) {
+        cache.clearCodeRequest();
+        return closeClient(client).then(function() {
+          throw supersededLogin();
+        });
+      }
       return closeClient(client).then(function() {
         return result;
       });
     }).then(function(result) {
+      if (result && result.type && result.type.className === 'auth.SentCodeTypeApp') {
+        throw new Error('Code was sent to another Telegram app. Press Select for QR login.');
+      }
       throw new Error('Telegram sent a login code ' + codeDestination(result) +
                       '. Open Pebblegram settings on your phone, enter the code, then tap Save.');
     }, function(err) {
@@ -270,13 +302,26 @@ function requestCode(gram, config, creds) {
     }),
     'Telegram code request timed out.',
     CODE_TIMEOUT_MS
-  );
+  ).then(function(value) {
+    return value;
+  }, function(err) {
+    if (!loginStillCurrent(generation)) {
+      throw supersededLogin();
+    }
+    throw err;
+  });
 }
 
 function signInWithCode(gram, config, creds) {
+  var generation = qrGeneration;
   var client = createClient(gram, config, creds.pendingSession || '');
 
   function failSignIn(err) {
+    if (!loginStillCurrent(generation)) {
+      return closeClient(client).then(function() {
+        throw supersededLogin();
+      });
+    }
     if (shouldClearCodeRequest(err)) {
       cache.clearCodeRequest();
     }
@@ -301,9 +346,15 @@ function signInWithCode(gram, config, creds) {
         throw passwordErr;
       }
     }).then(function() {
+      if (!loginStillCurrent(generation)) {
+        throw supersededLogin();
+      }
       cache.setSession(client.session.save());
       return client;
     }).catch(function(err) {
+      if (!loginStillCurrent(generation)) {
+        throw supersededLogin();
+      }
       if (telegramErrorCode(err) === 'PASSWORD_HASH_INVALID') {
         cache.set('password', '');
         cache.set('authStage', 'password');
@@ -313,6 +364,11 @@ function signInWithCode(gram, config, creds) {
   }
 
   function needPassword() {
+    if (!loginStillCurrent(generation)) {
+      return closeClient(client).then(function() {
+        throw supersededLogin();
+      });
+    }
     cache.set('authStage', 'password');
     return closeClient(client).then(function() {
       throw new Error('Open Pebblegram settings on your phone, enter your Telegram two-step password, then tap Save.');
@@ -339,6 +395,9 @@ function signInWithCode(gram, config, creds) {
         throw new Error('Open settings, save your phone number again, then enter the new Telegram code.');
       }
       if (!creds.pendingSession) {
+        if (!loginStillCurrent(generation)) {
+          throw supersededLogin();
+        }
         cache.clearCodeRequest();
         throw new Error('Code stale. Open settings, save your phone number again, then enter the new Telegram code.');
       }
@@ -351,6 +410,9 @@ function signInWithCode(gram, config, creds) {
     }).then(function(result) {
       if (result === 'password') {
         return signInWithPassword();
+      }
+      if (!loginStillCurrent(generation)) {
+        throw supersededLogin();
       }
       if (result && result.className === 'auth.AuthorizationSignUpRequired') {
         cache.clearCodeRequest();
@@ -365,7 +427,249 @@ function signInWithCode(gram, config, creds) {
       return failSignIn(err);
     }),
     'Telegram sign-in timed out.'
-  );
+  ).then(function(value) {
+    return value;
+  }, function(err) {
+    if (!loginStillCurrent(generation)) {
+      throw supersededLogin();
+    }
+    throw err;
+  });
+}
+
+function base64Url(bytes) {
+  var alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  var out = '';
+  var i;
+  for (i = 0; i < bytes.length; i += 3) {
+    var b0 = bytes[i];
+    var b1 = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    var b2 = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    var triple = (b0 << 16) | (b1 << 8) | b2;
+    out += alphabet[(triple >> 18) & 63];
+    out += alphabet[(triple >> 12) & 63];
+    out += i + 1 < bytes.length ? alphabet[(triple >> 6) & 63] : '=';
+    out += i + 2 < bytes.length ? alphabet[triple & 63] : '=';
+  }
+  return out.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function tokenBytes(token) {
+  var bytes = [];
+  var length = token && typeof token.length === 'number' ? token.length : 0;
+  var i;
+  for (i = 0; i < length; i++) {
+    bytes.push(token[i] & 255);
+  }
+  return bytes;
+}
+
+function loginUrlFromToken(token) {
+  var bytes = tokenBytes(token);
+  if (!bytes.length) {
+    throw new Error('Telegram did not return a QR login token.');
+  }
+  return 'tg://login?token=' + base64Url(bytes);
+}
+
+function sameType(gram, result, name) {
+  var ctor = gram.Api && gram.Api.auth && gram.Api.auth[name];
+  if (ctor && result instanceof ctor) {
+    return true;
+  }
+  var className = result && result.className;
+  return className === name || className === 'auth.' + name;
+}
+
+function exportLoginToken(client, gram, config) {
+  return client.invoke(new gram.Api.auth.ExportLoginToken({
+    apiId: config.apiId,
+    apiHash: config.apiHash,
+    exceptIds: []
+  }));
+}
+
+function delay(ms) {
+  return new Promise(function(resolve) {
+    setTimeout(resolve, ms);
+  });
+}
+
+function waitForQrScan(client, gram, expires) {
+  return new Promise(function(resolve) {
+    var finished = false;
+    var timer = null;
+    function finish(scanned) {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      if (client && typeof client.removeEventHandler === 'function') {
+        try {
+          client.removeEventHandler(onUpdate);
+        } catch (err) {
+          // The handler goes quiet on its own if it cannot be removed.
+        }
+      }
+      resolve(scanned);
+    }
+    function onUpdate(update) {
+      var updateCtor = gram.Api && gram.Api.UpdateLoginToken;
+      var className = update && update.className;
+      if ((updateCtor && update instanceof updateCtor) || className === 'UpdateLoginToken') {
+        finish(true);
+      }
+    }
+    var waitMs = 30000;
+    if (expires) {
+      waitMs = Math.max(5000, Math.min(30000, (expires * 1000) - Date.now() - 1500));
+    }
+    if (client && typeof client.addEventHandler === 'function') {
+      client.addEventHandler(onUpdate);
+    }
+    timer = setTimeout(function() {
+      finish(false);
+    }, waitMs);
+  });
+}
+
+function signInWithQr(gram, config, creds) {
+  var generation = ++qrGeneration;
+  var client = createClient(gram, config, creds.pendingSession || '');
+  if (!creds.pendingSession) {
+    pinAuthDc(client, config);
+  }
+
+  function cancelled() {
+    return generation !== qrGeneration;
+  }
+
+  function fail(err) {
+    reportQr(null);
+    if (isFatalSessionError(err)) {
+      cache.clearSession();
+    }
+    return closeClient(client).then(function() {
+      throw new Error(authErrorMessage(err));
+    });
+  }
+
+  function succeed() {
+    if (cancelled()) {
+      throw new Error('QR login cancelled.');
+    }
+    reportQr(null);
+    cache.setSession(client.session.save());
+    currentClient = client;
+    return client;
+  }
+
+  function passwordNeeded() {
+    if (cancelled()) {
+      throw new Error('QR login cancelled.');
+    }
+    cache.set('pendingSession', client.session.save());
+    cache.set('authStage', 'password');
+    cache.set('loginMethod', 'qr');
+    reportQr(null);
+    if (!creds.password) {
+      return closeClient(client).then(function() {
+        throw new Error('Open Pebblegram settings on your phone, enter your Telegram two-step password, then tap Save.');
+      });
+    }
+    reportStatus('Checking password...');
+    return client.signInWithPassword({
+      apiId: config.apiId,
+      apiHash: config.apiHash
+    }, {
+      password: function() {
+        return Promise.resolve(creds.password);
+      },
+      onError: function(passwordErr) {
+        throw passwordErr;
+      }
+    }).then(succeed, function(err) {
+      if (cancelled()) {
+        throw new Error('QR login cancelled.');
+      }
+      if (telegramErrorCode(err) === 'PASSWORD_HASH_INVALID') {
+        cache.set('password', '');
+        cache.set('authStage', 'password');
+      }
+      return fail(err);
+    });
+  }
+
+  function accept(result) {
+    if (cancelled()) {
+      throw new Error('QR login cancelled.');
+    }
+    if (sameType(gram, result, 'LoginTokenSuccess')) {
+      return succeed();
+    }
+    if (sameType(gram, result, 'LoginTokenMigrateTo')) {
+      reportStatus('Confirming login...');
+      return Promise.resolve(client._switchDC(result.dcId || result.dc_id)).then(function() {
+        return client.invoke(new gram.Api.auth.ImportLoginToken({
+          token: result.token
+        }));
+      }).then(function(migrated) {
+        if (sameType(gram, migrated, 'LoginTokenSuccess')) {
+          return succeed();
+        }
+        throw new Error('Telegram did not confirm the QR login.');
+      });
+    }
+    if (!sameType(gram, result, 'LoginToken')) {
+      throw new Error('Telegram did not return a QR login token.');
+    }
+    reportQr(loginUrlFromToken(result.token));
+    reportStatus('Scan the QR code');
+    return waitForQrScan(client, gram, result.expires).then(function(scanned) {
+      if (cancelled()) {
+        throw new Error('QR login cancelled.');
+      }
+      if (scanned) {
+        return confirmScan(5);
+      }
+      return exportLoginToken(client, gram, config).then(accept);
+    });
+  }
+
+  function confirmScan(left) {
+    return exportLoginToken(client, gram, config).then(function(result) {
+      if (sameType(gram, result, 'LoginToken') && left > 0) {
+        return delay(800).then(function() {
+          return confirmScan(left - 1);
+        });
+      }
+      return accept(result);
+    });
+  }
+
+  return Promise.resolve().then(function() {
+    reportStatus('Connecting...');
+    return client.connect();
+  }).then(function() {
+    if (cancelled()) {
+      throw new Error('QR login cancelled.');
+    }
+    reportStatus('Preparing QR...');
+    return exportLoginToken(client, gram, config);
+  }).then(accept).catch(function(err) {
+    if (cancelled()) {
+      return closeClient(client).then(function() {
+        throw new Error('QR login cancelled.');
+      });
+    }
+    if (telegramErrorCode(err) === 'SESSION_PASSWORD_NEEDED') {
+      return passwordNeeded();
+    }
+    return fail(err);
+  });
 }
 
 function authState() {
@@ -375,11 +679,14 @@ function authState() {
     hasApiHash: !!creds.apiHash,
     phone: creds.phone || '',
     hasSession: !!creds.session,
-    authStage: creds.authStage || ''
+    authStage: creds.authStage || '',
+    loginMethod: creds.loginMethod || ''
   };
 }
 
 function reset() {
+  qrGeneration++;
+  reportQr(null);
   var client = currentClient;
   currentClient = null;
   clientPromise = null;
@@ -387,40 +694,73 @@ function reset() {
   return closeClient(client);
 }
 
+function beginQrLogin() {
+  if (authState().hasSession) {
+    return getClient();
+  }
+  cache.set('loginMethod', 'qr');
+  cache.clearCodeRequest();
+  return reset().then(function() {
+    cache.set('loginMethod', 'qr');
+    return getClient();
+  });
+}
+
 function getClient() {
   if (clientPromise) {
-    return clientPromise.then(ensureConnected).catch(function(err) {
-      clientPromise = null;
+    var existing = clientPromise;
+    return existing.then(ensureConnected).catch(function(err) {
+      if (clientPromise === existing) {
+        clientPromise = null;
+      }
       throw err;
     });
   }
 
-  clientPromise = new Promise(function(resolve, reject) {
+  var promise;
+  promise = new Promise(function(resolve, reject) {
+    function fail(err) {
+      if (clientPromise === promise) {
+        clientPromise = null;
+      }
+      reject(err);
+    }
+
     var creds = cache.credentials();
     var gram = loadGramJs();
     var config = runtimeConfig(gram, creds);
     var missing = missingCredentials(config, creds);
     if (missing) {
-      reject(new Error(missing));
+      fail(new Error(missing));
       return;
     }
 
-    if (!creds.session && !creds.code && creds.authStage !== 'password') {
-      requestCode(gram, config, creds).then(resolve).catch(function(err) {
-        clientPromise = null;
-        reject(err);
-      });
-      return;
-    }
-
-    if (!creds.session && (creds.code || creds.authStage === 'password')) {
+    if (!creds.session && creds.authStage === 'password') {
       signInWithCode(gram, config, creds).then(function(client) {
         currentClient = client;
         resolve(client);
-      }).catch(function(err) {
-        clientPromise = null;
-        reject(err);
-      });
+      }).catch(fail);
+      return;
+    }
+
+    if (!creds.session && creds.loginMethod === 'qr') {
+      signInWithQr(gram, config, creds).then(function(client) {
+        currentClient = client;
+        resolve(client);
+      }).catch(fail);
+      return;
+    }
+
+    if (!creds.session && !creds.code) {
+      requestCode(gram, config, creds).then(resolve).catch(fail);
+      return;
+    }
+
+    if (!creds.session && creds.code) {
+      signInWithCode(gram, config, creds).then(function(client) {
+        currentClient = client;
+        resolve(client);
+      }).catch(fail);
       return;
     }
 
@@ -438,18 +778,21 @@ function getClient() {
       resolve(connectedClient);
     }), 'Telegram connect timed out.').catch(function(err) {
       discardClient(client, isFatalSessionError(err)).then(function() {
-        reject(new Error(authErrorMessage(err)));
+        fail(new Error(authErrorMessage(err)));
       });
     });
   });
+  clientPromise = promise;
 
   return clientPromise;
 }
 
 module.exports = {
   authState: authState,
+  beginQrLogin: beginQrLogin,
   getClient: getClient,
   reset: reset,
+  setQrHandler: setQrHandler,
   setStatusHandler: setStatusHandler,
   saveSettings: cache.saveSettings
 };

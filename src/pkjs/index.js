@@ -1,5 +1,6 @@
 var MessageKeys = require('message_keys');
 var pgjsBackend = require('./pgjs/backend');
+var qrCode = require('./pgjs/qr');
 var watchEmoji = require('./pgjs/emoji');
 var draftSync = require('./pgjs/drafts');
 var Clay = require('@rebble/clay');
@@ -61,6 +62,7 @@ var topPrefetchSeq = 0;
 var sendFailureDelay = 250;
 var cancelledImageTransferSeq = 0;
 var watchReady = false;
+var pendingQr = null;
 // The Appearance page. Events are routed by hand: the Telegram login page
 // shares the same settings button, and everything goes through sendToWatch().
 var clay = new Clay(appearance.config, appearance.pageScript, {autoHandleEvents: false});
@@ -130,7 +132,8 @@ function activePgjs() {
   if (!pgjs) {
     pgjs = pgjsBackend.create({
       cannedReplies: cannedReplies,
-      status: status
+      status: status,
+      qr: showQr
     });
   }
   return pgjs;
@@ -413,11 +416,58 @@ function sendSettings() {
   sendToWatch(payload);
 }
 
-function error(text) {
+function error(text, offerQr) {
   var payload = {};
   payload[MessageKeys.Type] = 'error';
   payload[MessageKeys.Error] = text;
+  if (offerQr) {
+    payload[MessageKeys.Text] = 'qr';
+  }
   sendToWatch(payload);
+}
+
+function sendQrPayload(payload) {
+  if (!watchReady) {
+    pendingQr = payload;
+    return;
+  }
+  pendingQr = null;
+  sendToWatch(payload);
+}
+
+function showQr(url) {
+  if (!url) {
+    var clear = {};
+    clear[MessageKeys.Type] = 'qr';
+    clear[MessageKeys.ImageWidth] = 0;
+    sendQrPayload(clear);
+    return;
+  }
+  try {
+    var matrix = qrCode.matrix(url);
+    var payload = {};
+    payload[MessageKeys.Type] = 'qr';
+    payload[MessageKeys.ImageWidth] = matrix.modules;
+    payload[MessageKeys.ImageData] = matrix.bytes;
+    sendQrPayload(payload);
+  } catch (err) {
+    error(err && err.message ? err.message : 'Could not draw the QR code.');
+  }
+}
+
+function startQrLogin() {
+  chatLoadPromise = null;
+  status('Starting QR login...');
+  activePgjs().startQrLogin().then(function() {
+    status('Telegram connected');
+    getChats(false);
+  }).catch(function(err) {
+    var message = err && err.message ? err.message : 'QR login failed';
+    if (message === 'QR login cancelled.' || message === 'Login superseded.') {
+      return;
+    }
+    error(message, !activePgjs().hasSession());
+  });
 }
 
 function done(kind, count, transferId, flag) {
@@ -1341,6 +1391,11 @@ function deferPostFirstPaintWork(chats) {
   }
 }
 
+function isSupersededLogin(err) {
+  var message = err && err.message ? err.message : '';
+  return message === 'Login superseded.' || message === 'QR login cancelled.';
+}
+
 function getChats(silent) {
   if (chatLoadPromise) {
     if (!silent) {
@@ -1351,7 +1406,8 @@ function getChats(silent) {
   if (!silent) {
     status('Connecting...');
   }
-  chatLoadPromise = timed('telegram connect', activePgjs().ready()).then(function() {
+  var load;
+  load = timed('telegram connect', activePgjs().ready()).then(function() {
     if (!silent) {
       status('Fetching chats...');
     }
@@ -1361,18 +1417,28 @@ function getChats(silent) {
     sendChatRows(chats, silent);
     deferPostFirstPaintWork(chats);
   }).catch(function(err) {
+    var message = err && err.message ? err.message : String(err || 'Auth failed');
     if (silent) {
-      debugLog('Silent chats failed: ' + (err && err.message ? err.message : err));
+      debugLog('Silent chats failed: ' + message);
+    } else if (isSupersededLogin(err)) {
+      debugLog('Superseded login: ' + message);
+    } else if (!activePgjs().hasSession()) {
+      error(message, true);
     } else {
       promiseError('Chats failed', err);
     }
   }).then(function(value) {
-    chatLoadPromise = null;
+    if (chatLoadPromise === load) {
+      chatLoadPromise = null;
+    }
     return value;
   }, function(err) {
-    chatLoadPromise = null;
+    if (chatLoadPromise === load) {
+      chatLoadPromise = null;
+    }
     throw err;
   });
+  chatLoadPromise = load;
   return chatLoadPromise;
 }
 
@@ -1971,6 +2037,10 @@ Pebble.addEventListener('ready', function() {
   logLaunch('Pebble ready event');
   configureForPlatform();
   sendSavedAppearance();
+  if (pendingQr) {
+    sendToWatch(pendingQr);
+    pendingQr = null;
+  }
   debugLog('Pebblegram JS ready, backend=pgjs, canned=' + cannedReplies());
   prewarmPhoneBackend();
   getChats(false);
@@ -1986,6 +2056,8 @@ Pebble.addEventListener('appmessage', function(event) {
 
   if (command === 'wake') {
     wakePhoneBackend();
+  } else if (command === 'start_qr') {
+    startQrLogin();
   } else if (command === 'chat_first_paint') {
     runPostFirstPaintWork();
   } else if (command === 'get_chats') {
@@ -2054,12 +2126,13 @@ Pebble.addEventListener('webviewclosed', function(event) {
     localStorage.setItem('cannedReplies', data.cannedReplies);
   }
   sendSettings();
+  chatLoadPromise = null;
   status('Requesting Telegram login...');
   timed('telegram login', activePgjs().ready()).then(function() {
     status('Telegram connected');
     getChats(false);
   }).catch(function(err) {
     debugLog('Auth failed: ' + (err && err.message ? err.message : String(err || 'unknown error')));
-    error(err && err.message ? err.message : 'Auth failed');
+    error(err && err.message ? err.message : 'Auth failed', !activePgjs().hasSession());
   });
 });
